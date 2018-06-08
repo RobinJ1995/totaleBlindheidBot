@@ -1,8 +1,6 @@
 <?php
 require('common.php');
 
-date_default_timezone_set('Europe/Dublin');
-
 $time = file_get_contents(FILENAME_TIME);
 if ($time === false) {
 	die();
