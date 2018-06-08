@@ -1,8 +1,6 @@
 <?php
 require('common.php');
 
-date_default_timezone_set('Europe/Dublin');
-
 $input = json_decode (file_get_contents ('php://input'), true);
 if (! $input['message'])
 	die ('No message');
@@ -11,6 +9,10 @@ else if (! $input['message']['chat'])
 
 $message = $input['message']['text'];
 $chatId = $input['message']['chat']['id'];
+$userId = $input['message']['from']['id'];
+$username = $input['message']['from']['username'];
+
+applyUserPreferences($userId);
 
 $responses = [
 	'rollcall' => QUOTES[array_rand (QUOTES)] . PHP_EOL . implode (' ', $members),
@@ -28,7 +30,7 @@ $responses = [
 		file_put_contents(FILENAME_CHATID, $chatId);
 		file_put_contents(FILENAME_TIME, $time);
 		
-		return "Sure! I'll nudge people at " . date('g:ia', $time) . "!";
+		return "Sure! I'll nudge people at " . date('g:ia', $time) . ' (' . date_default_timezone_get() . ')!';
 	},
 	'wingman' => function ($user) use ($allMembers, $members) {
 		if (!in_array($user, $allMembers))
@@ -36,10 +38,23 @@ $responses = [
 		
 		return WINGMAN_QUOTES[array_rand(WINGMAN_QUOTES)] . PHP_EOL . $user;
 	},
+	'timezone' => function($timezone) use ($userId, $username) {
+		if (empty($timezone)) {
+			return 'http://php.net/manual/en/timezones.php';
+		} else if (! in_array($timezone, DateTimeZone::listIdentifiers())) {
+			return '[' . $username . '] Invalid time zone: ' . $timezone;
+		}
+		
+		$prefs = loadUserPreferences($userId);
+		$prefs['timezone'] = $timezone;
+		saveUserPreferences($userId, $prefs);
+		
+		return '[' . $username . '] Time zone updated: ' . $timezone;
+	},
 	'test' => 'Werkt!',
 	'mumble' => 'http://mumble.robinj.be/',
 	'discord' => 'https://discord.gg/Vvw2WK',
-	'help' => '/rollcall, /trollcall, /schedule <time>, /wingman <user>, /test, /mumble, /discord, /help'
+	'help' => '/rollcall, /trollcall, /schedule <time>, /timezone <timezone>, /wingman <user>, /test, /mumble, /discord, /help'
 ];
 
 if (! starts_with ($message, '/'))
