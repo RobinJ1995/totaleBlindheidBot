@@ -1,4 +1,7 @@
 <?php
+
+if(!@include("config.php")) throw new Exception("Failed to load 'config.php'");
+
 const FILENAME_TIME = 'time';
 const FILENAME_CHATID = 'chatId';
 const FILENAME_DATA = 'data.json';
@@ -28,9 +31,9 @@ $allMembers = ['@robinj1995', '@buzbuzbuz', '@xvilo', '@gerwie', '@mercotui', '@
 shuffle ($members);
 shuffle ($allMembers);
 
-function sendMessage ($chatId, $text)
-{
-        file_get_contents ('https://api.telegram.org/bot366570861:AAFmjBxw9Et7cf1EUpx3moVEzkCasWUea9U/sendmessage?text=' . urlencode ($text) . '&chat_id=' . urlencode ($chatId));
+function sendMessage ($chatId, $text) {
+    global $config;
+    file_get_contents ('https://api.telegram.org/' . $config['bot-id'] . ':' . $config['bot-key'] . '/sendmessage?text=' . urlencode ($text) . '&chat_id=' . urlencode ($chatId));
 }
 
 function loadData() {
@@ -48,13 +51,13 @@ function loadUserPreferences($userId) {
 function saveUserPreferences($userId, $preferences) {
 	$data = loadData();
 	$data['preferences'][$userId] = $preferences;
-	
+
 	return saveData($data);
 }
 
 function applyUserPreferences($userId) {
 	$prefs = loadUserPreferences($userId);
-	
+
 	foreach($prefs as $key => $value) {
 		switch($key) {
 			case 'timezone':
@@ -64,7 +67,6 @@ function applyUserPreferences($userId) {
 	}
 }
 
-function starts_with ($haystack, $needle)
-{
-        return ((FALSE !== strpos ($haystack, $needle)) && (0 == strpos ($haystack, $needle)));
+function starts_with ($haystack, $needle) {
+    return ((FALSE !== strpos ($haystack, $needle)) && (0 == strpos ($haystack, $needle)));
 }
