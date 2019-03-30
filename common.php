@@ -1,10 +1,9 @@
 <?php
 
-if(!@include("config.php")) throw new Exception("Failed to load 'config.php'");
-
 const FILENAME_TIME = 'time';
 const FILENAME_CHATID = 'chatId';
 const FILENAME_DATA = 'data.json';
+const FILENAME_CONFIG = 'config.json';
 
 const QUOTES = [
 	"Are we rushin' in, or are we going' sneaky-beaky like?",
@@ -23,6 +22,12 @@ const LONELY_WINGMAN_QUOTES = [
 ];
 
 const SIX_HOURS = 60 * 60 * 6;
+
+if (!file_exists('config.json')) {
+    throw new Exception('Config file does not exist');
+}
+
+$config = json_encode('config.json', true);
 
 date_default_timezone_set('Europe/Dublin');
 
