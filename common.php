@@ -23,7 +23,7 @@ const SIX_HOURS = 60 * 60 * 6;
 
 date_default_timezone_set('Europe/Dublin');
 
-$members = ['@robinj1995', '@buzbuzbuz', '@xvilo', '@gerwie', '@mercotui'];
+$members = ['@robinj1995', '@buzbuzbuz', '@gerwie', '@mercotui', '@xvilo'];
 $allMembers = ['@robinj1995', '@buzbuzbuz', '@xvilo', '@gerwie', '@mercotui', '@thumbnail95', '@faperdaper', '@jpixl'];
 shuffle ($members);
 shuffle ($allMembers);
