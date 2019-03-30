@@ -23,11 +23,11 @@ const LONELY_WINGMAN_QUOTES = [
 
 const SIX_HOURS = 60 * 60 * 6;
 
-if (!file_exists('config.json')) {
+if (!file_exists(FILENAME_CONFIG)) {
     throw new Exception('Config file does not exist');
 }
 
-$config = json_encode('config.json', true);
+$config = json_encode(FILENAME_CONFIG, true);
 
 date_default_timezone_set('Europe/Dublin');
 
