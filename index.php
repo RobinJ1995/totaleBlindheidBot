@@ -12,6 +12,9 @@ $chatId = $input['message']['chat']['id'];
 $userId = $input['message']['from']['id'];
 $username = $input['message']['from']['username'];
 
+if (! starts_with ($message, '/'))
+	die ();
+
 applyUserPreferences($userId);
 
 $responses = [
@@ -57,8 +60,6 @@ $responses = [
 	'help' => '/rollcall, /trollcall, /schedule <time>, /timezone <timezone>, /wingman <user>, /test, /mumble, /discord, /help'
 ];
 
-if (! starts_with ($message, '/'))
-	die ();
 $command = substr($message, 1);
 if (strstr ($command, ' '))
 	$command = substr($command, 0, strpos($command, ' '));
