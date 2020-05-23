@@ -32,7 +32,7 @@ shuffle ($allMembers);
 
 function sendMessage ($chatId, $text)
 {
-        file_get_contents ('https://api.telegram.org/bot' + $BOT_TOKEN + '/sendmessage?text=' . urlencode ($text) . '&chat_id=' . urlencode ($chatId));
+        file_get_contents ('https://api.telegram.org/bot' . $BOT_TOKEN . '/sendmessage?text=' . urlencode ($text) . '&chat_id=' . urlencode ($chatId));
 }
 
 function loadData() {
