@@ -10,7 +10,7 @@ jobs:
       - name: Publish to Github Docker registry
         uses: elgohr/Publish-Docker-Github-Action@master
         with:
-          name: robinj1995/totaletlindheidbot/totale-blindheid-bot
+          name: robinj1995/totaleblindheidbot/totale-blindheid-bot
           registry: docker.pkg.github.com
           username: RobinJ1995
           password: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
