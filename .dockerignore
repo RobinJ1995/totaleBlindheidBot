@@ -1,3 +1,5 @@
-.git
-.github
+.git/
 Dockerfile
+.idea/
+.vscode/
+target/
