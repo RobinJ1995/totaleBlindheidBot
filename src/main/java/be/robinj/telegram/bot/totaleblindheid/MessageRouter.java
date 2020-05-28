@@ -40,7 +40,7 @@ public class MessageRouter implements Handler<RoutingContext> {
 		}
 
 		final String command = msg.substring(1)
-			.split("\\s+")[0]
+			.split("(\\s|@)+")[0]
 			.toLowerCase();
 
 		LOG.info("Command received: " + command);
