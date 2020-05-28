@@ -1,22 +1,15 @@
-FROM php:7.4-apache
+FROM maven:3.6.3-openjdk-15 AS build
 
-RUN apt-get update \
-	&& apt-get install -y cron
+WORKDIR /build
+COPY pom.xml .
+RUN mvn install
 
-RUN echo "* * * * * php /cron.php 2>/dev/null" > /etc/cron.d/totale-blindheid-bot-cron
-RUN crontab
+COPY . .
+RUN mvn package -Dmaven.test.skip=true
 
-RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+FROM openjdk:15
 
-COPY . /var/www/html/
-RUN mkdir /var/www/html/telegram/
-RUN ln -s /var/www/html/ /var/www/html/telegram/totaleBlindheid
+WORKDIR /app
+COPY --from=build /build/target/totaleblindheid-fat.jar totaleblindheid.jar
 
-WORKDIR /
-RUN echo "#!/bin/bash" >> docker-entrypoint.sh
-RUN echo "set -ex" >> docker-entrypoint.sh
-RUN echo "cron" >> docker-entrypoint.sh
-RUN echo "apache2-foreground" >> docker-entrypoint.sh
-RUN chmod +x docker-entrypoint.sh
-
-CMD ["/docker-entrypoint.sh"]
+CMD ["java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", "-jar", "totaleblindheid.jar"]
