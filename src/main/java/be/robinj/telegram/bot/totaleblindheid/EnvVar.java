@@ -20,6 +20,11 @@ public class EnvVar {
 			.orElse(fallback);
 	}
 
+	public String orNull() {
+		return this.get()
+			.orElse(null);
+	}
+
 	public Long or(final Long fallback) {
 		return this.get()
 			.map(Long::valueOf)

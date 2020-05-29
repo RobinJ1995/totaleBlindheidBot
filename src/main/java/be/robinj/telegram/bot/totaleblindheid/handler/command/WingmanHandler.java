@@ -5,6 +5,7 @@ import be.robinj.telegram.bot.totaleblindheid.ResponseSender;
 
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static java.util.stream.Collectors.joining;
 
@@ -28,6 +29,7 @@ public class WingmanHandler implements CommandHandler {
 	public void handle(final Request request) {
 		final String usernames = Arrays.stream(users)
 			.map(user -> "@" + user)
+			.sorted((a, b) -> ThreadLocalRandom.current().nextInt(-1, 2))
 			.collect(joining(" "));
 		final String message = String.format("%s\n%s", randomQuote(), usernames);
 

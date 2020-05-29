@@ -2,6 +2,7 @@ package be.robinj.telegram.bot.totaleblindheid;
 
 import be.robinj.telegram.bot.totaleblindheid.handler.FailureHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.LoggingHandler;
+import be.robinj.telegram.bot.totaleblindheid.handler.command.DiscordHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.HelpHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.RollcallHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.TestHandler;
@@ -28,6 +29,7 @@ public class MainVerticle extends AbstractVerticle {
 		final String botToken = new EnvVar("BOT_TOKEN").orThrow();
 		final String[] rollcallUsers = new EnvVar("ROLLCALL_USERS").orThrow()
 			.split("\\s+");
+		final String discordInviteLink = new EnvVar("DISCORD_INVITE_LINK").orNull();
 
 		configureObjectMapper();
 
@@ -42,6 +44,7 @@ public class MainVerticle extends AbstractVerticle {
 		router.registerHandler("help", new HelpHandler(responseSender, router));
 		router.registerHandler("rollcall", new RollcallHandler(responseSender, rollcallUsers));
 		router.registerHandler("wingman", new WingmanHandler(responseSender, rollcallUsers));
+		router.registerHandler("discord", new DiscordHandler(responseSender, discordInviteLink));
 
 		final var vertxRouter = Router.router(this.vertx);
 		vertxRouter.route().handler(BodyHandler.create());
