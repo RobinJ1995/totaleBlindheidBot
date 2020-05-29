@@ -12,4 +12,10 @@ FROM openjdk:15
 WORKDIR /app
 COPY --from=build /build/target/totaleblindheid-fat.jar totaleblindheid.jar
 
-CMD ["java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", "-jar", "totaleblindheid.jar"]
+CMD ["java", \
+#	"-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", \
+	"-Xms32M", \
+	"-Xmx64M", \
+	"-Xlog:gc", \
+	"-jar", \
+	"totaleblindheid.jar"]
