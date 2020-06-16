@@ -7,6 +7,8 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.predicate.ResponsePredicate;
 
+import static io.vertx.core.Future.succeededFuture;
+
 public class ResponseSender {
 	private final static Logger LOG = LoggerFactory.getLogger(ResponseSender.class);
 
@@ -14,13 +16,21 @@ public class ResponseSender {
 
 	private final WebClient webClient;
 	private final String botToken;
+	private final boolean debug;
 
-	ResponseSender(final WebClient webClient, final String botToken) {
+	ResponseSender(final WebClient webClient, final String botToken, final boolean debug) {
 		this.webClient = webClient;
 		this.botToken = botToken;
+		this.debug = debug;
 	}
 
 	public Future<Void> send(final Long chatId, final String message) {
+		if (this.debug) {
+			LOG.info(String.format("chat_id=%s message=\"%s\"", chatId, message));
+
+			return succeededFuture();
+		}
+
 		final Promise<Void> promise = Promise.promise();
 
 		this.webClient.getAbs(

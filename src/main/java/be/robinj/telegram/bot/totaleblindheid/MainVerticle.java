@@ -2,11 +2,14 @@ package be.robinj.telegram.bot.totaleblindheid;
 
 import be.robinj.telegram.bot.totaleblindheid.handler.FailureHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.LoggingHandler;
+import be.robinj.telegram.bot.totaleblindheid.handler.command.CompetitiveRollcallScheduleHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.DiscordHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.HelpHandler;
-import be.robinj.telegram.bot.totaleblindheid.handler.command.RollcallHandler;
+import be.robinj.telegram.bot.totaleblindheid.handler.command.CompetitiveRollcallHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.TestHandler;
 import be.robinj.telegram.bot.totaleblindheid.handler.command.WingmanHandler;
+import be.robinj.telegram.bot.totaleblindheid.handler.command.WingmanRollcallScheduleHandler;
+import be.robinj.telegram.bot.totaleblindheid.schedule.RollcallSchedule;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -20,6 +23,8 @@ import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.ext.web.handler.BodyHandler;
 
+import java.time.Duration;
+
 public class MainVerticle extends AbstractVerticle {
 
 	@Override
@@ -30,6 +35,7 @@ public class MainVerticle extends AbstractVerticle {
 		final String[] rollcallUsers = new EnvVar("ROLLCALL_USERS").orThrow()
 			.split("\\s+");
 		final String discordInviteLink = new EnvVar("DISCORD_INVITE_LINK").orNull();
+		final boolean debug = new EnvVar("DEBUG").or(false);
 
 		configureObjectMapper();
 
@@ -37,13 +43,26 @@ public class MainVerticle extends AbstractVerticle {
 			new WebClientOptions()
 			.setConnectTimeout(ResponseSender.TIMEOUT_MS)
 			.setLogActivity(httpLog));
-		final var responseSender = new ResponseSender(webClient, botToken);
+		final var responseSender = new ResponseSender(webClient, botToken, debug);
+
+		final var competitiveRollcall = new CompetitiveRollcallHandler(
+			responseSender, rollcallUsers);
+		final var wingmanRollcall = new WingmanHandler(responseSender, rollcallUsers);
+
+		final var competitiveRollcallSchedule = new RollcallSchedule(
+			responseSender, competitiveRollcall);
+		final var wingmanRollcallSchedule = new RollcallSchedule(
+			responseSender, wingmanRollcall);
 
 		final var router = new MessageRouter();
 		router.registerHandler("test", new TestHandler(responseSender));
 		router.registerHandler("help", new HelpHandler(responseSender, router));
-		router.registerHandler("rollcall", new RollcallHandler(responseSender, rollcallUsers));
-		router.registerHandler("wingman", new WingmanHandler(responseSender, rollcallUsers));
+		router.registerHandler("rollcall", competitiveRollcall);
+		router.registerHandler("wingman", wingmanRollcall);
+		router.registerHandler("schedule", new CompetitiveRollcallScheduleHandler(
+			responseSender, competitiveRollcallSchedule));
+		router.registerHandler("schedule_wingman", new WingmanRollcallScheduleHandler(
+			responseSender, wingmanRollcallSchedule));
 		router.registerHandler("discord", new DiscordHandler(responseSender, discordInviteLink));
 
 		final var vertxRouter = Router.router(this.vertx);
@@ -51,6 +70,9 @@ public class MainVerticle extends AbstractVerticle {
 		vertxRouter.route().handler(new LoggingHandler());
 		vertxRouter.route().failureHandler(new FailureHandler());
 		vertxRouter.route().handler(router);
+
+		vertx.setPeriodic(Duration.ofSeconds(15L).toMillis(), competitiveRollcallSchedule);
+		vertx.setPeriodic(Duration.ofSeconds(15L).toMillis(), wingmanRollcallSchedule);
 
 		this.vertx.createHttpServer()
 			.requestHandler(vertxRouter)
