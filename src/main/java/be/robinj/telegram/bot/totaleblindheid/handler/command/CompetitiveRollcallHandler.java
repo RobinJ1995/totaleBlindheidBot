@@ -9,23 +9,24 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static java.util.stream.Collectors.joining;
 
-public class WingmanHandler extends RollcallHandler {
-	public WingmanHandler(final ResponseSender sender, final String ...users) {
+public class CompetitiveRollcallHandler extends RollcallHandler {
+	public CompetitiveRollcallHandler(final ResponseSender sender, final String ...users) {
 		super(sender, users);
 	}
 
 	@Override
-	String[] quotes() {
+	protected String[] quotes() {
 		return new String[] {
-			"Be my wingman!",
-			"Be my wingman yo!",
-			"Let's score some!",
-			"I'm a single pringle and ready to mingle!"
+			"Are we rushin' in, or are we going' sneaky-beaky like?",
+			"Bingo, bango, bongo, bish, bash, bosh!",
+			"Easy peasy, lemon squeezy!",
+			"Grab your gear and let's go!",
+			"RUSH B DON'T STOP"
 		};
 	}
 
 	@Override
 	public String help() {
-		return "Looking for a wingman?";
+		return "Call all players!";
 	}
 }

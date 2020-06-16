@@ -9,42 +9,33 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static java.util.stream.Collectors.joining;
 
-public class RollcallHandler implements CommandHandler {
-	private static final String[] QUOTES = new String[] {
-		"Are we rushin' in, or are we going' sneaky-beaky like?",
-		"Bingo, bango, bongo, bish, bash, bosh!",
-		"Easy peasy, lemon squeezy!",
-		"Grab your gear and let's go!",
-		"RUSH B DON'T STOP"
-	};
-
-	private final ResponseSender sender;
+public abstract class RollcallHandler extends CommandHandler {
 	private final String[] users;
 
-	public RollcallHandler(final ResponseSender sender, final String ...users) {
-		this.sender = sender;
+	protected RollcallHandler(final ResponseSender sender, final String ...users) {
+		super(sender);
 		this.users = users;
 	}
 
-	@Override
-	public void handle(final Request request) {
+	abstract String[] quotes();
+
+	protected String randomQuote() {
+		final String[] quotes = this.quotes();
+
+		return quotes[new Random().nextInt(quotes.length)];
+	}
+
+	public String getMessage() {
 		final String usernames = Arrays.stream(this.users)
 			.map(user -> "@" + user)
 			.sorted((a, b) -> ThreadLocalRandom.current().nextInt(-1, 2))
 			.collect(joining(" "));
-		final String message = String.format("%s\n%s", randomQuote(), usernames);
 
-		sender.send(request.getMessage().getChat().getId(), message);
-	}
-
-	private static String randomQuote() {
-		final var random = new Random();
-
-		return QUOTES[random.nextInt(QUOTES.length)];
+		return String.format("%s\n%s", this.randomQuote(), usernames);
 	}
 
 	@Override
-	public String help() {
-		return "Call all players!";
+	protected String process(final Request request) {
+		return this.getMessage();
 	}
 }

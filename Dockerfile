@@ -15,7 +15,7 @@ COPY --from=build /build/target/totaleblindheid-fat.jar totaleblindheid.jar
 CMD ["java", \
 #	"-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", \
 	"-Xms32M", \
-	"-Xmx64M", \
+	"-Xmx80M", \
 	"-Xlog:gc", \
 	"-jar", \
 	"totaleblindheid.jar"]

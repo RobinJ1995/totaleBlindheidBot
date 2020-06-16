@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+import java.util.Arrays;
 
 public interface Request {
 	@JsonProperty("update_id") Long getUpdateId();
@@ -32,5 +33,11 @@ public interface Request {
 		@JsonProperty("chat") Chat getChat();
 		@JsonProperty("date") Instant getDate();
 		@JsonProperty("text") String getText();
+
+		default String[] getParameters() {
+			final String[] split = this.getText().split("\\s+");
+
+			return Arrays.copyOfRange(split, 1, split.length);
+		}
 	}
 }
