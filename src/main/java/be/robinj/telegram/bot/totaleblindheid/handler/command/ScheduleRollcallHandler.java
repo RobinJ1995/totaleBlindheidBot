@@ -4,12 +4,15 @@ import be.robinj.telegram.bot.totaleblindheid.Request;
 import be.robinj.telegram.bot.totaleblindheid.ResponseSender;
 import be.robinj.telegram.bot.totaleblindheid.parser.TimeParser;
 import be.robinj.telegram.bot.totaleblindheid.schedule.RollcallSchedule;
+import com.google.common.base.Preconditions;
 
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.time.temporal.ChronoUnit.DAYS;
 import static java.util.stream.Collectors.joining;
 
 public abstract class ScheduleRollcallHandler extends CommandHandler {
@@ -31,6 +34,8 @@ public abstract class ScheduleRollcallHandler extends CommandHandler {
 		}
 
 		final Instant time = new TimeParser().parse(String.join(" ", params));
+		checkArgument(time.isBefore(Instant.now().plus(2, DAYS)),
+			"You cannot schedule a rollcall more than 2 days in advance.");
 		this.schedule.schedule(time, request.getMessage().getChat().getId());
 
 		return "Rollcall scheduled for " + time.toString();

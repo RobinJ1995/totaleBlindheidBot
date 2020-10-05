@@ -2,7 +2,7 @@ FROM maven:3.6.3-openjdk-15 AS build
 
 WORKDIR /build
 COPY pom.xml .
-RUN mvn install
+RUN mvn dependency:resolve
 
 COPY . .
 RUN mvn package -Dmaven.test.skip=true
