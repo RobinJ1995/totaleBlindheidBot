@@ -29,8 +29,9 @@ public abstract class ScheduleRollcallHandler extends CommandHandler {
 		final String[] params = request.getMessage().getParameters();
 		if (params.length == 0) {
 			return "Please supply a time. Accepted formats: 5 minutes, 1 hour, or an ISO-8601 timestamp.";
-		} else if (params.length > 2) {
-			return "Wrong number of parameters.";
+		} else if ("cancel".equals(params[0].toLowerCase())) {
+			this.schedule.cancel();
+			return "Rollcall cancelled.";
 		}
 
 		final Instant time = new TimeParser().parse(String.join(" ", params));
