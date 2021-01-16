@@ -1,6 +1,6 @@
 package be.robinj.telegram.bot.totaleblindheid;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
@@ -8,7 +8,17 @@ import java.util.Arrays;
 
 public interface Request {
 	@JsonProperty("update_id") Long getUpdateId();
-	@JsonProperty("message") Message getMessage();
+	@JsonProperty("message") Message getMessageField();
+	@JsonProperty("edited_message") Message getEditedMessageField();
+
+	@JsonIgnore
+	default Message getMessage() {
+		if (this.getEditedMessageField() != null) {
+			return this.getEditedMessageField();
+		}
+
+		return this.getMessageField();
+	}
 
 	interface User {
 		@JsonProperty("id") Long getId();
