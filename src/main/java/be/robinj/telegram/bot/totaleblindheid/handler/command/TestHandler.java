@@ -10,7 +10,7 @@ public class TestHandler extends CommandHandler {
 
 	@Override
 	public String process(final Request request) {
-		return "Werkt!";
+		return "Works! Send /help to see what I can do.";
 	}
 
 	@Override
