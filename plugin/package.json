@@ -1,0 +1,10 @@
+{
+  "name": "nocto-plugin-totale-blindheid",
+  "version": "1.0.0",
+  "main": "totale-blindheid.js",
+  "author": "Robin Jacobs",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "node-fetch": "^2.6.1"
+  }
+}
