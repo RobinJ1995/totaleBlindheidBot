@@ -12,7 +12,7 @@ const QUOTES = [
 ];
 
 module.exports = (api, message) => {
-    dao.getRollcallPlayers(message.message?.chat?.id)
+    dao.getRollcallPlayerUsernames(message.message?.chat?.id)
         .then(players => message.reply(`${pickRandom(QUOTES)}\n${players.join(' ')}`))
         .catch(err => message.reply(`*${err.toString()}*`));
 };
