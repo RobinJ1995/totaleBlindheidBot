@@ -26,6 +26,9 @@ module.exports = loadPlugin = (resources, service) => {
     router.route('rollcall_remove_player', require('./command/admin/rollcall_remove_player'), {
         helpText: 'Remove a player from the rollcall.'
     });
+    router.route('rollcall_get_players', require('./command/admin/rollcall_get_players'), {
+        helpText: 'Get all players in the rollcall.'
+    });
 
     return {
         enable: cb => {
