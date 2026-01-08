@@ -1,14 +1,12 @@
-const fetch = require('node-fetch');
-const { checkNotEmpty, httpCheckParse, checkHttpStatus } = require('../utils');
+const { v4: uuid } = require('uuid');
+const { checkNotEmpty } = require('../utils');
+const { loadJSON, saveJSON } = require('./S3Client');
 
-const GIERIGDB_ENDPOINT = checkNotEmpty(process.env.GIERIGDB_ENDPOINT);
-
-const COLL_ROLLCALL_PLAYERS = 'rollcall_players';
+const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 
 class DAO {
     _getRollcallPlayers(chat_id) {
-        return fetch(`${GIERIGDB_ENDPOINT}/${COLL_ROLLCALL_PLAYERS}`)
-            .then(httpCheckParse)
+        return loadJSON(FILE_ROLLCALL_PLAYERS)
             .then(players => Object.keys(players).reduce((acc, key) => ([
                 ...acc,
                 {
@@ -25,13 +23,16 @@ class DAO {
     }
 
     addRollcallPlayer(chat_id, username) {
-        return fetch(`${GIERIGDB_ENDPOINT}/${COLL_ROLLCALL_PLAYERS}`, {
-            method: 'POST',
-            body: JSON.stringify({
-                username: checkNotEmpty(username),
-                chat_id: checkNotEmpty(chat_id)
-            })
-        });
+        return loadJSON(FILE_ROLLCALL_PLAYERS)
+            .then(players => {
+                const key = uuid();
+                players[key] = {
+                    username: checkNotEmpty(username),
+                    chat_id: checkNotEmpty(chat_id)
+                };
+                return saveJSON(FILE_ROLLCALL_PLAYERS, players)
+                    .then(() => key);
+            });
     }
 
     removeRollcallPlayer(chat_id, username) {
@@ -43,10 +44,12 @@ class DAO {
                     return false;
                 }
 
-                return fetch(`${GIERIGDB_ENDPOINT}/${COLL_ROLLCALL_PLAYERS}/${checkNotEmpty(key)}`, {
-                    method: 'DELETE',
-                })
-                .then(checkHttpStatus);
+                return loadJSON(FILE_ROLLCALL_PLAYERS)
+                    .then(players => {
+                        delete players[key];
+                        return saveJSON(FILE_ROLLCALL_PLAYERS, players);
+                    })
+                    .then(() => true);
             });
     }
 }

@@ -79,8 +79,6 @@ module.exports = {
     checkNotEmptyOrWhitespace,
     checkInstanceOf,
     pickRandom,
-    checkHttpStatus,
-    httpCheckParse,
     promiseLog,
     escapeMarkdown,
     formatError
