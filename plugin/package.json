@@ -5,6 +5,7 @@
   "author": "Robin Jacobs",
   "license": "GPL-3.0",
   "dependencies": {
-    "node-fetch": "^2.6.1"
+    "aws-sdk": "^2.1693.0",
+    "uuid": "^13.0.0"
   }
 }
