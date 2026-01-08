@@ -38,7 +38,22 @@ class DAO {
     removeRollcallPlayer(chat_id, username) {
         return this._getRollcallPlayers(checkNotEmpty(chat_id))
             .then(players => players.find(
-                player => player?.chat_id === chat_id && player?.username === checkNotEmpty(username))?.key)
+                player => {
+                    if (player?.chat_id !== chat_id) {
+                        return false;
+                    }
+
+                    const storedUsername = player?.username;
+                    const inputUsername = checkNotEmpty(username);
+
+                    if (storedUsername === inputUsername) {
+                        return true;
+                    }
+
+                    // Handle case where stored is [Name](tg://user?id=123) and input is just Name
+                    const match = storedUsername.match(/^\[(.*)\]\(tg:\/\/user\?id=\d+\)$/);
+                    return match && match[1] === inputUsername;
+                })?.key)
             .then(key => {
                 if (!key) {
                     return false;
