@@ -40,6 +40,9 @@ module.exports = loadPlugin = (resources, service) => {
     router.route('cancel', require('./command/cancel'), {
         helpText: 'Cancel a scheduled rollcall.'
     });
+    router.route('set_timezone', require('./command/set_timezone'), {
+        helpText: 'Set your timezone for rollcall scheduling.'
+    });
     router.route('wingman', require('./command/wingman'), {
         helpText: 'Looking for a wingman?'
     });

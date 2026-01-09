@@ -1,52 +1,67 @@
-const parseTime = (input, now = new Date()) => {
+const chrono = require('chrono-node');
+const { DateTime } = require('luxon');
+
+/**
+ * Parses a time string into a Date object.
+ * Handles:
+ * - Relative times: "3 hours", "1 minute", "4.5h"
+ * - Absolute times: "7pm", "17:00"
+ * - ISO8601 timestamps
+ * - Numeric shortcuts: < 5 means hours from now, >= 5 means minutes from now
+ * 
+ * @param {string} input The time string to parse
+ * @param {Date} now Reference date (default: now)
+ * @param {string} timezone User's timezone (default: UTC)
+ * @returns {Date|null} Parsed Date object or null if invalid
+ */
+const parseTime = (input, now = new Date(), timezone = 'UTC') => {
     input = input.trim().toLowerCase();
 
-    // ISO 8601
-    if (input.match(/^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}/)) {
-        const date = new Date(input);
-        if (!isNaN(date.getTime())) {
-            return date;
-        }
-    }
-
-    // Relative with units: 3 hours, 1 minute, 4.5h, 10m
-    const relativeMatch = input.match(/^(\d+(\.\d+)?)\s*(h(ours?)?|m(in(utes?)?)?)$/);
-    if (relativeMatch) {
-        const value = parseFloat(relativeMatch[1]);
-        const unit = relativeMatch[3][0]; // 'h' or 'm'
-        const ms = value * (unit === 'h' ? 3600000 : 60000);
-        return new Date(now.getTime() + ms);
-    }
-
-    // Just a number
-    if (input.match(/^\d+(\.\d+)?$/)) {
+    // Numeric shortcuts rule: < 5 hours, >= 5 minutes
+    if (/^\d+(\.\d+)?$/.test(input)) {
         const value = parseFloat(input);
-        const ms = value < 5 ? value * 3600000 : value * 60000;
-        return new Date(now.getTime() + ms);
+        const unit = value < 5 ? 'hours' : 'minutes';
+        return DateTime.fromJSDate(now).plus({ [unit]: value }).toJSDate();
     }
 
-    // Absolute time: 7pm, 17:00, 17:00:00
-    const absoluteMatch = input.match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?$/);
-    if (absoluteMatch) {
-        let hours = parseInt(absoluteMatch[1]);
-        const minutes = parseInt(absoluteMatch[2] || '0');
-        const seconds = parseInt(absoluteMatch[3] || '0');
-        const ampm = absoluteMatch[4];
+    // Prepare reference date for chrono representing local time in UTC context
+    // This allows chrono to correctly handle absolute times like "7pm"
+    const nowInTz = DateTime.fromJSDate(now).setZone(timezone);
+    const referenceDate = new Date(Date.UTC(
+        nowInTz.year,
+        nowInTz.month - 1,
+        nowInTz.day,
+        nowInTz.hour,
+        nowInTz.minute,
+        nowInTz.second,
+        nowInTz.millisecond
+    ));
 
-        if (ampm === 'pm' && hours < 12) hours += 12;
-        if (ampm === 'am' && hours === 12) hours = 0;
-
-        const date = new Date(now);
-        date.setHours(hours, minutes, seconds, 0);
-
-        // If time is in the past, assume it's for tomorrow
-        if (date.getTime() <= now.getTime()) {
-            date.setDate(date.getDate() + 1);
-        }
-        return date;
+    let results = chrono.parse(input, referenceDate, { forwardDate: true });
+    if (results.length === 0) {
+        // Fallback: try with "in " prefix for purely relative durations like "3 hours" or "4.5h"
+        // which chrono-node sometimes expects to be prefixed for parseDate/parse.
+        results = chrono.parse('in ' + input, referenceDate, { forwardDate: true });
     }
 
-    return null;
+    if (results.length === 0) return null;
+
+    const result = results[0];
+    const components = result.start;
+
+    // Use components to build the date in the correct timezone.
+    // chrono-node's month is 1-indexed, same as Luxon's fromObject.
+    const finalDate = DateTime.fromObject({
+        year: components.get('year'),
+        month: components.get('month'),
+        day: components.get('day'),
+        hour: components.get('hour'),
+        minute: components.get('minute'),
+        second: components.get('second'),
+        millisecond: components.get('millisecond')
+    }, { zone: timezone });
+
+    return finalDate.toJSDate();
 };
 
 module.exports = { parseTime };
