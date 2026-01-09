@@ -27,7 +27,7 @@ const parseTime = (input, now = new Date(), timezone = 'UTC') => {
     // Prepare reference date for chrono representing local time in UTC context
     // This allows chrono to correctly handle absolute times like "7pm"
     const nowInTz = DateTime.fromJSDate(now).setZone(timezone);
-    const referenceDate = new Date(Date.UTC(
+    const referenceDate = new Date(
         nowInTz.year,
         nowInTz.month - 1,
         nowInTz.day,
@@ -35,7 +35,7 @@ const parseTime = (input, now = new Date(), timezone = 'UTC') => {
         nowInTz.minute,
         nowInTz.second,
         nowInTz.millisecond
-    ));
+    );
 
     let results = chrono.parse(input, referenceDate, { forwardDate: true });
     if (results.length === 0) {
