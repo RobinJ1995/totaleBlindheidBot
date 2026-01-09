@@ -37,6 +37,9 @@ module.exports = loadPlugin = (resources, service) => {
     router.route('schedule', require('./command/schedule'), {
         helpText: 'Schedule a rollcall for a specific time.'
     });
+    router.route('cancel', require('./command/cancel'), {
+        helpText: 'Cancel a scheduled rollcall.'
+    });
     router.route('wingman', require('./command/wingman'), {
         helpText: 'Looking for a wingman?'
     });
