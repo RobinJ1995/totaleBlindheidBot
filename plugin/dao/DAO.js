@@ -3,8 +3,29 @@ const { checkNotEmpty } = require('../utils');
 const { loadJSON, saveJSON } = require('./S3Client');
 
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
+const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
 
 class DAO {
+    getScheduledRollcalls() {
+        return loadJSON(FILE_ROLLCALL_SCHEDULES);
+    }
+
+    setScheduledRollcall(chat_id, time) {
+        return loadJSON(FILE_ROLLCALL_SCHEDULES)
+            .then(schedules => {
+                schedules[chat_id] = time.toISOString();
+                return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
+            });
+    }
+
+    removeScheduledRollcall(chat_id) {
+        return loadJSON(FILE_ROLLCALL_SCHEDULES)
+            .then(schedules => {
+                delete schedules[chat_id];
+                return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
+            });
+    }
+
     _getRollcallPlayers(chat_id) {
         return loadJSON(FILE_ROLLCALL_PLAYERS)
             .then(players => Object.keys(players).reduce((acc, key) => ([

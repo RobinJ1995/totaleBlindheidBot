@@ -1,6 +1,28 @@
 const MessageEntity = require('./entity/MessageEntity');
 const MessageRouter = require('./MessageRouter');
 const { escapeMarkdown } = require('./utils');
+const { executeRollcall } = require('./command/rollcall');
+const DAO = require('./dao/DAO');
+
+const dao = new DAO();
+let schedulerInterval = null;
+
+const checkSchedules = (api) => {
+    dao.getScheduledRollcalls()
+        .then(schedules => {
+            const now = new Date();
+            for (const [chat_id, timeIso] of Object.entries(schedules)) {
+                const scheduledTime = new Date(timeIso);
+                if (scheduledTime <= now) {
+                    console.log(`Executing scheduled rollcall for chat ${chat_id}`);
+                    executeRollcall(api, chat_id)
+                        .catch(err => console.error(`Error executing scheduled rollcall for ${chat_id}:`, err))
+                        .finally(() => dao.removeScheduledRollcall(chat_id));
+                }
+            }
+        })
+        .catch(err => console.error('Error checking schedules:', err));
+};
 
 module.exports = loadPlugin = (resources, service) => {
     const api = resources.api;
@@ -11,6 +33,9 @@ module.exports = loadPlugin = (resources, service) => {
     });
     router.route('rollcall', require('./command/rollcall'), {
         helpText: 'Anyone wanna play?'
+    });
+    router.route('schedule', require('./command/schedule'), {
+        helpText: 'Schedule a rollcall for a specific time.'
     });
     router.route('wingman', require('./command/wingman'), {
         helpText: 'Looking for a wingman?'
@@ -32,9 +57,16 @@ module.exports = loadPlugin = (resources, service) => {
 
     return {
         enable: cb => {
+            if (!schedulerInterval) {
+                schedulerInterval = setInterval(() => checkSchedules(api), 30000);
+            }
             process.nextTick(() => cb(null, true));
         },
         disable: cb => {
+            if (schedulerInterval) {
+                clearInterval(schedulerInterval);
+                schedulerInterval = null;
+            }
             process.nextTick(() => cb(null, true));
         },
         handleMessage: (message, meta) => {
