@@ -4,8 +4,23 @@ const { loadJSON, saveJSON } = require('./S3Client');
 
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
+const FILE_USER_SETTINGS = 'user_settings.json';
 
 class DAO {
+    getUserTimezone(user_id) {
+        return loadJSON(FILE_USER_SETTINGS)
+            .then(settings => settings[user_id]?.timezone || 'UTC');
+    }
+
+    setUserTimezone(user_id, timezone) {
+        return loadJSON(FILE_USER_SETTINGS)
+            .then(settings => {
+                if (!settings[user_id]) settings[user_id] = {};
+                settings[user_id].timezone = timezone;
+                return saveJSON(FILE_USER_SETTINGS, settings);
+            });
+    }
+
     getScheduledRollcalls() {
         return loadJSON(FILE_ROLLCALL_SCHEDULES);
     }

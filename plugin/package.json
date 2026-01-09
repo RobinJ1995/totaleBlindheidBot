@@ -6,6 +6,9 @@
   "license": "GPL-3.0",
   "dependencies": {
     "aws-sdk": "^2.1693.0",
+    "chrono-node": "^2.7.5",
+    "luxon": "^3.4.4",
+    "timezone-soft": "^1.5.2",
     "uuid": "^9.0.0"
   }
 }
