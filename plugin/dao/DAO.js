@@ -50,7 +50,7 @@ class DAO {
                     ...players[key]
                 }
             ]), []))
-            .then(players => players.filter(player => player?.chat_id === chat_id));
+            .then(players => players.filter(player => String(player?.chat_id) === String(chat_id)));
     }
 
     getRollcallPlayerUsernames(chat_id) {
@@ -75,7 +75,7 @@ class DAO {
         return this._getRollcallPlayers(checkNotEmpty(chat_id))
             .then(players => players.find(
                 player => {
-                    if (player?.chat_id !== chat_id) {
+                    if (String(player?.chat_id) !== String(chat_id)) {
                         return false;
                     }
 
