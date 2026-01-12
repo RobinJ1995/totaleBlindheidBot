@@ -1,5 +1,6 @@
 const SteamUser = require('steam-user');
 const DAO = require('./dao/DAO');
+const { escapeMarkdown } = require('./utils');
 
 class SteamService {
     constructor(bot) {
@@ -215,10 +216,10 @@ class SteamService {
         const info = { gameId, map, status, score };
 
         // If no map/status yet, maybe it's just starting
-        let text = `*${playerName}* is playing Counter-Strike`;
-        if (map) text += `\nMap: ${map}`;
-        if (status) text += `\nStatus: ${status}`;
-        if (score) text += `\nScore: ${score}`;
+        let text = `*${escapeMarkdown(playerName)}* is playing Counter-Strike`;
+        if (map) text += `\nMap: ${escapeMarkdown(map)}`;
+        if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
+        if (score) text += `\nScore: ${escapeMarkdown(score)}`;
 
         const chats = await this.dao.getUserChats(tgUserId);
         if (chats.length === 0) {
