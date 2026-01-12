@@ -5,7 +5,29 @@ const { escapeMarkdown } = require('./utils');
 class SteamService {
     constructor(bot) {
         this.bot = bot;
-        this.client = new SteamUser();
+
+        const steamOptions = {};
+        if (process.env.S3_BUCKET) {
+            console.log(`Using S3 storage for Steam data in bucket: ${process.env.S3_BUCKET}`);
+            const { save, readFile } = require('./dao/S3Client');
+            steamOptions.dataDirectory = 'data';
+            this.client = new SteamUser(steamOptions);
+            
+            this.client.storage.on('save', (filename, contents, callback) => {
+                save(`steam-user/${filename}`, contents)
+                    .then(() => callback(null))
+                    .catch(callback);
+            });
+
+            this.client.storage.on('read', (filename, callback) => {
+                readFile(`steam-user/${filename}`)
+                    .then(contents => callback(null, contents))
+                    .catch(callback);
+            });
+        } else {
+            this.client = new SteamUser();
+        }
+
         this.dao = new DAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
@@ -251,8 +273,8 @@ class SteamService {
                 // We should NOT replace a more detailed message with a less detailed one
                 // UNLESS the map or game mode/status or game itself has changed.
                 const gameChanged = info.gameId !== oldInfo.gameId;
-                const mapChanged = info.map !== oldInfo.map;
-                const statusChanged = info.status !== oldInfo.status;
+                const mapChanged = info.map && info.map !== oldInfo.map;
+                const statusChanged = info.status && info.status !== oldInfo.status;
                 
                 if (!gameChanged && !mapChanged && !statusChanged) {
                     // Critical info is the same. Now check if we are losing detail.

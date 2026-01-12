@@ -2,9 +2,9 @@ const AWS = require('aws-sdk');
 
 const s3 = new AWS.S3({
     endpoint: process.env.S3_ENDPOINT,
-    accessKeyId: process.env.S3_ACCESS_KEY,
-    secretAccessKey: process.env.S3_SECRET_KEY,
-    region: process.env.S3_REGION,
+    accessKeyId: process.env.S3_ACCESS_KEY || process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_KEY || process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.S3_REGION || process.env.AWS_REGION,
     s3ForcePathStyle: true, // often needed for custom endpoints like MinIO
 });
 
@@ -51,9 +51,36 @@ const saveJSON = async (key, data) => {
     };
 };
 
+const save = async (key, body) => {
+    await s3.putObject({
+        Bucket: bucket,
+        Key: key,
+        Body: body
+    }).promise();
+};
+
+const readFile = async (key) => {
+    try {
+        const data = await s3.getObject({
+            Bucket: bucket,
+            Key: key
+        }).promise();
+        return data.Body;
+    } catch (err) {
+        if (err.code === 'NoSuchKey' || err.statusCode === 404) {
+            const error = new Error(`File not found: ${key}`);
+            error.code = 'ENOENT';
+            throw error;
+        }
+        throw err;
+    }
+};
+
 module.exports = {
     s3,
     bucket,
     loadJSON,
-    saveJSON
+    saveJSON,
+    save,
+    readFile
 };
