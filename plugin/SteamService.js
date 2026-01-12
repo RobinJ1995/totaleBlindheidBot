@@ -82,6 +82,7 @@ class SteamService {
                 }
             }
             this.steamToTelegram = newMappings;
+            console.log(`Updated user mappings. Tracking ${steamIds.length} Steam users.`);
             if (steamIds.length > 0 && this.client.steamID) {
                 this.client.getPersonas(steamIds);
             }
@@ -98,13 +99,19 @@ class SteamService {
         const isPlayingCS2 = user.game_id == this.appIdCS2;
         if (!isPlayingCS2) return;
 
+        const playerName = user.player_name || user.persona_name || 'A user';
+        console.log(`User update: ${playerName} (${steamId}) is playing CS2`);
+
         // Extract game info from rich presence
         const rp = user.rich_presence || [];
         const map = rp.find(i => i.key === 'map')?.value;
         const status = rp.find(i => i.key === 'status')?.value;
 
+        if (map || status) {
+            console.log(`Rich presence for ${playerName}: map=${map}, status=${status}`);
+        }
+
         // If no map/status yet, maybe it's just starting
-        const playerName = user.player_name || user.persona_name || 'A user';
         let text = `*${playerName}* is playing Counter-Strike`;
         if (map) text += `\nMap: ${map}`;
         if (status) text += `\nStatus: ${status}`;
@@ -130,6 +137,7 @@ class SteamService {
             if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
                 // Update existing message
                 try {
+                    console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);
                     await this.api.editMessageText({
                         chat_id: chatId,
                         message_id: lastUpdate.message_id,
@@ -146,6 +154,7 @@ class SteamService {
             }
 
             // Send new message
+            console.log(`Sending new update message to chat ${chatId} for user ${tgUserId}`);
             const sentMessage = await this.api.sendMessage({
                 chat_id: chatId,
                 parse_mode: 'Markdown',
