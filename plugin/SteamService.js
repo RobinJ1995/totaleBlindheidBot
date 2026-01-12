@@ -13,21 +13,41 @@ class SteamService {
     start() {
         const username = process.env.STEAM_USERNAME;
         const password = process.env.STEAM_PASSWORD;
+        const sharedSecret = process.env.STEAM_SHARED_SECRET;
 
         if (!username || !password) {
             console.warn('STEAM_USERNAME or STEAM_PASSWORD not set. SteamService will not start.');
             return;
         }
 
-        this.client.logOn({
+        const logOnOptions = {
             accountName: username,
             password: password
-        });
+        };
+
+        if (sharedSecret) {
+            const SteamTotp = require('steam-totp');
+            logOnOptions.twoFactorCode = SteamTotp.generateAuthCode(sharedSecret);
+        }
+
+        this.client.logOn(logOnOptions);
 
         this.client.on('loggedOn', () => {
             console.log('Logged on to Steam');
             this.client.setPersona(SteamUser.EPersonaState.Online);
             this.updateUserMappings();
+        });
+
+        this.client.on('steamGuard', (domain, callback, lastCodeWrong) => {
+            if (lastCodeWrong) {
+                console.error('Last Steam Guard code was wrong.');
+            }
+            if (sharedSecret) {
+                const SteamTotp = require('steam-totp');
+                callback(SteamTotp.generateAuthCode(sharedSecret));
+            } else {
+                console.warn(`Steam Guard code needed${domain ? ' (email to ' + domain + ')' : ' (mobile)'}. Please set STEAM_SHARED_SECRET.`);
+            }
         });
 
         this.client.on('error', (err) => {
