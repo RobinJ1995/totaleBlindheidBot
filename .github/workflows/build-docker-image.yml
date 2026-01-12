@@ -15,3 +15,7 @@ jobs:
           username: RobinJ1995
           password: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           snapshot: true
+      - name: Trigger deployment
+        if: ${{ success() }}
+        run: |
+          curl -sS --fail -X PUT -H "Authorization: Bearer ${{ secrets.KUBECONTROL_TOKEN }}" https://kuber0.robinj.be/deployment/telegram-bots/totale-blindheid
