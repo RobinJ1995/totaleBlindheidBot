@@ -54,6 +54,9 @@ module.exports = loadPlugin = (resources, service) => {
         router.route('steam_user_id', require('./command/steam_user_id'), {
             helpText: 'Set your Steam user id for live game updates.'
         });
+        router.route('steam_guard', require('./command/steam_guard'), {
+            helpText: 'Submit a Steam Guard code.'
+        });
     }
 
     router.route('help', (api, message) => message.reply(

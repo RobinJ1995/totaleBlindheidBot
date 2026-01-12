@@ -8,6 +8,9 @@ class SteamService {
         this.dao = new DAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
+        this.steamGuardCallback = null;
+        this.adminUserId = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
+        SteamService.instance = this;
     }
 
     start() {
@@ -41,12 +44,28 @@ class SteamService {
         this.client.on('steamGuard', (domain, callback, lastCodeWrong) => {
             if (lastCodeWrong) {
                 console.error('Last Steam Guard code was wrong.');
+                if (this.adminUserId) {
+                    this.api.sendMessage({
+                        chat_id: this.adminUserId,
+                        text: 'Last Steam Guard code was wrong. Please try again with /steam_guard <code>'
+                    }).catch(err => console.error('Failed to send error to admin:', err));
+                }
             }
             if (sharedSecret) {
                 const SteamTotp = require('steam-totp');
                 callback(SteamTotp.generateAuthCode(sharedSecret));
             } else {
-                console.warn(`Steam Guard code needed${domain ? ' (email to ' + domain + ')' : ' (mobile)'}. Please set STEAM_SHARED_SECRET.`);
+                this.steamGuardCallback = callback;
+                const method = domain ? `email to ${domain}` : 'mobile app';
+                console.warn(`Steam Guard code needed (${method}). Please use /steam_guard <code>.`);
+                if (this.adminUserId) {
+                    this.api.sendMessage({
+                        chat_id: this.adminUserId,
+                        text: `Steam Guard code needed (${method}). Please use /steam_guard <code> to log in.`
+                    }).catch(err => console.error('Failed to notify admin:', err));
+                } else {
+                    console.warn('Set STEAM_ADMIN_TELEGRAM_USER_ID to your Telegram user ID to receive these notifications directly in Telegram.');
+                }
             }
         });
 
@@ -167,6 +186,17 @@ class SteamService {
             console.error(`Error publishing update to chat ${chatId}:`, err);
         }
     }
+
+    submitSteamGuardCode(code) {
+        if (this.steamGuardCallback) {
+            this.steamGuardCallback(code);
+            this.steamGuardCallback = null;
+            return true;
+        }
+        return false;
+    }
 }
+
+SteamService.instance = null;
 
 module.exports = SteamService;
