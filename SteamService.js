@@ -274,13 +274,13 @@ class SteamService {
                 // UNLESS the map or game mode/status or game itself has changed.
                 const gameChanged = info.gameId !== oldInfo.gameId;
                 const mapChanged = info.map && info.map !== oldInfo.map;
-                const statusChanged = info.status && info.status !== oldInfo.status;
+                const meaningfulStatusChanged = info.status && info.status !== oldInfo.status && !this.isGenericStatus(info.status);
                 
-                if (!gameChanged && !mapChanged && !statusChanged) {
+                if (!gameChanged && !mapChanged && !meaningfulStatusChanged) {
                     // Critical info is the same. Now check if we are losing detail.
                     const lostScore = oldInfo.score && !info.score;
-                    const lostMap = oldInfo.map && !info.map; // Should be covered by mapChanged, but just in case
-                    const lostStatus = oldInfo.status && !info.status; // Should be covered by statusChanged
+                    const lostMap = oldInfo.map && !info.map;
+                    const lostStatus = oldInfo.status && !this.isGenericStatus(oldInfo.status) && this.isGenericStatus(info.status);
 
                     if (lostScore || lostMap || lostStatus) {
                         console.log(`New update for user ${tgUserId} is less detailed than the existing one and map/mode haven't changed. Skipping update.`);
@@ -326,6 +326,20 @@ class SteamService {
             return true;
         }
         return false;
+    }
+
+    isGenericStatus(status) {
+        if (!status) return true;
+        const generic = [
+            'playing counter-strike 2',
+            'counter-strike 2',
+            'playing counter-strike',
+            'counter-strike',
+            'playing cs2',
+            'cs2',
+            'playing'
+        ];
+        return generic.includes(status.toLowerCase().trim());
     }
 }
 
