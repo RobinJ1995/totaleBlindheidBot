@@ -6,8 +6,12 @@ const dao = new DAO();
 
 module.exports = (api, message) => {
     const argument = message.meta.command?.argument;
+    const user_id = message.message.from.id;
+
     if (!argument) {
-        message.reply('Please specify a timezone (e.g., Europe/Dublin, Brussels, GMT+3).');
+        dao.getUserTimezone(user_id)
+            .then(timezone => message.reply(`Your current timezone is ${timezone}`))
+            .catch(err => message.reply(formatError(err)));
         return;
     }
 
@@ -21,7 +25,6 @@ module.exports = (api, message) => {
     const bestMatch = results.find(r => r.iana.toLowerCase().includes(argument.toLowerCase())) || results[0];
     const normalizedTz = bestMatch.iana;
 
-    const user_id = message.message.from.id;
     dao.setUserTimezone(user_id, normalizedTz)
         .then(() => message.reply(`Your timezone has been set to ${normalizedTz}`))
         .catch(err => message.reply(formatError(err)));
