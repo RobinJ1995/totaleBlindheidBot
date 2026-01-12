@@ -1,13 +1,17 @@
 {
-  "name": "nocto-plugin-totale-blindheid",
+  "name": "totale-blindheid-bot",
   "version": "1.0.0",
-  "main": "totale-blindheid.js",
+  "main": "main.js",
   "author": "Robin Jacobs",
   "license": "GPL-3.0",
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "aws-sdk": "^2.1693.0",
     "chrono-node": "^2.7.5",
     "luxon": "^3.4.4",
+    "node-telegram-bot-api": "^0.66.0",
     "steam-totp": "^2.1.2",
     "steam-user": "^5.0.0",
     "timezone-soft": "^1.5.2",

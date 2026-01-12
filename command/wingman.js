@@ -10,8 +10,8 @@ const QUOTES = [
     "I'm a single pringle and ready to mingle!"
 ];
 
-module.exports = (api, message) => {
-    dao.getRollcallPlayerUsernames(message.message?.chat?.id)
-        .then(players => message.reply(`${pickRandom(QUOTES)}\n${players.join(' ')}`))
-        .catch(err => message.reply(`*${err.toString()}*`));
+module.exports = (bot, msg) => {
+    dao.getRollcallPlayerUsernames(msg.chat?.id)
+        .then(players => msg.reply(`${pickRandom(QUOTES)}\n${players.join(' ')}`))
+        .catch(err => msg.reply(`*${err.toString()}*`));
 };

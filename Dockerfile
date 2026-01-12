@@ -1,15 +1,10 @@
-FROM tvdstaaij/nocto
+FROM node:24-slim
 
+WORKDIR /app
 
-COPY plugin plugins/totale-blindheid
-COPY nocto-config.js config/local.js
+COPY package*.json ./
+RUN npm install
 
-WORKDIR plugins/totale-blindheid
-# Base image lowers the privileges, meaning we can't `npm install` without going back up to root
-USER root
-RUN chown node -Rc .
-USER node
-RUN npm install -d
-WORKDIR ../..
+COPY . .
 
-USER node
+CMD ["node", "main.js"]

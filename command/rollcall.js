@@ -11,19 +11,17 @@ const QUOTES = [
     "RUSH B DON'T STOP"
 ];
 
-const executeRollcall = (api, chat_id, reply_to_message_id) => {
+const executeRollcall = (bot, chat_id, reply_to_message_id) => {
     return dao.getRollcallPlayerUsernames(chat_id)
-        .then(players => api.sendMessage({
-            chat_id,
+        .then(players => bot.sendMessage(chat_id, `${pickRandom(QUOTES)}\n${players.join(' ')}`, {
             reply_to_message_id,
-            parse_mode: 'Markdown',
-            text: `${pickRandom(QUOTES)}\n${players.join(' ')}`
+            parse_mode: 'Markdown'
         }));
 };
 
-module.exports = (api, message) => {
-    executeRollcall(api, message.message?.chat?.id, message.message?.message_id)
-        .catch(err => message.reply(`*${err.toString()}*`));
+module.exports = (bot, msg) => {
+    executeRollcall(bot, msg.chat?.id, msg.message_id)
+        .catch(err => msg.reply(`*${err.toString()}*`));
 };
 
 module.exports.executeRollcall = executeRollcall;

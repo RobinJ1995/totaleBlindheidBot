@@ -2,8 +2,8 @@ const SteamUser = require('steam-user');
 const DAO = require('./dao/DAO');
 
 class SteamService {
-    constructor(api) {
-        this.api = api;
+    constructor(bot) {
+        this.bot = bot;
         this.client = new SteamUser();
         this.dao = new DAO();
         this.steamToTelegram = {};
@@ -52,10 +52,8 @@ class SteamService {
             if (lastCodeWrong) {
                 console.error('Last Steam Guard code was wrong.');
                 if (this.adminUserId) {
-                    this.api.sendMessage({
-                        chat_id: this.adminUserId,
-                        text: 'Last Steam Guard code was wrong. Please try again with /steam_guard <code>'
-                    }).catch(err => console.error('Failed to send error to admin:', err));
+                    this.bot.sendMessage(this.adminUserId, 'Last Steam Guard code was wrong. Please try again with /steam_guard <code>')
+                        .catch(err => console.error('Failed to send error to admin:', err));
                 }
             }
             if (sharedSecret) {
@@ -66,10 +64,8 @@ class SteamService {
                 const method = domain ? `email to ${domain}` : 'mobile app';
                 console.warn(`Steam Guard code needed (${method}). Please use /steam_guard <code>.`);
                 if (this.adminUserId) {
-                    this.api.sendMessage({
-                        chat_id: this.adminUserId,
-                        text: `Steam Guard code needed (${method}). Please use /steam_guard <code> to log in.`
-                    }).catch(err => console.error('Failed to notify admin:', err));
+                    this.bot.sendMessage(this.adminUserId, `Steam Guard code needed (${method}). Please use /steam_guard <code> to log in.`)
+                        .catch(err => console.error('Failed to notify admin:', err));
                 } else {
                     console.warn('Set STEAM_ADMIN_TELEGRAM_USER_ID to your Telegram user ID to receive these notifications directly in Telegram.');
                 }
@@ -250,11 +246,10 @@ class SteamService {
                 // Update existing message
                 try {
                     console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);
-                    await this.api.editMessageText({
+                    await this.bot.editMessageText(text, {
                         chat_id: chatId,
                         message_id: lastUpdate.message_id,
-                        parse_mode: 'Markdown',
-                        text: text
+                        parse_mode: 'Markdown'
                     });
                     // Keep original timestamp, but update text
                     await this.dao.updateGameUpdateText(chatId, tgUserId, text);
@@ -267,10 +262,8 @@ class SteamService {
 
             // Send new message
             console.log(`Sending new update message to chat ${chatId} for user ${tgUserId}`);
-            const sentMessage = await this.api.sendMessage({
-                chat_id: chatId,
-                parse_mode: 'Markdown',
-                text: text
+            const sentMessage = await this.bot.sendMessage(chatId, text, {
+                parse_mode: 'Markdown'
             });
             if (sentMessage && sentMessage.message_id) {
                 await this.dao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text);

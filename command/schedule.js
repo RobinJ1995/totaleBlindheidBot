@@ -4,19 +4,19 @@ const { formatError, escapeMarkdown } = require('../utils');
 
 const dao = new DAO();
 
-module.exports = (api, message) => {
-    const argument = message.meta.command?.argument;
+module.exports = (bot, msg) => {
+    const argument = msg.command?.argument;
     if (!argument) {
-        message.reply('Please specify a time to schedule the rollcall.');
+        msg.reply('Please specify a time to schedule the rollcall.');
         return;
     }
 
-    const user_id = message.message.from.id;
+    const user_id = msg.from.id;
     dao.getUserTimezone(user_id)
         .then(timezone => {
             const scheduledTime = parseTime(argument, new Date(), timezone);
             if (!scheduledTime) {
-                message.reply('Invalid time format.');
+                msg.reply('Invalid time format.');
                 return;
             }
 
@@ -25,16 +25,16 @@ module.exports = (api, message) => {
             const diffMinutes = diffMs / 60000;
 
             if (diffMinutes < 2) {
-                message.reply('Rollcall must be scheduled at least 2 minutes in advance.');
+                msg.reply('Rollcall must be scheduled at least 2 minutes in advance.');
                 return;
             }
 
             if (diffMinutes > 12 * 60) {
-                message.reply('Rollcall cannot be scheduled more than 12 hours in advance.');
+                msg.reply('Rollcall cannot be scheduled more than 12 hours in advance.');
                 return;
             }
 
-            const chat_id = message.message.chat.id;
+            const chat_id = msg.chat.id;
             return dao.setScheduledRollcall(chat_id, scheduledTime)
                 .then(() => {
                     const timeString = scheduledTime.toLocaleString('en-GB', {
@@ -47,8 +47,8 @@ module.exports = (api, message) => {
                         second: 'numeric',
                         timeZoneName: 'short'
                     });
-                    message.reply(`Rollcall scheduled for ${escapeMarkdown(timeString)}`);
+                    msg.reply(`Rollcall scheduled for ${escapeMarkdown(timeString)}`);
                 });
         })
-        .catch(err => message.reply(formatError(err)));
+        .catch(err => msg.reply(formatError(err)));
 };
