@@ -59,8 +59,20 @@ module.exports = loadPlugin = (resources, service) => {
         });
     }
 
-    router.route('help', (api, message) => message.reply(
-        router._routes.map(r => `/${r.command}: ${r.helpText}`).map(escapeMarkdown).join('\n')), {
+    router.route('help', (api, message) => {
+        const args = message.meta.command?.argumentTokens;
+        const [prefix, separator] = (() => {
+            if (args?.[0] === 'botfather') {
+                return ['/', ': ']
+            }
+
+            return ['', ' - ']
+        })();
+
+        return message.reply(
+            router._routes.map(r => `${prefix}${r.command}${separator}${r.helpText}`).map(escapeMarkdown).join('\n')
+        );
+    }, {
         helpText: 'I wonder...'
     });
 
