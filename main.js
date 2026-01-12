@@ -74,10 +74,10 @@ router.route('help', (bot, msg) => {
     const args = msg.command?.argumentTokens;
     const [prefix, separator] = (() => {
         if (args?.[0] === 'botfather') {
-            return ['/', ': ']
+            return ['', ' - ']
         }
 
-        return ['', ' - ']
+        return ['/', ': ']
     })();
 
     return msg.reply(
