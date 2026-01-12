@@ -212,6 +212,8 @@ class SteamService {
             console.log(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
         }
 
+        const info = { gameId, map, status, score };
+
         // If no map/status yet, maybe it's just starting
         let text = `*${playerName}* is playing Counter-Strike`;
         if (map) text += `\nMap: ${map}`;
@@ -224,11 +226,11 @@ class SteamService {
         }
         for (const chatId of chats) {
             console.log(`Publishing update for user ${tgUserId} to chat ${chatId}`);
-            await this.publishUpdate(chatId, tgUserId, text);
+            await this.publishUpdate(chatId, tgUserId, text, info);
         }
     }
 
-    async publishUpdate(chatId, tgUserId, text) {
+    async publishUpdate(chatId, tgUserId, text, info) {
         try {
             const lastUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
             
@@ -242,6 +244,27 @@ class SteamService {
             const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
 
             if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
+                const oldInfo = lastUpdate.info || {};
+                
+                // Check if the new update is less detailed than the previous one.
+                // We should NOT replace a more detailed message with a less detailed one
+                // UNLESS the map or game mode/status or game itself has changed.
+                const gameChanged = info.gameId !== oldInfo.gameId;
+                const mapChanged = info.map !== oldInfo.map;
+                const statusChanged = info.status !== oldInfo.status;
+                
+                if (!gameChanged && !mapChanged && !statusChanged) {
+                    // Critical info is the same. Now check if we are losing detail.
+                    const lostScore = oldInfo.score && !info.score;
+                    const lostMap = oldInfo.map && !info.map; // Should be covered by mapChanged, but just in case
+                    const lostStatus = oldInfo.status && !info.status; // Should be covered by statusChanged
+
+                    if (lostScore || lostMap || lostStatus) {
+                        console.log(`New update for user ${tgUserId} is less detailed than the existing one and map/mode haven't changed. Skipping update.`);
+                        return;
+                    }
+                }
+
                 console.log(`Last update for user ${tgUserId} in chat ${chatId} was at ${lastUpdate.timestamp} (less than 6h ago). Attempting to edit message ${lastUpdate.message_id}.`);
                 // Update existing message
                 try {
@@ -251,8 +274,8 @@ class SteamService {
                         message_id: lastUpdate.message_id,
                         parse_mode: 'Markdown'
                     });
-                    // Keep original timestamp, but update text
-                    await this.dao.updateGameUpdateText(chatId, tgUserId, text);
+                    // Keep original timestamp, but update text and info
+                    await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
                     return;
                 } catch (err) {
                     console.error(`Failed to edit message ${lastUpdate.message_id} in chat ${chatId}:`, err);
@@ -266,7 +289,7 @@ class SteamService {
                 parse_mode: 'Markdown'
             });
             if (sentMessage && sentMessage.message_id) {
-                await this.dao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text);
+                await this.dao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text, info);
             }
         } catch (err) {
             console.error(`Error publishing update to chat ${chatId}:`, err);

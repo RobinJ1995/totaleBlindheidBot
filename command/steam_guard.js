@@ -20,7 +20,7 @@ module.exports = (bot, msg) => {
     }
 
     if (steamService.submitSteamGuardCode(code)) {
-        msg.reply('Steam Guard code submitted. Checking...');
+        msg.reply('Steam Guard code submitted.');
     } else {
         msg.reply('No Steam Guard code is currently requested, or it was already provided.');
     }

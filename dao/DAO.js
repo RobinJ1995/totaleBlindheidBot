@@ -64,25 +64,27 @@ class DAO {
             .then(updates => updates[key]);
     }
 
-    setGameUpdate(chat_id, user_id, message_id, text) {
+    setGameUpdate(chat_id, user_id, message_id, text, info = {}) {
         const key = `${chat_id}_${user_id}`;
         return loadJSON(FILE_GAME_UPDATES)
             .then(updates => {
                 updates[key] = {
                     message_id,
                     text,
+                    info,
                     timestamp: new Date().toISOString()
                 };
                 return saveJSON(FILE_GAME_UPDATES, updates);
             });
     }
 
-    updateGameUpdateText(chat_id, user_id, text) {
+    updateGameUpdateText(chat_id, user_id, text, info = {}) {
         const key = `${chat_id}_${user_id}`;
         return loadJSON(FILE_GAME_UPDATES)
             .then(updates => {
                 if (updates[key]) {
                     updates[key].text = text;
+                    updates[key].info = info;
                     return saveJSON(FILE_GAME_UPDATES, updates);
                 }
             });
