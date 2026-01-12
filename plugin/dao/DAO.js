@@ -5,11 +5,31 @@ const { loadJSON, saveJSON } = require('./S3Client');
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
 const FILE_USER_SETTINGS = 'user_settings.json';
+const FILE_USER_CHATS = 'user_chats.json';
+const FILE_GAME_UPDATES = 'game_updates.json';
 
 class DAO {
-    getUserTimezone(user_id) {
+    getUserSettings(user_id) {
         return loadJSON(FILE_USER_SETTINGS)
-            .then(settings => settings[user_id]?.timezone || 'UTC');
+            .then(settings => settings[user_id] || {});
+    }
+
+    getAllUserSettings() {
+        return loadJSON(FILE_USER_SETTINGS);
+    }
+
+    setSteamUserId(user_id, steam_id) {
+        return loadJSON(FILE_USER_SETTINGS)
+            .then(settings => {
+                if (!settings[user_id]) settings[user_id] = {};
+                settings[user_id].steam_id = steam_id;
+                return saveJSON(FILE_USER_SETTINGS, settings);
+            });
+    }
+
+    getUserTimezone(user_id) {
+        return this.getUserSettings(user_id)
+            .then(settings => settings.timezone || 'UTC');
     }
 
     setUserTimezone(user_id, timezone) {
@@ -18,6 +38,52 @@ class DAO {
                 if (!settings[user_id]) settings[user_id] = {};
                 settings[user_id].timezone = timezone;
                 return saveJSON(FILE_USER_SETTINGS, settings);
+            });
+    }
+
+    addUserChat(user_id, chat_id) {
+        return loadJSON(FILE_USER_CHATS)
+            .then(userChats => {
+                if (!userChats[user_id]) userChats[user_id] = [];
+                if (!userChats[user_id].includes(chat_id)) {
+                    userChats[user_id].push(chat_id);
+                    return saveJSON(FILE_USER_CHATS, userChats);
+                }
+            });
+    }
+
+    getUserChats(user_id) {
+        return loadJSON(FILE_USER_CHATS)
+            .then(userChats => userChats[user_id] || []);
+    }
+
+    getGameUpdate(chat_id, user_id) {
+        const key = `${chat_id}_${user_id}`;
+        return loadJSON(FILE_GAME_UPDATES)
+            .then(updates => updates[key]);
+    }
+
+    setGameUpdate(chat_id, user_id, message_id, text) {
+        const key = `${chat_id}_${user_id}`;
+        return loadJSON(FILE_GAME_UPDATES)
+            .then(updates => {
+                updates[key] = {
+                    message_id,
+                    text,
+                    timestamp: new Date().toISOString()
+                };
+                return saveJSON(FILE_GAME_UPDATES, updates);
+            });
+    }
+
+    updateGameUpdateText(chat_id, user_id, text) {
+        const key = `${chat_id}_${user_id}`;
+        return loadJSON(FILE_GAME_UPDATES)
+            .then(updates => {
+                if (updates[key]) {
+                    updates[key].text = text;
+                    return saveJSON(FILE_GAME_UPDATES, updates);
+                }
             });
     }
 

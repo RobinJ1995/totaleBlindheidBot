@@ -3,9 +3,11 @@ const MessageRouter = require('./MessageRouter');
 const { escapeMarkdown } = require('./utils');
 const { executeRollcall } = require('./command/rollcall');
 const DAO = require('./dao/DAO');
+const SteamService = require('./SteamService');
 
 const dao = new DAO();
 let schedulerInterval = null;
+let steamService = null;
 
 const checkSchedules = (api) => {
     dao.getScheduledRollcalls()
@@ -26,6 +28,7 @@ const checkSchedules = (api) => {
 
 module.exports = loadPlugin = (resources, service) => {
     const api = resources.api;
+    const steamEnabled = !!(process.env.STEAM_USERNAME && process.env.STEAM_PASSWORD);
 
     const router = new MessageRouter(api);
     router.route('hi', require('./command/hi'), {
@@ -46,6 +49,13 @@ module.exports = loadPlugin = (resources, service) => {
     router.route('wingman', require('./command/wingman'), {
         helpText: 'Looking for a wingman?'
     });
+
+    if (steamEnabled) {
+        router.route('steam_user_id', require('./command/steam_user_id'), {
+            helpText: 'Set your Steam user id for live game updates.'
+        });
+    }
+
     router.route('help', (api, message) => message.reply(
         router._routes.map(r => `/${r.command}: ${r.helpText}`).map(escapeMarkdown).join('\n')), {
         helpText: 'I wonder...'
@@ -66,6 +76,10 @@ module.exports = loadPlugin = (resources, service) => {
             if (!schedulerInterval) {
                 schedulerInterval = setInterval(() => checkSchedules(api), 30000);
             }
+            if (steamEnabled && !steamService) {
+                steamService = new SteamService(api);
+                steamService.start();
+            }
             process.nextTick(() => cb(null, true));
         },
         disable: cb => {
@@ -73,11 +87,20 @@ module.exports = loadPlugin = (resources, service) => {
                 clearInterval(schedulerInterval);
                 schedulerInterval = null;
             }
+            if (steamService) {
+                steamService.stop();
+                steamService = null;
+            }
             process.nextTick(() => cb(null, true));
         },
         handleMessage: (message, meta) => {
             if (!meta.fresh) {
                 return;
+            }
+
+            if (steamEnabled && message.from && message.chat) {
+                dao.addUserChat(message.from.id, message.chat.id)
+                    .catch(err => console.error('Error adding user chat:', err));
             }
 
             router.handle(new MessageEntity(message, meta));
