@@ -47,8 +47,9 @@ class DAO {
                 if (!userChats[user_id]) userChats[user_id] = [];
                 if (!userChats[user_id].includes(chat_id)) {
                     userChats[user_id].push(chat_id);
-                    return saveJSON(FILE_USER_CHATS, userChats);
+                    return saveJSON(FILE_USER_CHATS, userChats).then(() => true);
                 }
+                return false;
             });
     }
 

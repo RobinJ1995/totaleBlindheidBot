@@ -5,8 +5,8 @@ const dao = new DAO();
 
 module.exports = (api, message) => {
     const argument = message.meta.command?.argument;
-    if (!argument) {
-        message.reply('Please specify your Steam user id.');
+    if (!argument || !/^\d{17}$/.test(argument)) {
+        message.reply('Please specify your Steam user id as a SteamID64 (the 17-digit number starting with 7656).');
         return;
     }
 

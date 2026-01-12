@@ -18,6 +18,8 @@ class SteamService {
         const password = process.env.STEAM_PASSWORD;
         const sharedSecret = process.env.STEAM_SHARED_SECRET;
 
+        console.log(`Starting SteamService for user: ${username}`);
+
         if (!username || !password) {
             console.warn('STEAM_USERNAME or STEAM_PASSWORD not set. SteamService will not start.');
             return;
@@ -36,8 +38,13 @@ class SteamService {
         this.client.logOn(logOnOptions);
 
         this.client.on('loggedOn', () => {
-            console.log('Logged on to Steam');
+            console.log(`Logged on to Steam as ${this.client.steamID.getSteamID64()}`);
             this.client.setPersona(SteamUser.EPersonaState.Online);
+            this.updateUserMappings();
+        });
+
+        this.client.on('friendsList', () => {
+            console.log(`Friends list loaded. Bot has ${Object.keys(this.client.myFriends).length} friends.`);
             this.updateUserMappings();
         });
 
@@ -98,10 +105,14 @@ class SteamService {
                 if (data.steam_id) {
                     newMappings[data.steam_id] = tgId;
                     steamIds.push(data.steam_id);
+
+                    if (this.client.myFriends && this.client.myFriends[data.steam_id] !== SteamUser.EFriendRelationship.Friend) {
+                        console.warn(`Tracked user ${tgId} (Steam ID: ${data.steam_id}) is NOT a friend of the bot account. Updates might not work.`);
+                    }
                 }
             }
             this.steamToTelegram = newMappings;
-            console.log(`Updated user mappings. Tracking ${steamIds.length} Steam users.`);
+            console.log(`Updated user mappings. Tracking ${steamIds.length} Steam users: ${steamIds.join(', ')}`);
             if (steamIds.length > 0 && this.client.steamID) {
                 this.client.getPersonas(steamIds);
             }
@@ -111,14 +122,28 @@ class SteamService {
     }
 
     async handleUserUpdate(steamId, user) {
+        const playerName = user.player_name || user.persona_name || 'Unknown';
+        const gameId = user.game_id;
+        
         const tgUserId = this.steamToTelegram[steamId];
-        if (!tgUserId) return;
+        if (!tgUserId) {
+            console.log(`Received Steam update for non-tracked user: ${playerName} (${steamId})`);
+            return;
+        }
+
+        console.log(`Received Steam update for tracked user: ${playerName} (${steamId}). Playing game ID: ${gameId}`, user);
 
         // Check if playing CS2
-        const isPlayingCS2 = user.game_id == this.appIdCS2;
-        if (!isPlayingCS2) return;
+        const isPlayingCS2 = gameId == this.appIdCS2;
+        if (!isPlayingCS2) {
+            if (gameId) {
+                console.log(`User ${playerName} (${steamId}) is playing something else (ID: ${gameId}), ignoring.`);
+            } else {
+                console.log(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
+            }
+            return;
+        }
 
-        const playerName = user.player_name || user.persona_name || 'A user';
         console.log(`User update: ${playerName} (${steamId}) is playing CS2`);
 
         // Extract game info from rich presence
@@ -136,7 +161,11 @@ class SteamService {
         if (status) text += `\nStatus: ${status}`;
 
         const chats = await this.dao.getUserChats(tgUserId);
+        if (chats.length === 0) {
+            console.log(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
+        }
         for (const chatId of chats) {
+            console.log(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text);
         }
     }
@@ -147,6 +176,7 @@ class SteamService {
             
             // Avoid redundant updates
             if (lastUpdate && lastUpdate.text === text) {
+                console.log(`Update for user ${tgUserId} in chat ${chatId} is redundant (text hasn't changed), skipping.`);
                 return;
             }
 
@@ -154,6 +184,7 @@ class SteamService {
             const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
 
             if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
+                console.log(`Last update for user ${tgUserId} in chat ${chatId} was at ${lastUpdate.timestamp} (less than 6h ago). Attempting to edit message ${lastUpdate.message_id}.`);
                 // Update existing message
                 try {
                     console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);

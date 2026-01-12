@@ -103,6 +103,11 @@ module.exports = loadPlugin = (resources, service) => {
 
             if (steamEnabled && message.from && message.chat) {
                 dao.addUserChat(message.from.id, message.chat.id)
+                    .then(added => {
+                        if (added) {
+                            console.log(`Associated user ${message.from.id} with chat ${message.chat.id} for Steam updates.`);
+                        }
+                    })
                     .catch(err => console.error('Error adding user chat:', err));
             }
 
