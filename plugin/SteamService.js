@@ -122,8 +122,56 @@ class SteamService {
     }
 
     async handleUserUpdate(steamId, user) {
+        /* Example user update format for CS2:
+{
+  rich_presence: [
+    { key: 'status', value: 'Offline Competitive Vertigo' },
+    { key: 'version', value: '14129' },
+    { key: 'game:xptrail', value: '0' },
+    { key: 'game:state', value: 'game' },
+    { key: 'game:mode', value: 'competitive' },
+    { key: 'game:act', value: 'offline' },
+    { key: 'steam_display', value: '#display_GameKnownMap' },
+    { key: 'game:map', value: 'de_vertigo' },
+    { key: 'game:server', value: 'offline' }
+  ],
+  persona_state: 1,
+  game_played_app_id: 730,
+  game_server_ip: null,
+  game_server_port: null,
+  persona_state_flags: 1,
+  online_session_instances: 1,
+  persona_set_by_user: null,
+  player_name: 'Robin',
+  query_port: null,
+  steamid_source: '0',
+  avatar_hash: <Buffer>,
+  last_logoff: 2026-01-12T22:13:07.000Z,
+  last_logon: 2026-01-12T22:15:04.000Z,
+  last_seen_online: 2026-01-12T22:13:07.000Z,
+  clan_rank: null,
+  game_name: '',
+  gameid: '730',
+  game_data_blob: <Buffer>,
+  clan_data: null,
+  clan_tag: null,
+  broadcast_id: '0',
+  game_lobby_id: '0',
+  watching_broadcast_accountid: null,
+  watching_broadcast_appid: null,
+  watching_broadcast_viewers: null,
+  watching_broadcast_title: null,
+  is_community_banned: null,
+  player_name_pending_review: false,
+  avatar_pending_review: false,
+  avatar_url_icon: '*',
+  avatar_url_medium: '*',
+  avatar_url_full: '*',
+  rich_presence_string: 'Competitive - Vertigo'
+}
+         */
         const playerName = user.player_name || user.persona_name || 'Unknown';
-        const gameId = user.game_id;
+        const gameId = user.gameid;
         
         const tgUserId = this.steamToTelegram[steamId];
         if (!tgUserId) {
@@ -147,18 +195,32 @@ class SteamService {
         console.log(`User update: ${playerName} (${steamId}) is playing CS2`);
 
         // Extract game info from rich presence
-        const rp = user.rich_presence || [];
-        const map = rp.find(i => i.key === 'map')?.value;
-        const status = rp.find(i => i.key === 'status')?.value;
+        let map, status, score;
+        const rp = user.rich_presence;
+        if (Array.isArray(rp)) {
+            map = rp.find(i => i.key === 'game:map' || i.key === 'map')?.value;
+            status = rp.find(i => i.key === 'status')?.value;
+            score = rp.find(i => i.key === 'game:score' || i.key === 'score')?.value;
+        } else if (rp && typeof rp === 'object') {
+            map = rp['game:map'] || rp['map'];
+            status = rp['status'];
+            score = rp['game:score'] || rp['score'];
+        }
 
-        if (map || status) {
-            console.log(`Rich presence for ${playerName}: map=${map}, status=${status}`);
+        if (user.rich_presence_string) {
+            // If we have a rich_presence_string, it's usually the most user-friendly summary
+            status = user.rich_presence_string;
+        }
+
+        if (map || status || score) {
+            console.log(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
         }
 
         // If no map/status yet, maybe it's just starting
         let text = `*${playerName}* is playing Counter-Strike`;
         if (map) text += `\nMap: ${map}`;
         if (status) text += `\nStatus: ${status}`;
+        if (score) text += `\nScore: ${score}`;
 
         const chats = await this.dao.getUserChats(tgUserId);
         if (chats.length === 0) {
