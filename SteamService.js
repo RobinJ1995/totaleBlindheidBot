@@ -231,6 +231,10 @@ class SteamService {
             status = user.rich_presence_string;
         }
 
+        if (score) {
+            score = this.formatScore(score);
+        }
+
         if (map || status || score) {
             console.log(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
         }
@@ -239,6 +243,7 @@ class SteamService {
 
         // If no map/status yet, maybe it's just starting
         let text = `*${escapeMarkdown(playerName)}* is playing Counter-Strike`;
+        if (map || status || score) text += `\n`;
         if (map) text += `\nMap: ${escapeMarkdown(map)}`;
         if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
         if (score) text += `\nScore: ${escapeMarkdown(score)}`;
@@ -345,6 +350,14 @@ class SteamService {
             'playing'
         ];
         return generic.includes(status.toLowerCase().trim());
+    }
+
+    formatScore(score) {
+        if (!score) return score;
+        // Strip surrounding brackets and whitespace
+        const cleanScore = score.replace(/[\[\]]/g, '').trim();
+        const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+        return cleanScore.replace(/\d/g, (match) => numberEmojis[parseInt(match)]);
     }
 }
 
