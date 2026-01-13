@@ -63,7 +63,10 @@ router.route('wingman', require('./command/wingman'), {
 
 if (steamEnabled) {
     router.route('steam_user_id', require('./command/steam_user_id'), {
-        helpText: 'Set your Steam user id for live game updates.'
+        helpText: 'Set your Steam user id for live game updates. Admin: /steam_user_id <tg_id> <steam_id>'
+    });
+    router.route('steam_updates', require('./command/steam_updates'), {
+        helpText: 'Enable or disable Steam updates for this chat (on/off).'
     });
     router.route('steam_guard', require('./command/steam_guard'), {
         helpText: 'Submit a Steam Guard code.'

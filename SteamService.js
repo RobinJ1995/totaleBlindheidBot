@@ -248,6 +248,11 @@ class SteamService {
             console.log(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
+            const chatSettings = await this.dao.getChatSettings(chatId);
+            if (chatSettings.steam_updates === false) {
+                console.log(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
+                continue;
+            }
             console.log(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
         }
