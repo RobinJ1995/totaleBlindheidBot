@@ -1,3 +1,4 @@
+require('console-stamp')(console);
 const TelegramBot = require('node-telegram-bot-api');
 const DAO = require('./dao/DAO');
 const SteamService = require('./SteamService');
