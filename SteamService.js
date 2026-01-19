@@ -311,6 +311,12 @@ class SteamService {
                     await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
                     return;
                 } catch (err) {
+                    if (err.message && err.message.includes('message is not modified')) {
+                        console.log(`Message ${lastUpdate.message_id} in chat ${chatId} was already up to date according to Telegram.`);
+                        // Still update our DAO to match what Telegram has (or what we think it should have)
+                        await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
+                        return;
+                    }
                     console.error(`Failed to edit message ${lastUpdate.message_id} in chat ${chatId}:`, err);
                     // If editing fails (e.g. message too old or deleted), send a new one
                 }
