@@ -194,24 +194,24 @@ class SteamService {
         
         const tgUserId = this.steamToTelegram[steamId];
         if (!tgUserId) {
-            console.log(`Received Steam update for non-tracked user: ${playerName} (${steamId})`);
+            console.debug(`Received Steam update for non-tracked user: ${playerName} (${steamId})`);
             return;
         }
 
-        console.log(`Received Steam update for tracked user: ${playerName} (${steamId}). Playing game ID: ${gameId}`, user);
+        console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}). Playing game ID: ${gameId}`, user);
 
         // Check if playing CS2
         const isPlayingCS2 = gameId == this.appIdCS2;
         if (!isPlayingCS2) {
             if (gameId) {
-                console.log(`User ${playerName} (${steamId}) is playing something else (ID: ${gameId}), ignoring.`);
+                console.debug(`User ${playerName} (${steamId}) is playing something else (ID: ${gameId}), ignoring.`);
             } else {
-                console.log(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
+                console.debug(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
             }
             return;
         }
 
-        console.log(`User update: ${playerName} (${steamId}) is playing CS2`);
+        console.debug(`User update: ${playerName} (${steamId}) is playing CS2`);
 
         // Extract game info from rich presence
         let map, status, score;
@@ -236,7 +236,7 @@ class SteamService {
         }
 
         if (map || status || score) {
-            console.log(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
+            console.debug(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
         }
 
         const info = { gameId, map, status, score };
@@ -250,15 +250,15 @@ class SteamService {
 
         const chats = await this.dao.getUserChats(tgUserId);
         if (chats.length === 0) {
-            console.log(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
+            console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
             const chatSettings = await this.dao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
-                console.log(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
+                console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
                 continue;
             }
-            console.log(`Publishing update for user ${tgUserId} to chat ${chatId}`);
+            console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
         }
     }

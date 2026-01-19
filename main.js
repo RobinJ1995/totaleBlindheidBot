@@ -6,6 +6,10 @@ const { executeRollcall } = require('./command/rollcall');
 const MessageRouter = require('./MessageRouter');
 const { escapeMarkdown } = require('./utils');
 
+if (!process.env.LOG_DEBUG) {
+    console.debug = () => {};
+}
+
 const token = process.env.TELEGRAM_BOT_API_TOKEN;
 if (!token) {
     console.error('TELEGRAM_BOT_API_TOKEN is not set');
