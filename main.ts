@@ -47,7 +47,7 @@ setInterval(() => {
                     console.log(`Executing scheduled rollcall for chat ${chat_id}`);
                     executeRollcall(bot, parseInt(chat_id))
                         .catch((err: Error) => console.error(`Error executing scheduled rollcall for ${chat_id}:`, err))
-                        .finally(() => dao.removeScheduledRollcall(chat_id));
+                        .finally(() => dao.removeScheduledRollcall(Number(chat_id)));
                 }
             }
         })

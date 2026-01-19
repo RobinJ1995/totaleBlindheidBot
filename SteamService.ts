@@ -34,7 +34,7 @@ class SteamService {
     private bot: TelegramBot;
     private client: SteamUser; // Initialize in constructor
     private dao: DAO;
-    private steamToTelegram: Record<string, string | number>;
+    private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
     private adminUserId: string | undefined;
@@ -158,12 +158,12 @@ class SteamService {
     async updateUserMappings(): Promise<void> {
         try {
             const settings = await this.dao.getAllUserSettings();
-            const newMappings: Record<string, string | number> = {};
+            const newMappings: Record<string, number> = {};
             const steamIds: string[] = [];
             for (const [tgId, data] of Object.entries<UserSettings>(settings)) {
                 const sids = data.steam_ids || (data.steam_id ? [data.steam_id] : []);
                 for (const steamId of sids) {
-                    newMappings[steamId] = tgId;
+                    newMappings[steamId] = Number(tgId);
                     steamIds.push(steamId);
 
                     if (this.client.myFriends && this.client.myFriends[steamId] !== SteamUser.EFriendRelationship.Friend) {
@@ -259,7 +259,7 @@ class SteamService {
         }
     }
 
-    async publishUpdate(chatId: string | number, tgUserId: string | number, text: string, info: GameUpdateInfo): Promise<void> {
+    async publishUpdate(chatId: number, tgUserId: number, text: string, info: GameUpdateInfo): Promise<void> {
         try {
             const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
             

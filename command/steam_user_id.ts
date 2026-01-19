@@ -30,7 +30,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
         }
 
         console.log(`Admin ${msg.from.id} set Steam ID(s) for user ${tgUserId} to ${ids.join(', ')}`);
-        dao.setSteamUserId(tgUserId, ids)
+        dao.setSteamUserId(Number(tgUserId), ids)
             .then(() => msg.reply(`Steam user ID(s) for user ${tgUserId} has been set to ${ids.join(', ')}`))
             .catch((err: Error) => msg.reply(formatError(err)));
         return;
