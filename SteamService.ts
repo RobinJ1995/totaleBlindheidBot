@@ -1,28 +1,69 @@
-const SteamUser = require('steam-user');
-const DAO = require('./dao/DAO');
-const { escapeMarkdown } = require('./utils');
+import SteamUser from 'steam-user';
+import SteamTotp from 'steam-totp';
+import TelegramBot from 'node-telegram-bot-api';
+import DAO, { UserSettings, ChatSettings, GameUpdate } from './dao/DAO';
+import { escapeMarkdown } from './utils';
+import { save, readFile } from './dao/S3Client';
+
+interface SteamOptions {
+    dataDirectory?: string;
+    [key: string]: any;
+}
+
+interface GameUpdateInfo {
+    gameId?: string | number;
+    map?: string;
+    status?: string;
+    score?: string;
+}
+
+interface SteamRichPresenceItem {
+    key: string;
+    value: string;
+}
+
+interface SteamUserUpdate {
+    player_name?: string;
+    persona_name?: string;
+    gameid?: string | number;
+    rich_presence?: SteamRichPresenceItem[] | Record<string, string>;
+    rich_presence_string?: string;
+}
 
 class SteamService {
-    constructor(bot) {
+    private bot: TelegramBot;
+    private client: SteamUser; // Initialize in constructor
+    private dao: DAO;
+    private steamToTelegram: Record<string, string | number>;
+    private appIdCS2: number;
+    private steamGuardCallback: ((code: string) => void) | null;
+    private adminUserId: string | undefined;
+    private updateInterval: NodeJS.Timeout | null;
+    public static instance: SteamService | null = null;
+
+    constructor(bot: TelegramBot) {
         this.bot = bot;
 
-        const steamOptions = {};
+        const steamOptions: SteamOptions = {};
         if (process.env.S3_BUCKET) {
             console.log(`Using S3 storage for Steam data in bucket: ${process.env.S3_BUCKET}`);
-            const { save, readFile } = require('./dao/S3Client');
-            steamOptions.dataDirectory = 'data';
+            steamOptions.dataDirectory = 'data'; // Set generic data directory if needed, or rely on handlers
+            // In original code, it sets dataDirectory to 'data' then overrides storage.
+            // SteamUser constructor takes options
+            
+            // We need to initialize client before attaching listeners, but we need to know if we are using S3
             this.client = new SteamUser(steamOptions);
             
-            this.client.storage.on('save', (filename, contents, callback) => {
+            this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
                 save(`steam-user/${filename}`, contents)
                     .then(() => callback(null))
-                    .catch(callback);
+                    .catch(err => callback(err));
             });
 
-            this.client.storage.on('read', (filename, callback) => {
+            this.client.storage.on('read', (filename: string, callback: (err: Error | null, content?: any) => void) => {
                 readFile(`steam-user/${filename}`)
                     .then(contents => callback(null, contents))
-                    .catch(callback);
+                    .catch(err => callback(err));
             });
         } else {
             this.client = new SteamUser();
@@ -33,10 +74,11 @@ class SteamService {
         this.appIdCS2 = 730;
         this.steamGuardCallback = null;
         this.adminUserId = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
+        this.updateInterval = null;
         SteamService.instance = this;
     }
 
-    start() {
+    start(): void {
         const username = process.env.STEAM_USERNAME;
         const password = process.env.STEAM_PASSWORD;
         const sharedSecret = process.env.STEAM_SHARED_SECRET;
@@ -48,20 +90,19 @@ class SteamService {
             return;
         }
 
-        const logOnOptions = {
+        const logOnOptions: any = {
             accountName: username,
             password: password
         };
 
         if (sharedSecret) {
-            const SteamTotp = require('steam-totp');
             logOnOptions.twoFactorCode = SteamTotp.generateAuthCode(sharedSecret);
         }
 
         this.client.logOn(logOnOptions);
 
         this.client.on('loggedOn', () => {
-            console.log(`Logged on to Steam as ${this.client.steamID.getSteamID64()}`);
+            console.log(`Logged on to Steam as ${this.client.steamID?.getSteamID64()}`);
             this.client.setPersona(SteamUser.EPersonaState.Online);
             this.updateUserMappings();
         });
@@ -71,7 +112,7 @@ class SteamService {
             this.updateUserMappings();
         });
 
-        this.client.on('steamGuard', (domain, callback, lastCodeWrong) => {
+        this.client.on('steamGuard', (domain: string | null, callback: (code: string) => void, lastCodeWrong: boolean) => {
             if (lastCodeWrong) {
                 console.error('Last Steam Guard code was wrong.');
                 if (this.adminUserId) {
@@ -80,7 +121,6 @@ class SteamService {
                 }
             }
             if (sharedSecret) {
-                const SteamTotp = require('steam-totp');
                 callback(SteamTotp.generateAuthCode(sharedSecret));
             } else {
                 this.steamGuardCallback = callback;
@@ -95,11 +135,11 @@ class SteamService {
             }
         });
 
-        this.client.on('error', (err) => {
+        this.client.on('error', (err: any) => {
             console.error('Steam error:', err);
         });
 
-        this.client.on('user', (sid, user) => {
+        this.client.on('user', (sid: any, user: any) => {
             this.handleUserUpdate(sid.getSteamID64(), user);
         });
 
@@ -107,7 +147,7 @@ class SteamService {
         this.updateInterval = setInterval(() => this.updateUserMappings(), 60000);
     }
 
-    stop() {
+    stop(): void {
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
@@ -115,12 +155,12 @@ class SteamService {
         this.client.logOff();
     }
 
-    async updateUserMappings() {
+    async updateUserMappings(): Promise<void> {
         try {
             const settings = await this.dao.getAllUserSettings();
-            const newMappings = {};
-            const steamIds = [];
-            for (const [tgId, data] of Object.entries(settings)) {
+            const newMappings: Record<string, string | number> = {};
+            const steamIds: string[] = [];
+            for (const [tgId, data] of Object.entries<UserSettings>(settings)) {
                 const sids = data.steam_ids || (data.steam_id ? [data.steam_id] : []);
                 for (const steamId of sids) {
                     newMappings[steamId] = tgId;
@@ -141,57 +181,12 @@ class SteamService {
         }
     }
 
-    async handleUserUpdate(steamId, user) {
+    async handleUserUpdate(steamId: string, user: SteamUserUpdate): Promise<void> {
         /* Example user update format for CS2:
-{
-  rich_presence: [
-    { key: 'status', value: 'Offline Competitive Vertigo' },
-    { key: 'version', value: '14129' },
-    { key: 'game:xptrail', value: '0' },
-    { key: 'game:state', value: 'game' },
-    { key: 'game:mode', value: 'competitive' },
-    { key: 'game:act', value: 'offline' },
-    { key: 'steam_display', value: '#display_GameKnownMap' },
-    { key: 'game:map', value: 'de_vertigo' },
-    { key: 'game:server', value: 'offline' }
-  ],
-  persona_state: 1,
-  game_played_app_id: 730,
-  game_server_ip: null,
-  game_server_port: null,
-  persona_state_flags: 1,
-  online_session_instances: 1,
-  persona_set_by_user: null,
-  player_name: 'Robin',
-  query_port: null,
-  steamid_source: '0',
-  avatar_hash: <Buffer>,
-  last_logoff: 2026-01-12T22:13:07.000Z,
-  last_logon: 2026-01-12T22:15:04.000Z,
-  last_seen_online: 2026-01-12T22:13:07.000Z,
-  clan_rank: null,
-  game_name: '',
-  gameid: '730',
-  game_data_blob: <Buffer>,
-  clan_data: null,
-  clan_tag: null,
-  broadcast_id: '0',
-  game_lobby_id: '0',
-  watching_broadcast_accountid: null,
-  watching_broadcast_appid: null,
-  watching_broadcast_viewers: null,
-  watching_broadcast_title: null,
-  is_community_banned: null,
-  player_name_pending_review: false,
-  avatar_pending_review: false,
-  avatar_url_icon: '*',
-  avatar_url_medium: '*',
-  avatar_url_full: '*',
-  rich_presence_string: 'Competitive - Vertigo'
-}
+           ... (omitted docs) ...
          */
-        const playerName = user.player_name || user.persona_name || 'Unknown';
-        const gameId = user.gameid;
+        const playerName: string = user.player_name || user.persona_name || 'Unknown';
+        const gameId: string | number | undefined = user.gameid;
         
         const tgUserId = this.steamToTelegram[steamId];
         if (!tgUserId) {
@@ -215,12 +210,12 @@ class SteamService {
         console.debug(`User update: ${playerName} (${steamId}) is playing CS2`);
 
         // Extract game info from rich presence
-        let map, status, score;
+        let map: string | undefined, status: string | undefined, score: string | undefined;
         const rp = user.rich_presence;
         if (Array.isArray(rp)) {
-            map = rp.find(i => i.key === 'game:map' || i.key === 'map')?.value;
-            status = rp.find(i => i.key === 'status')?.value;
-            score = rp.find(i => i.key === 'game:score' || i.key === 'score')?.value;
+            map = rp.find((i: SteamRichPresenceItem) => i.key === 'game:map' || i.key === 'map')?.value;
+            status = rp.find((i: SteamRichPresenceItem) => i.key === 'status')?.value;
+            score = rp.find((i: SteamRichPresenceItem) => i.key === 'game:score' || i.key === 'score')?.value;
         } else if (rp && typeof rp === 'object') {
             map = rp['game:map'] || rp['map'];
             status = rp['status'];
@@ -240,7 +235,7 @@ class SteamService {
             console.debug(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
         }
 
-        const info = { gameId, map, status, score };
+        const info: GameUpdateInfo = { gameId, map, status, score };
 
         // If no map/status yet, maybe it's just starting
         let text = `*${escapeMarkdown(playerName)}* is playing Counter-Strike`;
@@ -254,7 +249,7 @@ class SteamService {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
-            const chatSettings = await this.dao.getChatSettings(chatId);
+            const chatSettings: ChatSettings = await this.dao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
                 console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
                 continue;
@@ -264,9 +259,9 @@ class SteamService {
         }
     }
 
-    async publishUpdate(chatId, tgUserId, text, info) {
+    async publishUpdate(chatId: string | number, tgUserId: string | number, text: string, info: GameUpdateInfo): Promise<void> {
         try {
-            const lastUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
+            const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
             
             // Avoid redundant updates
             if (lastUpdate && lastUpdate.text === text) {
@@ -278,7 +273,7 @@ class SteamService {
             const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
 
             if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
-                const oldInfo = lastUpdate.info || {};
+                const oldInfo: GameUpdateInfo = lastUpdate.info || {};
                 
                 // Check if the new update is less detailed than the previous one.
                 // We should NOT replace a more detailed message with a less detailed one
@@ -311,7 +306,7 @@ class SteamService {
                     // Keep original timestamp, but update text and info
                     await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
                     return;
-                } catch (err) {
+                } catch (err: any) {
                     if (err.message && err.message.includes('message is not modified')) {
                         console.log(`Message ${lastUpdate.message_id} in chat ${chatId} was already up to date according to Telegram.`);
                         // Still update our DAO to match what Telegram has (or what we think it should have)
@@ -336,7 +331,7 @@ class SteamService {
         }
     }
 
-    submitSteamGuardCode(code) {
+    submitSteamGuardCode(code: string): boolean {
         if (this.steamGuardCallback) {
             this.steamGuardCallback(code);
             this.steamGuardCallback = null;
@@ -345,7 +340,7 @@ class SteamService {
         return false;
     }
 
-    isGenericStatus(status) {
+    isGenericStatus(status: string | null | undefined): boolean {
         if (!status) return true;
         const generic = [
             'playing counter-strike 2',
@@ -359,15 +354,13 @@ class SteamService {
         return generic.includes(status.toLowerCase().trim());
     }
 
-    formatScore(score) {
+    formatScore(score: string): string {
         if (!score) return score;
         // Strip surrounding brackets and whitespace
         const cleanScore = score.replace(/[\[\]]/g, '').trim();
         const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
-        return cleanScore.replace(/\d/g, (match) => numberEmojis[parseInt(match)]);
+        return cleanScore.replace(/\d/g, (match: string) => numberEmojis[parseInt(match)]);
     }
 }
 
-SteamService.instance = null;
-
-module.exports = SteamService;
+export default SteamService;

@@ -4,6 +4,11 @@
   "main": "main.js",
   "author": "Robin Jacobs",
   "license": "GPL-3.0",
+  "scripts": {
+    "start": "ts-node main.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "engines": {
     "node": ">=24"
   },
@@ -17,5 +22,15 @@
     "steam-user": "^5.0.0",
     "timezone-soft": "^1.5.2",
     "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/console-stamp": "^0.2.33",
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^25.0.9",
+    "@types/node-telegram-bot-api": "^0.64.13",
+    "@types/steam-user": "^5.1.1",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

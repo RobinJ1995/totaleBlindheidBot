@@ -1,11 +1,13 @@
-const { formatError } = require('../../utils');
-const DAO = require('../../dao/DAO');
+import TelegramBot from 'node-telegram-bot-api';
+import { ExtendedMessage } from '../../MessageRouter';
+import { formatError } from '../../utils';
+import DAO from '../../dao/DAO';
 
 const dao = new DAO();
 
-module.exports = (bot, msg) => {
-    const args = msg.command?.argumentTokens;
-    const mentions = (msg.entities || []).filter(entity => entity?.type === 'mention' || entity?.type === 'text_mention');
+export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+    const args: string[] = msg.command?.argumentTokens || [];
+    const mentions: TelegramBot.MessageEntity[] = (msg.entities || []).filter(entity => entity?.type === 'mention' || entity?.type === 'text_mention');
 
     if (args.length === 0) {
         msg.reply('Who would you like to remove?');
@@ -15,16 +17,16 @@ module.exports = (bot, msg) => {
         return;
     }
 
-    const players = args.map((arg, i) => {
+    const players: string[] = args.map((arg, i) => {
         const mention = mentions[i];
-        if (mention?.type === 'text_mention') {
+        if (mention?.type === 'text_mention' && mention.user) {
             return `[${arg}](tg://user?id=${mention.user.id})`;
         }
         return arg;
     });
 
     Promise.all(players.map(player => dao.removeRollcallPlayer(msg.chat.id, player)))
-        .then(results => {
+        .then((results: boolean[]) => {
             if (results.every(r => r === false)) {
                 msg.reply('Who are they?');
                 return;
@@ -32,5 +34,5 @@ module.exports = (bot, msg) => {
 
             msg.reply('Poof! They\'re gone!')
         })
-        .catch(err => msg.reply(formatError(err)));
+        .catch((err: Error) => msg.reply(formatError(err)));
 }

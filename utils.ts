@@ -2,7 +2,7 @@ class NullValueError extends Error {}
 class EmptyValueError extends Error {}
 class WrongTypeError extends Error {}
 
-const checkNotNull = x => {
+const checkNotNull = <T>(x: T | null | undefined): T => {
     if (x === null || x === undefined) {
         throw new NullValueError('Null value');
     }
@@ -10,7 +10,7 @@ const checkNotNull = x => {
     return x;
 }
 
-const checkNotEmpty = x => {
+const checkNotEmpty = <T>(x: T): T => {
     if (String(checkNotNull(x)) === '') {
         throw new EmptyValueError('Empty value');
     }
@@ -18,7 +18,7 @@ const checkNotEmpty = x => {
     return x;
 }
 
-const checkNotEmptyOrWhitespace = x => {
+const checkNotEmptyOrWhitespace = <T>(x: T): T => {
     if (String(checkNotEmpty(x)).trim() === '') {
         throw new EmptyValueError('Whitespace-only value');
     }
@@ -26,17 +26,17 @@ const checkNotEmptyOrWhitespace = x => {
     return x;
 }
 
-const checkInstanceOf = (x, type) => {
-    if (!x instanceof type) {
+const checkInstanceOf = <T>(x: any, type: new (...args: any[]) => T): T => {
+    if (!(x instanceof type)) {
         throw new WrongTypeError('Type error');
     }
 
     return x;
 }
 
-const pickRandom = arr => arr[Math.floor(Math.random() * arr.length)];
+const pickRandom = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-const checkHttpStatus = res => {
+const checkHttpStatus = (res: Response): Response => {
     if ([200, 201, 204].includes(res.status)) {
         return res;
     }
@@ -44,14 +44,14 @@ const checkHttpStatus = res => {
     throw Error(`${res.status} ${res.statusText}`);
 };
 
-const httpCheckParse = res => checkHttpStatus(res).json();
+const httpCheckParse = (res: Response): Promise<any> => checkHttpStatus(res).json();
 
-const promiseLog = message => {
+const promiseLog = (message?: string): (<T>(x: T) => T) => {
     if (message) {
         console.info(message);
     }
 
-    return x => {
+    return <T>(x: T): T => {
         if (!message) {
             console.log(x);
         }
@@ -60,12 +60,12 @@ const promiseLog = message => {
     }
 }
 
-const escapeMarkdown = text => {
+const escapeMarkdown = (text: string): string => {
     // Only escape the subset of special characters accepted by Telegram
     return text.replace(/([`_*\\(\[])/g, '\\$1');
 }
 
-const formatError = err => {
+const formatError = (err: Error): string => {
     if (err.stack) {
         return escapeMarkdown(err.stack);
     }
@@ -73,7 +73,7 @@ const formatError = err => {
     return `*${err.message}*`;
 }
 
-module.exports = {
+export {
     checkNotNull,
     checkNotEmpty,
     checkNotEmptyOrWhitespace,
@@ -81,5 +81,8 @@ module.exports = {
     pickRandom,
     promiseLog,
     escapeMarkdown,
-    formatError
+    formatError,
+    NullValueError,
+    EmptyValueError,
+    WrongTypeError
 };

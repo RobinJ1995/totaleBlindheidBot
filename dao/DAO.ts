@@ -1,21 +1,48 @@
-const { v4: uuid } = require('uuid');
-const { checkNotEmpty } = require('../utils');
-const { loadJSON, saveJSON } = require('./S3Client');
+import { v4 as uuid } from 'uuid';
+import { checkNotEmpty } from '../utils';
+import { loadJSON, saveJSON } from './S3Client';
 
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
 const FILE_USER_SETTINGS = 'user_settings.json';
 
+export interface UserSettings {
+    steam_id?: string;
+    steam_ids?: string[];
+    timezone?: string;
+}
+
+export interface ChatSettings {
+    steam_updates?: boolean;
+}
+
+export interface GameUpdate {
+    message_id: number;
+    text: string;
+    info: any;
+    timestamp: string;
+}
+
+export interface RollcallPlayer {
+    username: string;
+    chat_id: number | string;
+    key?: string;
+}
+
+export type ScheduledRollcalls = Record<string, string>;
+
 class DAO {
+    private locks: Map<string, Promise<any>>;
+
     constructor() {
         this.locks = new Map();
     }
 
-    async _withLock(key, fn) {
+    async _withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
         if (!this.locks.has(key)) {
             this.locks.set(key, Promise.resolve());
         }
-        const lock = this.locks.get(key);
+        const lock = this.locks.get(key)!;
         const nextLock = lock.then(async () => {
             try {
                 return await fn();
@@ -29,21 +56,21 @@ class DAO {
         return nextLock;
     }
 
-    getUserSettings(user_id) {
-        return loadJSON(FILE_USER_SETTINGS)
+    getUserSettings(user_id: string | number): Promise<UserSettings> {
+        return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
             .then(settings => settings[user_id] || {});
     }
 
-    getAllUserSettings() {
-        return loadJSON(FILE_USER_SETTINGS);
+    getAllUserSettings(): Promise<Record<string, UserSettings>> {
+        return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS);
     }
 
-    setSteamUserId(user_id, steam_id) {
+    setSteamUserId(user_id: string | number, steam_id: string | string[]): Promise<void> {
         return this._withLock(FILE_USER_SETTINGS, () => {
-            return loadJSON(FILE_USER_SETTINGS)
+            return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
                 .then(settings => {
                     if (!settings[user_id]) settings[user_id] = {};
-                    const steamIds = Array.isArray(steam_id) ? steam_id : [steam_id];
+                    const steamIds: string[] = Array.isArray(steam_id) ? steam_id : [steam_id];
                     settings[user_id].steam_id = steamIds[0];
                     settings[user_id].steam_ids = steamIds;
                     return saveJSON(FILE_USER_SETTINGS, settings);
@@ -51,14 +78,14 @@ class DAO {
         });
     }
 
-    getUserTimezone(user_id) {
+    getUserTimezone(user_id: string | number): Promise<string> {
         return this.getUserSettings(user_id)
-            .then(settings => settings.timezone || 'UTC');
+            .then((settings: UserSettings) => settings.timezone || 'UTC');
     }
 
-    setUserTimezone(user_id, timezone) {
+    setUserTimezone(user_id: string | number, timezone: string): Promise<void> {
         return this._withLock(FILE_USER_SETTINGS, () => {
-            return loadJSON(FILE_USER_SETTINGS)
+            return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
                 .then(settings => {
                     if (!settings[user_id]) settings[user_id] = {};
                     settings[user_id].timezone = timezone;
@@ -67,12 +94,12 @@ class DAO {
         });
     }
 
-    addUserChat(user_id, chat_id) {
+    addUserChat(user_id: string | number, chat_id: string | number): Promise<boolean> {
         const key = `user_chats/${user_id}.json`;
         return this._withLock(key, () => {
-            return loadJSON(key)
-                .then(userChats => {
-                    const chats = Array.isArray(userChats) ? userChats : [];
+            return loadJSON<(string | number)[]>(key)
+                .then((userChats: (string | number)[]) => {
+                    const chats: (string | number)[] = Array.isArray(userChats) ? userChats : [];
                     if (!chats.includes(chat_id)) {
                         chats.push(chat_id);
                         return saveJSON(key, chats).then(() => true);
@@ -82,23 +109,23 @@ class DAO {
         });
     }
 
-    getUserChats(user_id) {
+    getUserChats(user_id: string | number): Promise<(string | number)[]> {
         const key = `user_chats/${user_id}.json`;
-        return loadJSON(key)
-            .then(userChats => Array.isArray(userChats) ? userChats : []);
+        return loadJSON<(string | number)[]>(key)
+            .then((userChats: (string | number)[]) => Array.isArray(userChats) ? userChats : []);
     }
 
-    getChatSettings(chat_id) {
+    getChatSettings(chat_id: string | number): Promise<ChatSettings> {
         const key = `chat_settings/${chat_id}.json`;
-        return loadJSON(key);
+        return loadJSON<ChatSettings>(key);
     }
 
-    setChatSettings(chat_id, newSettings) {
+    setChatSettings(chat_id: string | number, newSettings: ChatSettings): Promise<void> {
         const key = `chat_settings/${chat_id}.json`;
         return this._withLock(key, () => {
-            return loadJSON(key)
+            return loadJSON<ChatSettings>(key)
                 .then(settings => {
-                    const updated = {
+                    const updated: ChatSettings = {
                         ...settings,
                         ...newSettings
                     };
@@ -107,15 +134,15 @@ class DAO {
         });
     }
 
-    getGameUpdate(chat_id, user_id) {
+    getGameUpdate(chat_id: string | number, user_id: string | number): Promise<GameUpdate> {
         const key = `game_updates/${chat_id}_${user_id}.json`;
-        return loadJSON(key);
+        return loadJSON<GameUpdate>(key);
     }
 
-    setGameUpdate(chat_id, user_id, message_id, text, info = {}) {
+    setGameUpdate(chat_id: string | number, user_id: string | number, message_id: number, text: string, info: any = {}): Promise<void> {
         const key = `game_updates/${chat_id}_${user_id}.json`;
         return this._withLock(key, () => {
-            const update = {
+            const update: GameUpdate = {
                 message_id,
                 text,
                 info,
@@ -125,10 +152,10 @@ class DAO {
         });
     }
 
-    updateGameUpdateText(chat_id, user_id, text, info = {}) {
+    updateGameUpdateText(chat_id: string | number, user_id: string | number, text: string, info: any = {}): Promise<void> {
         const key = `game_updates/${chat_id}_${user_id}.json`;
         return this._withLock(key, () => {
-            return loadJSON(key)
+            return loadJSON<GameUpdate>(key)
                 .then(update => {
                     if (update && update.message_id) {
                         update.text = text;
@@ -139,13 +166,13 @@ class DAO {
         });
     }
 
-    getScheduledRollcalls() {
-        return loadJSON(FILE_ROLLCALL_SCHEDULES);
+    getScheduledRollcalls(): Promise<ScheduledRollcalls> {
+        return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES);
     }
 
-    setScheduledRollcall(chat_id, time) {
+    setScheduledRollcall(chat_id: string | number, time: Date): Promise<void> {
         return this._withLock(FILE_ROLLCALL_SCHEDULES, () => {
-            return loadJSON(FILE_ROLLCALL_SCHEDULES)
+            return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES)
                 .then(schedules => {
                     schedules[chat_id] = time.toISOString();
                     return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
@@ -153,9 +180,9 @@ class DAO {
         });
     }
 
-    removeScheduledRollcall(chat_id) {
+    removeScheduledRollcall(chat_id: string | number): Promise<void> {
         return this._withLock(FILE_ROLLCALL_SCHEDULES, () => {
-            return loadJSON(FILE_ROLLCALL_SCHEDULES)
+            return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES)
                 .then(schedules => {
                     delete schedules[chat_id];
                     return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
@@ -163,26 +190,26 @@ class DAO {
         });
     }
 
-    _getRollcallPlayers(chat_id) {
-        return loadJSON(FILE_ROLLCALL_PLAYERS)
-            .then(players => Object.keys(players).reduce((acc, key) => ([
+    _getRollcallPlayers(chat_id: string | number): Promise<RollcallPlayer[]> {
+        return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
+            .then(players => Object.keys(players).reduce((acc: RollcallPlayer[], key) => ([
                 ...acc,
                 {
                     key,
                     ...players[key]
                 }
             ]), []))
-            .then(players => players.filter(player => String(player?.chat_id) === String(chat_id)));
+            .then((players: RollcallPlayer[]) => players.filter((player: RollcallPlayer) => String(player?.chat_id) === String(chat_id)));
     }
 
-    getRollcallPlayerUsernames(chat_id) {
+    getRollcallPlayerUsernames(chat_id: string | number): Promise<string[]> {
         return this._getRollcallPlayers(chat_id)
             .then(players => players.map(player => player.username));
     }
 
-    addRollcallPlayer(chat_id, username) {
+    addRollcallPlayer(chat_id: string | number, username: string): Promise<string> {
         return this._withLock(FILE_ROLLCALL_PLAYERS, () => {
-            return loadJSON(FILE_ROLLCALL_PLAYERS)
+            return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
                 .then(players => {
                     const key = uuid();
                     players[key] = {
@@ -195,7 +222,7 @@ class DAO {
         });
     }
 
-    removeRollcallPlayer(chat_id, username) {
+    removeRollcallPlayer(chat_id: string | number, username: string): Promise<boolean> {
         return this._withLock(FILE_ROLLCALL_PLAYERS, () => {
             return this._getRollcallPlayers(checkNotEmpty(chat_id))
                 .then(players => players.find(
@@ -220,7 +247,7 @@ class DAO {
                         return false;
                     }
 
-                    return loadJSON(FILE_ROLLCALL_PLAYERS)
+                    return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
                         .then(players => {
                             delete players[key];
                             return saveJSON(FILE_ROLLCALL_PLAYERS, players);
@@ -231,4 +258,4 @@ class DAO {
     }
 }
 
-module.exports = DAO;
+export default DAO;

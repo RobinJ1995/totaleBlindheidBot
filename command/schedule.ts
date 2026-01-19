@@ -1,28 +1,30 @@
-const { parseTime } = require('../timeUtils');
-const DAO = require('../dao/DAO');
-const { formatError, escapeMarkdown } = require('../utils');
+import TelegramBot from 'node-telegram-bot-api';
+import { ExtendedMessage } from '../MessageRouter';
+import { parseTime } from '../timeUtils';
+import DAO from '../dao/DAO';
+import { formatError, escapeMarkdown } from '../utils';
 
 const dao = new DAO();
 
-module.exports = (bot, msg) => {
-    const argument = msg.command?.argument;
+export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+    const argument: string | undefined = msg.command?.argument;
     if (!argument) {
         msg.reply('Please specify a time to schedule the rollcall.');
         return;
     }
 
-    const user_id = msg.from.id;
+    const user_id: number = msg.from?.id || 0;
     dao.getUserTimezone(user_id)
-        .then(timezone => {
-            const scheduledTime = parseTime(argument, new Date(), timezone);
+        .then((timezone: string) => {
+            const scheduledTime: Date | null = parseTime(argument, new Date(), timezone);
             if (!scheduledTime) {
                 msg.reply('Invalid time format.');
                 return;
             }
 
-            const now = new Date();
-            const diffMs = scheduledTime.getTime() - now.getTime();
-            const diffMinutes = diffMs / 60000;
+            const now: Date = new Date();
+            const diffMs: number = scheduledTime.getTime() - now.getTime();
+            const diffMinutes: number = diffMs / 60000;
 
             if (diffMinutes < 2) {
                 msg.reply('Rollcall must be scheduled at least 2 minutes in advance.');
@@ -34,10 +36,10 @@ module.exports = (bot, msg) => {
                 return;
             }
 
-            const chat_id = msg.chat.id;
+            const chat_id: number = msg.chat.id;
             return dao.setScheduledRollcall(chat_id, scheduledTime)
                 .then(() => {
-                    const timeString = scheduledTime.toLocaleString('en-GB', {
+                    const timeString: string = scheduledTime.toLocaleString('en-GB', {
                         timeZone: timezone,
                         year: 'numeric',
                         month: 'numeric',
@@ -50,5 +52,5 @@ module.exports = (bot, msg) => {
                     msg.reply(`Rollcall scheduled for ${escapeMarkdown(timeString)}`);
                 });
         })
-        .catch(err => msg.reply(formatError(err)));
+        .catch((err: Error) => msg.reply(formatError(err)));
 };
