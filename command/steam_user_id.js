@@ -8,33 +8,41 @@ module.exports = (bot, msg) => {
     const adminId = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
     const isAdmin = adminId && String(msg.from.id) === String(adminId);
 
+    const parseAndValidate = (arg) => {
+        const ids = arg.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        const valid = ids.length > 0 && ids.every(id => /^\d{17}$/.test(id));
+        return { ids, valid };
+    };
+
     if (isAdmin && args.length === 2) {
-        const [tgUserId, steamId] = args;
+        const [tgUserId, steamIdArg] = args;
         if (!/^\d+$/.test(tgUserId)) {
             msg.reply('Invalid Telegram user ID.');
             return;
         }
-        if (!/^\d{17}$/.test(steamId)) {
-            msg.reply('Invalid Steam ID. Must be 17 digits.');
+
+        const { ids, valid } = parseAndValidate(steamIdArg);
+        if (!valid) {
+            msg.reply('Invalid Steam ID(s). Each must be a 17-digit number (SteamID64) starting with 7656.');
             return;
         }
 
-        console.log(`Admin ${msg.from.id} set Steam ID for user ${tgUserId} to ${steamId}`);
-        dao.setSteamUserId(tgUserId, steamId)
-            .then(() => msg.reply(`Steam user id for user ${tgUserId} has been set to ${steamId}`))
+        console.log(`Admin ${msg.from.id} set Steam ID(s) for user ${tgUserId} to ${ids.join(', ')}`);
+        dao.setSteamUserId(tgUserId, ids)
+            .then(() => msg.reply(`Steam user ID(s) for user ${tgUserId} has been set to ${ids.join(', ')}`))
             .catch(err => msg.reply(formatError(err)));
         return;
     }
 
-    const argument = msg.command?.argument;
-    if (!argument || !/^\d{17}$/.test(argument)) {
-        msg.reply('Please specify your Steam user id as a SteamID64 (the 17-digit number starting with 7656).');
+    const { ids, valid } = parseAndValidate(msg.command?.argument);
+    if (!valid) {
+        msg.reply('Please specify your Steam user ID(s) as SteamID64 (the 17-digit number starting with 7656), separated by commas if multiple.');
         return;
     }
 
     const user_id = msg.from.id;
-    console.log(`User ${user_id} set Steam ID to ${argument}`);
-    dao.setSteamUserId(user_id, argument)
-        .then(() => msg.reply(`Your Steam user id has been set to ${argument}`))
+    console.log(`User ${user_id} set Steam ID(s) to ${ids.join(', ')}`);
+    dao.setSteamUserId(user_id, ids)
+        .then(() => msg.reply(`Your Steam user ID(s) has been set to ${ids.join(', ')}`))
         .catch(err => msg.reply(formatError(err)));
 };

@@ -121,12 +121,13 @@ class SteamService {
             const newMappings = {};
             const steamIds = [];
             for (const [tgId, data] of Object.entries(settings)) {
-                if (data.steam_id) {
-                    newMappings[data.steam_id] = tgId;
-                    steamIds.push(data.steam_id);
+                const sids = data.steam_ids || (data.steam_id ? [data.steam_id] : []);
+                for (const steamId of sids) {
+                    newMappings[steamId] = tgId;
+                    steamIds.push(steamId);
 
-                    if (this.client.myFriends && this.client.myFriends[data.steam_id] !== SteamUser.EFriendRelationship.Friend) {
-                        console.warn(`Tracked user ${tgId} (Steam ID: ${data.steam_id}) is NOT a friend of the bot account. Updates might not work.`);
+                    if (this.client.myFriends && this.client.myFriends[steamId] !== SteamUser.EFriendRelationship.Friend) {
+                        console.warn(`Tracked user ${tgId} (Steam ID: ${steamId}) is NOT a friend of the bot account. Updates might not work.`);
                     }
                 }
             }

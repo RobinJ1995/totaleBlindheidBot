@@ -43,7 +43,9 @@ class DAO {
             return loadJSON(FILE_USER_SETTINGS)
                 .then(settings => {
                     if (!settings[user_id]) settings[user_id] = {};
-                    settings[user_id].steam_id = steam_id;
+                    const steamIds = Array.isArray(steam_id) ? steam_id : [steam_id];
+                    settings[user_id].steam_id = steamIds[0];
+                    settings[user_id].steam_ids = steamIds;
                     return saveJSON(FILE_USER_SETTINGS, settings);
                 });
         });
