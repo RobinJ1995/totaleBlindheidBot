@@ -203,17 +203,7 @@ class SteamService {
 
         // Check if playing CS2
         const isPlayingCS2 = gameId == this.appIdCS2;
-        if (!isPlayingCS2) {
-            if (gameId) {
-                console.debug(`User ${playerName} (${steamId}) is playing something else (ID: ${gameId}), ignoring.`);
-            } else {
-                console.debug(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
-            }
-            return;
-        }
-
-        console.debug(`User update: ${playerName} (${steamId}) is playing CS2`);
-
+        
         // Extract game info from rich presence
         let map, status, score;
         const rp = user.rich_presence;
@@ -236,57 +226,55 @@ class SteamService {
             score = this.formatScore(score);
         }
 
-        if (map || status || score) {
-            console.debug(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
-        }
-
-        const info = { gameId, map, status, score };
-
-        // If no map/status yet, maybe it's just starting
-        let text = `*${escapeMarkdown(playerName)}* is playing Counter-Strike`;
-        if (map || status || score) text += `\n`;
-        if (map) text += `\nMap: ${escapeMarkdown(map)}`;
-        if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
-        if (score) text += `\nScore: ${escapeMarkdown(score)}`;
+        const info = { playerName, gameId, map, status, score, isPlaying: isPlayingCS2 };
 
         const chats = await this.dao.getUserChats(tgUserId);
-        if (chats.length === 0) {
-            console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
-        }
         for (const chatId of chats) {
             const chatSettings = await this.dao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
-                console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
                 continue;
             }
-            console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
-            await this.publishUpdate(chatId, tgUserId, text, info);
+            await this.updateGroupUpdate(chatId, tgUserId, info);
         }
     }
 
-    async publishUpdate(chatId, tgUserId, text, info) {
-        try {
-            const lastUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
-            
-            // Avoid redundant updates
-            if (lastUpdate && lastUpdate.text === text) {
-                console.log(`Update for user ${tgUserId} in chat ${chatId} is redundant (text hasn't changed), skipping.`);
+    async updateGroupUpdate(chatId, tgUserId, info) {
+        let session = await this.dao.getGroupGameUpdate(chatId);
+        
+        if (!session) {
+            session = {
+                message_id: null,
+                active: false,
+                users: {}
+            };
+        }
+
+        const userInSession = session.users[tgUserId];
+        
+        if (!info.isPlaying) {
+            if (!userInSession || !userInSession.isPlaying) {
+                // User was not playing and is still not playing, nothing to do
                 return;
             }
+            // User stopped playing
+            session.users[tgUserId].isPlaying = false;
+        } else {
+            // User is playing
+            if (!session.active) {
+                // New session starts
+                console.log(`Starting new Steam session for chat ${chatId}`);
+                session.active = true;
+                session.users = {};
+                session.message_id = null;
+            }
 
-            const now = new Date();
-            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-
-            if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
-                const oldInfo = lastUpdate.info || {};
-                
-                // Check if the new update is less detailed than the previous one.
-                // We should NOT replace a more detailed message with a less detailed one
-                // UNLESS the map or game mode/status or game itself has changed.
+            // PROTECTION LOGIC: Check if new update is less detailed than what we already have
+            if (userInSession && userInSession.isPlaying) {
+                const oldInfo = userInSession;
                 const gameChanged = info.gameId !== oldInfo.gameId;
                 const mapChanged = info.map && info.map !== oldInfo.map;
                 const meaningfulStatusChanged = info.status && info.status !== oldInfo.status && !this.isGenericStatus(info.status);
-                
+
                 if (!gameChanged && !mapChanged && !meaningfulStatusChanged) {
                     // Critical info is the same. Now check if we are losing detail.
                     const lostScore = oldInfo.score && !info.score;
@@ -294,46 +282,155 @@ class SteamService {
                     const lostStatus = oldInfo.status && !this.isGenericStatus(oldInfo.status) && this.isGenericStatus(info.status);
 
                     if (lostScore || lostMap || lostStatus) {
-                        console.log(`New update for user ${tgUserId} is less detailed than the existing one and map/mode haven't changed. Skipping update.`);
+                        console.log(`New update for user ${tgUserId} is less detailed than existing info for ${info.playerName}. Skipping update.`);
                         return;
                     }
                 }
-
-                console.log(`Last update for user ${tgUserId} in chat ${chatId} was at ${lastUpdate.timestamp} (less than 6h ago). Attempting to edit message ${lastUpdate.message_id}.`);
-                // Update existing message
-                try {
-                    console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);
-                    await this.bot.editMessageText(text, {
-                        chat_id: chatId,
-                        message_id: lastUpdate.message_id,
-                        parse_mode: 'Markdown'
-                    });
-                    // Keep original timestamp, but update text and info
-                    await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
-                    return;
-                } catch (err) {
-                    if (err.message && err.message.includes('message is not modified')) {
-                        console.log(`Message ${lastUpdate.message_id} in chat ${chatId} was already up to date according to Telegram.`);
-                        // Still update our DAO to match what Telegram has (or what we think it should have)
-                        await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
-                        return;
-                    }
-                    console.error(`Failed to edit message ${lastUpdate.message_id} in chat ${chatId}:`, err);
-                    // If editing fails (e.g. message too old or deleted), send a new one
-                }
             }
 
-            // Send new message
-            console.log(`Sending new update message to chat ${chatId} for user ${tgUserId}`);
-            const sentMessage = await this.bot.sendMessage(chatId, text, {
-                parse_mode: 'Markdown'
-            });
-            if (sentMessage && sentMessage.message_id) {
-                await this.dao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text, info);
-            }
-        } catch (err) {
-            console.error(`Error publishing update to chat ${chatId}:`, err);
+            session.users[tgUserId] = {
+                ...info,
+                lastUpdate: new Date().toISOString()
+            };
         }
+
+        // Check if session is still active
+        const activeUsers = Object.values(session.users).filter(u => u.isPlaying);
+        const sessionStillActive = activeUsers.length > 0;
+        const sessionJustEnded = !sessionStillActive && session.active;
+        
+        if (sessionJustEnded) {
+            session.active = false;
+        }
+
+        const text = this.formatGroupMessage(session);
+
+        // Avoid redundant updates if message hasn't changed
+        if (session.message_id && session.last_text === text) {
+             if (!sessionJustEnded) {
+                 return;
+             }
+        }
+
+        if (session.message_id) {
+            // Update existing message
+            try {
+                console.log(`Editing group message ${session.message_id} in chat ${chatId}`);
+                await this.bot.editMessageText(text, {
+                    chat_id: chatId,
+                    message_id: session.message_id,
+                    parse_mode: 'Markdown'
+                });
+                session.last_text = text;
+            } catch (err) {
+                if (err.message && err.message.includes('message is not modified')) {
+                    // Ignore
+                } else if (err.message && (err.message.includes('message to edit not found') || err.message.includes('message can\'t be edited'))) {
+                    console.warn(`Group message ${session.message_id} in chat ${chatId} not found or not editable, sending new one.`);
+                    session.message_id = null;
+                } else {
+                    console.error(`Failed to edit group message in ${chatId}:`, err);
+                }
+            }
+        }
+
+        if (!session.message_id && sessionStillActive) {
+            // Send new message
+            try {
+                console.log(`Sending new group message to chat ${chatId}`);
+                const sentMessage = await this.bot.sendMessage(chatId, text, {
+                    parse_mode: 'Markdown'
+                });
+                session.message_id = sentMessage.message_id;
+                session.last_text = text;
+                
+                // Pin message
+                try {
+                    console.log(`Pinning message ${session.message_id} in chat ${chatId}`);
+                    await this.bot.pinChatMessage(chatId, session.message_id, {
+                        disable_notification: true
+                    });
+                } catch (pinErr) {
+                    console.error(`Failed to pin message in ${chatId}:`, pinErr);
+                }
+            } catch (err) {
+                console.error(`Failed to send group message in ${chatId}:`, err);
+            }
+        }
+
+        if (sessionJustEnded && session.message_id) {
+            // Session just ended
+            console.log(`Session ended in chat ${chatId}`);
+            try {
+                console.log(`Unpinning message ${session.message_id} in chat ${chatId}`);
+                await this.bot.unpinChatMessage(chatId, {
+                    message_id: session.message_id
+                });
+            } catch (unpinErr) {
+                console.error(`Failed to unpin message in ${chatId}:`, unpinErr);
+            }
+        }
+
+        await this.dao.setGroupGameUpdate(chatId, session);
+    }
+
+    formatGroupMessage(session) {
+        const users = Object.values(session.users);
+        const activeOnly = session.active;
+        
+        const playersToShow = activeOnly 
+            ? users.filter(u => u.isPlaying) 
+            : users;
+
+        if (playersToShow.length === 0) {
+            return "No one is playing.";
+        }
+
+        // Group users by (map + score + status)
+        const groups = [];
+        for (const user of playersToShow) {
+            const existingGroup = groups.find(g => 
+                g.map === user.map && 
+                g.score === user.score && 
+                g.status === user.status
+            );
+            if (existingGroup) {
+                existingGroup.userNames.push(user.playerName);
+            } else {
+                groups.push({
+                    map: user.map,
+                    score: user.score,
+                    status: user.status,
+                    userNames: [user.playerName]
+                });
+            }
+        }
+
+        const blocks = groups.map(group => {
+            let names;
+            const escapedNames = group.userNames.map(escapeMarkdown);
+            if (escapedNames.length === 1) {
+                names = `*${escapedNames[0]}*`;
+            } else if (escapedNames.length === 2) {
+                names = `*${escapedNames[0]}* and *${escapedNames[1]}*`;
+            } else {
+                const last = escapedNames.pop();
+                names = escapedNames.map(n => `*${n}*`).join(', ') + ` and *${last}*`;
+            }
+
+            let text = `${names} ${group.userNames.length > 1 ? 'are' : 'is'} playing Counter-Strike`;
+            if (group.map) text += `\nMap: ${escapeMarkdown(group.map)}`;
+            if (group.status) text += `\nStatus: ${escapeMarkdown(group.status)}`;
+            if (group.score) text += `\nScore: ${escapeMarkdown(group.score)}`;
+            return text;
+        });
+
+        let finalMessage = blocks.join('\n\n');
+        if (!session.active) {
+            finalMessage = "🏁 *Session Ended*\n\n" + finalMessage;
+        }
+
+        return finalMessage;
     }
 
     submitSteamGuardCode(code) {
