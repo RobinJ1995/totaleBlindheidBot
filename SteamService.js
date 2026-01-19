@@ -241,10 +241,10 @@ class SteamService {
     async updateGroupUpdate(chatId, tgUserId, info) {
         let session = await this.dao.getGroupGameUpdate(chatId);
         
-        if (!session) {
+        if (!session || !session.users) {
             session = {
-                message_id: null,
-                active: false,
+                message_id: session?.message_id || null,
+                active: session?.active || false,
                 users: {}
             };
         }
