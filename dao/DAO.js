@@ -107,15 +107,35 @@ class DAO {
         });
     }
 
-    getGroupGameUpdate(chat_id) {
-        const key = `group_game_updates/${chat_id}.json`;
+    getGameUpdate(chat_id, user_id) {
+        const key = `game_updates/${chat_id}_${user_id}.json`;
         return loadJSON(key);
     }
 
-    setGroupGameUpdate(chat_id, update) {
-        const key = `group_game_updates/${chat_id}.json`;
+    setGameUpdate(chat_id, user_id, message_id, text, info = {}) {
+        const key = `game_updates/${chat_id}_${user_id}.json`;
         return this._withLock(key, () => {
+            const update = {
+                message_id,
+                text,
+                info,
+                timestamp: new Date().toISOString()
+            };
             return saveJSON(key, update);
+        });
+    }
+
+    updateGameUpdateText(chat_id, user_id, text, info = {}) {
+        const key = `game_updates/${chat_id}_${user_id}.json`;
+        return this._withLock(key, () => {
+            return loadJSON(key)
+                .then(update => {
+                    if (update && update.message_id) {
+                        update.text = text;
+                        update.info = info;
+                        return saveJSON(key, update);
+                    }
+                });
         });
     }
 
