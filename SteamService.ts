@@ -375,6 +375,24 @@ class SteamService {
 
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
         try {
+            // Check if ANY tracked steam ID for this user is playing CS2
+            // We need to fetch settings first to know all steam IDs
+            const settings = await this.dao.getUserSettings(tgUserId);
+            const steamIds = settings.steam_ids || (settings.steam_id ? [settings.steam_id] : []);
+            
+            const isAnyPlaying = steamIds.some(sid => {
+                 const user = this.client.users[sid];
+                 // Check if playing CS2 (AppID 730)
+                 return user && user.gameid == this.appIdCS2;
+            });
+    
+            if (isAnyPlaying) {
+                 if (process.env.LOG_DEBUG) {
+                     console.debug(`User ${tgUserId} has an active session on one of their accounts. Not closing.`);
+                 }
+                 return;
+            }
+
             const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
             if (!lastUpdate || !lastUpdate.text) return;
 
