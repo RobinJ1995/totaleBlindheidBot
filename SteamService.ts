@@ -204,6 +204,11 @@ class SteamService {
             } else {
                 console.debug(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
             }
+
+            const chats = await this.dao.getUserChats(tgUserId);
+            for (const chatId of chats) {
+                await this.maybeCloseSession(chatId, tgUserId);
+            }
             return;
         }
 
@@ -238,7 +243,7 @@ class SteamService {
         const info: GameUpdateInfo = { gameId, map, status, score };
 
         // If no map/status yet, maybe it's just starting
-        let text = `*${escapeMarkdown(playerName)}* is playing Counter-Strike`;
+        let text = `🟢 *${escapeMarkdown(playerName)}* is playing Counter-Strike`;
         if (map || status || score) text += `\n`;
         if (map) text += `\nMap: ${escapeMarkdown(map)}`;
         if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
@@ -360,6 +365,50 @@ class SteamService {
         const cleanScore = score.replace(/[\[\]]/g, '').trim();
         const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
         return cleanScore.replace(/\d/g, (match: string) => numberEmojis[parseInt(match)]);
+    }
+
+    async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
+        try {
+            const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
+            if (!lastUpdate || !lastUpdate.text) return;
+
+            // If message is too old (> 6 hours), ignore
+            const now = new Date();
+            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+            if (new Date(lastUpdate.timestamp) < sixHoursAgo) return;
+
+            let newText = lastUpdate.text;
+
+            // Check if already closed
+            if (newText.startsWith('🔴')) {
+                return;
+            }
+
+            if (newText.startsWith('🟢')) {
+                newText = newText.replace('🟢', '🔴');
+            } else {
+                // Legacy or unexpected format, prepend red
+                newText = `🔴 ${newText}`;
+            }
+
+            console.log(`Closing session for user ${tgUserId} in chat ${chatId}. Editing message ${lastUpdate.message_id}.`);
+
+            await this.bot.editMessageText(newText, {
+                chat_id: chatId,
+                message_id: lastUpdate.message_id,
+                parse_mode: 'Markdown'
+            });
+
+            // Update DAO with new text but keep old info
+            await this.dao.updateGameUpdateText(chatId, tgUserId, newText, lastUpdate.info);
+
+        } catch (err: any) {
+            if (err.message && err.message.includes('message is not modified')) {
+                // Ignore
+                return;
+            }
+            console.error(`Failed to close session in chat ${chatId}:`, err);
+        }
     }
 }
 
