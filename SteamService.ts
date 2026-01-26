@@ -28,6 +28,8 @@ interface SteamUserUpdate {
     gameid?: string | number;
     rich_presence?: SteamRichPresenceItem[] | Record<string, string>;
     rich_presence_string?: string;
+    game_played_app_id?: number | null;
+    online_session_instances?: number | null;
 }
 
 class SteamService {
@@ -194,7 +196,11 @@ class SteamService {
             return;
         }
 
-        console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}). Playing game ID: ${gameId}`, user);
+        if (process.env.LOG_DEBUG) {
+            console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}).`, { gameId, ...user });
+        } else {
+            console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}).`, { gameId, game_played_app_id: user?.game_played_app_id, online_session_instances: user?.online_session_instances, rich_presence: user?.rich_presence });
+        }
 
         // Check if playing CS2
         const isPlayingCS2 = gameId == this.appIdCS2;
