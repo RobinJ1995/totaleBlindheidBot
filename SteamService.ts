@@ -41,6 +41,9 @@ class SteamService {
     private steamGuardCallback: ((code: string) => void) | null;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
+    private reconnectTimer: NodeJS.Timeout | null;
+    private logOnOptions: any;
+    private sharedSecret: string | undefined;
     public static instance: SteamService | null = null;
 
     constructor(bot: TelegramBot) {
@@ -77,6 +80,9 @@ class SteamService {
         this.steamGuardCallback = null;
         this.adminUserId = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
         this.updateInterval = null;
+        this.reconnectTimer = null;
+        this.logOnOptions = null;
+        this.sharedSecret = undefined;
         SteamService.instance = this;
     }
 
@@ -92,16 +98,17 @@ class SteamService {
             return;
         }
 
-        const logOnOptions: any = {
+        this.sharedSecret = sharedSecret;
+        this.logOnOptions = {
             accountName: username,
             password: password
         };
 
-        if (sharedSecret) {
-            logOnOptions.twoFactorCode = SteamTotp.generateAuthCode(sharedSecret);
+        if (this.sharedSecret) {
+            this.logOnOptions.twoFactorCode = SteamTotp.generateAuthCode(this.sharedSecret);
         }
 
-        this.client.logOn(logOnOptions);
+        this.client.logOn(this.logOnOptions);
 
         this.client.on('loggedOn', () => {
             console.log(`Logged on to Steam as ${this.client.steamID?.getSteamID64()}`);
@@ -122,8 +129,8 @@ class SteamService {
                         .catch(err => console.error('Failed to send error to admin:', err));
                 }
             }
-            if (sharedSecret) {
-                callback(SteamTotp.generateAuthCode(sharedSecret));
+            if (this.sharedSecret) {
+                callback(SteamTotp.generateAuthCode(this.sharedSecret));
             } else {
                 this.steamGuardCallback = callback;
                 const method = domain ? `email to ${domain}` : 'mobile app';
@@ -138,7 +145,16 @@ class SteamService {
         });
 
         this.client.on('error', (err: any) => {
-            console.error('Steam error:', err);
+            console.error('Steam fatal error (will reconnect):', err);
+            if (this.adminUserId) {
+                this.bot.sendMessage(this.adminUserId, `Steam fatal error: ${err.message ?? err}. Reconnecting in 30s...`)
+                    .catch(() => {});
+            }
+            this.reconnect();
+        });
+
+        this.client.on('disconnected', (eresult: any, msg?: string) => {
+            console.warn(`Steam disconnected (eresult=${eresult}${msg ? ', ' + msg : ''}). Library auto-reconnect is active.`);
         });
 
         this.client.on('user', (sid: any, user: any) => {
@@ -149,7 +165,24 @@ class SteamService {
         this.updateInterval = setInterval(() => this.updateUserMappings(), 60000);
     }
 
+    private reconnect(delayMs = 30_000): void {
+        if (this.reconnectTimer) return;
+        console.warn(`Steam: scheduling reconnect in ${delayMs / 1000}s...`);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.sharedSecret) {
+                this.logOnOptions.twoFactorCode = SteamTotp.generateAuthCode(this.sharedSecret);
+            }
+            console.log('Steam: attempting reconnect...');
+            this.client.logOn(this.logOnOptions);
+        }, delayMs);
+    }
+
     stop(): void {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
