@@ -4,7 +4,10 @@ import SteamService from '../SteamService';
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const adminId: string | undefined = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
-    if (adminId && String(msg.from?.id) !== String(adminId)) {
+    if (!adminId) {
+        console.warn('STEAM_ADMIN_TELEGRAM_USER_ID is not set; refusing /steam_guard from user ' + msg.from?.id);
+        return;
+    } else if (String(msg.from?.id) !== String(adminId)) {
         console.warn(`Unauthorized attempt to use /steam_guard by user ${msg.from?.id}`);
         return;
     }
