@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import DAO from './dao/DAO';
-import { escapeMarkdown } from './utils';
+import { escapeHtml } from './utils';
 
 interface GitHubCommit {
     sha: string;
@@ -111,7 +111,7 @@ class GitHubService {
                 for (const chatId of chats) {
                     try {
                         await this.bot.sendMessage(chatId, text, {
-                            parse_mode: 'Markdown',
+                            parse_mode: 'HTML',
                             disable_web_page_preview: true
                         });
                     } catch (err) {
@@ -127,8 +127,8 @@ class GitHubService {
     private formatCommit(commit: GitHubCommit): string {
         const message = commit.commit.message || '';
 
-        return `New commit: ${commit.html_url}\n` +
-            escapeMarkdown(message);
+        return `New commit: ${escapeHtml(commit.html_url)}\n` +
+            `<blockquote expandable>${escapeHtml(message)}</blockquote>`;
     }
 }
 

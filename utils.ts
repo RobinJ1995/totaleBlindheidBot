@@ -65,6 +65,11 @@ const escapeMarkdown = (text: string): string => {
     return text.replace(/([`_*\\(\[])/g, '\\$1');
 }
 
+const escapeHtml = (text: string): string => {
+    // Escape the characters that are significant in Telegram's HTML parse mode
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 const formatError = (err: Error): string => {
     if (err.stack) {
         return escapeMarkdown(err.stack);
@@ -81,6 +86,7 @@ export {
     pickRandom,
     promiseLog,
     escapeMarkdown,
+    escapeHtml,
     formatError,
     NullValueError,
     EmptyValueError,
