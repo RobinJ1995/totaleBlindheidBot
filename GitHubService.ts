@@ -128,7 +128,7 @@ class GitHubService {
         const message = commit.commit.message || '';
 
         return `New commit: ${escapeHtml(commit.html_url)}\n` +
-            `<blockquote>${escapeHtml(message)}</blockquote>`;
+            `<blockquote expandable>${escapeHtml(message)}</blockquote>`;
     }
 }
 
