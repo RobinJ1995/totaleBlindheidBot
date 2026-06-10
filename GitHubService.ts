@@ -125,14 +125,10 @@ class GitHubService {
     }
 
     private formatCommit(commit: GitHubCommit): string {
-        const shortSha = commit.sha.substring(0, 7);
-        const firstLine = (commit.commit.message || '').split('\n')[0];
-        const author = commit.author?.login || commit.commit.author?.name || 'unknown';
+        const message = commit.commit.message || '';
 
-        return `📦 New commit to *${escapeMarkdown(this.repo)}*\n` +
-            `\`${shortSha}\` ${escapeMarkdown(firstLine)}\n` +
-            `by ${escapeMarkdown(author)}\n` +
-            commit.html_url;
+        return `New commit: ${commit.html_url}\n` +
+            escapeMarkdown(message);
     }
 }
 
