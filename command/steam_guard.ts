@@ -7,8 +7,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     if (!adminId) {
         console.warn('STEAM_ADMIN_TELEGRAM_USER_ID is not set; refusing /steam_guard from user ' + msg.from?.id);
         return;
-    }
-    if (String(msg.from?.id) !== String(adminId)) {
+    } else if (String(msg.from?.id) !== String(adminId)) {
         console.warn(`Unauthorized attempt to use /steam_guard by user ${msg.from?.id}`);
         return;
     }
