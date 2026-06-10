@@ -1,0 +1,20 @@
+name: Acceptance tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  acceptance-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run acceptance tests
+        working-directory: acceptance
+        run: docker compose up --build --abort-on-container-exit --exit-code-from behave
+      - name: Dump container logs on failure
+        if: ${{ failure() }}
+        working-directory: acceptance
+        run: docker compose logs

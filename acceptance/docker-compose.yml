@@ -1,0 +1,73 @@
+name: tbb-acceptance
+
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    # Run as root with an ephemeral in-container data dir to avoid the image's
+    # uid-10001 volume-permission requirements; state is thrown away each run.
+    user: "0:0"
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+
+  telegram-mock:
+    build:
+      context: ./telegram_mock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/test/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    # Swap the real steam-user package for the acceptance fake at runtime.
+    volumes:
+      - ./steam_mock:/app/node_modules/steam-user:ro
+    environment:
+      TELEGRAM_BOT_API_TOKEN: test-token
+      TELEGRAM_API_BASE_URL: http://telegram-mock:8081
+      S3_ENDPOINT: http://rustfs:9000
+      S3_BUCKET: totaleblindheidbot
+      S3_ACCESS_KEY: rustfsadmin
+      S3_SECRET_KEY: rustfsadmin
+      S3_REGION: us-east-1
+      STEAM_USERNAME: testuser
+      STEAM_PASSWORD: testpass
+      STEAM_ADMIN_TELEGRAM_USER_ID: "9999"
+      STEAM_CONTROL_PORT: "9100"
+    depends_on:
+      telegram-mock:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:9100/steam/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  behave:
+    build:
+      context: .
+      dockerfile: Dockerfile.behave
+    environment:
+      TELEGRAM_MOCK_URL: http://telegram-mock:8081
+      STEAM_CONTROL_URL: http://bot:9100
+      S3_ENDPOINT: http://rustfs:9000
+      S3_BUCKET: totaleblindheidbot
+      S3_ACCESS_KEY: rustfsadmin
+      S3_SECRET_KEY: rustfsadmin
+      S3_REGION: us-east-1
+    depends_on:
+      telegram-mock:
+        condition: service_healthy
+      bot:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
