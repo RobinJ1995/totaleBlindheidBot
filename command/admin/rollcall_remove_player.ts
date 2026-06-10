@@ -12,6 +12,9 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     if (args.length === 0) {
         msg.reply('Who would you like to remove?');
         return;
+    } else if (args.length !== mentions.length) {
+        msg.reply(`${args.length} arguments contained ${mentions.length} user mentions.`);
+        return;
     } else if (args.length !== new Set(args).size) {
         msg.reply('Seems you\'ve got some duplicate entries in there, bud!');
         return;
