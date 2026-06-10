@@ -39,6 +39,7 @@ class SteamService {
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
+    private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
     private reconnectTimer: NodeJS.Timeout | null;
@@ -118,6 +119,7 @@ class SteamService {
 
         this.client.on('friendsList', () => {
             console.log(`Friends list loaded. Bot has ${Object.keys(this.client.myFriends).length} friends.`);
+            this.friendsListLoaded = true;
             this.updateUserMappings();
         });
 
@@ -201,7 +203,7 @@ class SteamService {
                     newMappings[steamId] = Number(tgId);
                     steamIds.push(steamId);
 
-                    if (this.client.myFriends && this.client.myFriends[steamId] !== SteamUser.EFriendRelationship.Friend) {
+                    if (this.friendsListLoaded && this.client.myFriends && this.client.myFriends[steamId] !== SteamUser.EFriendRelationship.Friend) {
                         console.warn(`Tracked user ${tgId} (Steam ID: ${steamId}) is NOT a friend of the bot account. Updates might not work.`);
                     }
                 }
