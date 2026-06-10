@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
-import { pickRandom } from '../utils';
+import { pickRandom, escapeMarkdown } from '../utils';
 import DAO from '../dao/DAO';
 
 const dao = new DAO();
@@ -23,7 +23,7 @@ const executeRollcall = (bot: TelegramBot, chat_id: number, reply_to_message_id?
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     executeRollcall(bot, msg.chat.id, msg.message_id)
-        .catch((err: Error) => msg.reply(`*${err.toString()}*`));
+        .catch((err: Error) => msg.reply(`*${escapeMarkdown(err.toString())}*`));
 };
 
 export { executeRollcall };
