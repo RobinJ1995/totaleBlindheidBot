@@ -5,6 +5,8 @@ import { loadJSON, saveJSON } from './S3Client';
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
 const FILE_USER_SETTINGS = 'user_settings.json';
+const FILE_GITHUB_NOTIFY_CHATS = 'github_notify_chats.json';
+const FILE_GITHUB_STATE = 'github_state.json';
 
 export interface UserSettings {
     steam_id?: string;
@@ -30,6 +32,10 @@ export interface RollcallPlayer {
 }
 
 export type ScheduledRollcalls = Record<string, string>;
+
+export interface GithubState {
+    last_sha?: string;
+}
 
 class DAO {
     private locks: Map<string, Promise<any>>;
@@ -131,6 +137,42 @@ class DAO {
                     };
                     return saveJSON(key, updated);
                 });
+        });
+    }
+
+    getGithubNotifyChats(): Promise<number[]> {
+        return loadJSON<(string | number)[]>(FILE_GITHUB_NOTIFY_CHATS)
+            .then((chats: (string | number)[]) => Array.isArray(chats) ? chats.map(id => Number(id)) : []);
+    }
+
+    setGithubNotify(chat_id: number, enabled: boolean): Promise<void> {
+        return this._withLock(FILE_GITHUB_NOTIFY_CHATS, () => {
+            return loadJSON<(string | number)[]>(FILE_GITHUB_NOTIFY_CHATS)
+                .then((stored: (string | number)[]) => {
+                    const chats: number[] = Array.isArray(stored) ? stored.map(id => Number(id)) : [];
+                    const has: boolean = chats.includes(Number(chat_id));
+                    if (enabled && !has) {
+                        chats.push(Number(chat_id));
+                    } else if (!enabled && has) {
+                        return saveJSON(FILE_GITHUB_NOTIFY_CHATS, chats.filter(id => id !== Number(chat_id)));
+                    } else if (!enabled) {
+                        return; // not present, nothing to remove
+                    } else {
+                        return; // already present, nothing to add
+                    }
+                    return saveJSON(FILE_GITHUB_NOTIFY_CHATS, chats);
+                });
+        });
+    }
+
+    getGithubLastSha(): Promise<string | undefined> {
+        return loadJSON<GithubState>(FILE_GITHUB_STATE)
+            .then((state: GithubState) => state.last_sha);
+    }
+
+    setGithubLastSha(sha: string): Promise<void> {
+        return this._withLock(FILE_GITHUB_STATE, () => {
+            return saveJSON(FILE_GITHUB_STATE, { last_sha: sha });
         });
     }
 
