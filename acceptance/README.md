@@ -13,6 +13,7 @@ out — with all external dependencies stubbed.
 | `telegram-mock` | Fake Telegram Bot API. The bot polls it; tests inject updates and read the bot's outgoing calls from an outbox. |
 | `rustfs`        | S3-compatible object store backing the bot's DAO.                    |
 | `steam_mock`    | Drop-in fake `steam-user` (mounted over `node_modules/steam-user`) with an HTTP control channel to trigger Steam events. |
+| `github-mock`   | Fake GitHub REST API (the bot polls it via `GITHUB_API_BASE_URL`); tests push commits to drive the notification flow. |
 | `behave`        | Runs the feature suite and asserts on the bot's behaviour.           |
 
 The bot needs no source changes beyond honouring `TELEGRAM_API_BASE_URL` (so it can

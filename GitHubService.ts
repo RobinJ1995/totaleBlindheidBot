@@ -19,11 +19,13 @@ interface GitHubCommit {
 
 const DEFAULT_REPO = 'RobinJ1995/totaleBlindheidBot';
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_API_BASE = 'https://api.github.com';
 
 class GitHubService {
     private bot: TelegramBot;
     private dao: DAO;
     private repo: string;
+    private apiBase: string;
     private intervalMs: number;
     private pollInterval: NodeJS.Timeout | null;
 
@@ -31,6 +33,8 @@ class GitHubService {
         this.bot = bot;
         this.dao = new DAO();
         this.repo = process.env.GITHUB_REPO || DEFAULT_REPO;
+        // Configurable so acceptance tests can point the poller at a mock API.
+        this.apiBase = (process.env.GITHUB_API_BASE_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
         const configured = Number(process.env.GITHUB_POLL_INTERVAL_MS);
         this.intervalMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_INTERVAL_MS;
         this.pollInterval = null;
@@ -63,7 +67,7 @@ class GitHubService {
             headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
         }
 
-        const url = `https://api.github.com/repos/${this.repo}/commits?per_page=20`;
+        const url = `${this.apiBase}/repos/${this.repo}/commits?per_page=20`;
         const res = await fetch(url, { headers });
         if (!res.ok) {
             console.error(`GitHub API request failed: ${res.status} ${res.statusText}`);

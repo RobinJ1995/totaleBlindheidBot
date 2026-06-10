@@ -22,6 +22,15 @@ services:
       timeout: 3s
       retries: 20
 
+  github-mock:
+    build:
+      context: ./github_mock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/test/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   bot:
     build:
       context: ..
@@ -41,8 +50,13 @@ services:
       STEAM_PASSWORD: testpass
       STEAM_ADMIN_TELEGRAM_USER_ID: "9999"
       STEAM_CONTROL_PORT: "9100"
+      GITHUB_API_BASE_URL: http://github-mock:8082
+      GITHUB_REPO: acceptance/repo
+      GITHUB_POLL_INTERVAL_MS: "1000"
     depends_on:
       telegram-mock:
+        condition: service_healthy
+      github-mock:
         condition: service_healthy
       rustfs:
         condition: service_started
@@ -59,6 +73,7 @@ services:
     environment:
       TELEGRAM_MOCK_URL: http://telegram-mock:8081
       STEAM_CONTROL_URL: http://bot:9100
+      GITHUB_MOCK_URL: http://github-mock:8082
       S3_ENDPOINT: http://rustfs:9000
       S3_BUCKET: totaleblindheidbot
       S3_ACCESS_KEY: rustfsadmin
@@ -66,6 +81,8 @@ services:
       S3_REGION: us-east-1
     depends_on:
       telegram-mock:
+        condition: service_healthy
+      github-mock:
         condition: service_healthy
       bot:
         condition: service_healthy

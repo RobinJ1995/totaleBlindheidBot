@@ -12,6 +12,7 @@ import requests
 
 TELEGRAM_MOCK_URL: str = os.environ.get("TELEGRAM_MOCK_URL", "http://telegram-mock:8081")
 STEAM_CONTROL_URL: str = os.environ.get("STEAM_CONTROL_URL", "http://bot:9100")
+GITHUB_MOCK_URL: str = os.environ.get("GITHUB_MOCK_URL", "http://github-mock:8082")
 BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_API_TOKEN", "test-token")
 
 S3_ENDPOINT: str = os.environ.get("S3_ENDPOINT", "http://rustfs:9000")
@@ -180,3 +181,16 @@ def steam_guard_state() -> Dict[str, Any]:
     resp = requests.get(f"{STEAM_CONTROL_URL}/steam/steamguard/state", timeout=5)
     resp.raise_for_status()
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# GitHub mock interactions
+# ---------------------------------------------------------------------------
+
+def github_add_commit(sha: str, message: str) -> None:
+    resp = requests.post(
+        f"{GITHUB_MOCK_URL}/test/add-commit",
+        json={"sha": sha, "message": message},
+        timeout=5,
+    )
+    resp.raise_for_status()
