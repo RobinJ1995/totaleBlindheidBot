@@ -38,17 +38,14 @@ export interface GithubState {
 }
 
 class DAO {
-    private locks: Map<string, Promise<any>>;
-
-    constructor() {
-        this.locks = new Map();
-    }
+    // Static so that all DAO instances (one per module) serialize writes to the same files
+    private static locks: Map<string, Promise<any>> = new Map();
 
     async _withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-        if (!this.locks.has(key)) {
-            this.locks.set(key, Promise.resolve());
+        if (!DAO.locks.has(key)) {
+            DAO.locks.set(key, Promise.resolve());
         }
-        const lock = this.locks.get(key)!;
+        const lock = DAO.locks.get(key)!;
         const nextLock = lock.then(async () => {
             try {
                 return await fn();
@@ -58,7 +55,7 @@ class DAO {
             }
         });
         // Ensure the next lock doesn't fail just because this one did
-        this.locks.set(key, nextLock.catch(() => {}));
+        DAO.locks.set(key, nextLock.catch(() => {}));
         return nextLock;
     }
 
