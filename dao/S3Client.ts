@@ -40,7 +40,7 @@ const loadJSON = async <T = any>(key: string): Promise<T> => {
         if (cached && isNotModified(err)) {
             return JSON.parse(JSON.stringify(cached.data));
         }
-        if (err.name === 'NoSuchKey') {
+        if (isNoSuchKey(err)) {
             delete cache[key];
             return {} as T;
         }
