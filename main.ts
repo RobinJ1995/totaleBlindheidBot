@@ -4,6 +4,7 @@ consoleStamp(console);
 import TelegramBot from 'node-telegram-bot-api';
 import DAO from './dao/DAO';
 import SteamService from './SteamService';
+import GitHubService from './GitHubService';
 import { executeRollcall } from './command/rollcall';
 import MessageRouter, { ExtendedMessage } from './MessageRouter';
 import { escapeMarkdown } from './utils';
@@ -18,6 +19,7 @@ import wingmanHandler from './command/wingman';
 import steamUserIdHandler from './command/steam_user_id';
 import steamUpdatesHandler from './command/steam_updates';
 import steamGuardHandler from './command/steam_guard';
+import githubNotifyHandler from './command/github_notify';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player';
 import rollcallGetPlayersHandler from './command/admin/rollcall_get_players';
@@ -61,6 +63,10 @@ if (steamEnabled) {
     steamService.start();
 }
 
+// GitHub Service (public repo, no auth required)
+const githubService: GitHubService = new GitHubService(bot);
+githubService.start();
+
 const router: MessageRouter = new MessageRouter(bot);
 
 router.route('hi', hiHandler, {
@@ -80,6 +86,9 @@ router.route('timezone', timezoneHandler, {
 });
 router.route('wingman', wingmanHandler, {
     helpText: 'Looking for a wingman?'
+});
+router.route('github_notify', githubNotifyHandler, {
+    helpText: 'Enable or disable GitHub commit notifications for this chat (on/off).'
 });
 
 if (steamEnabled) {
