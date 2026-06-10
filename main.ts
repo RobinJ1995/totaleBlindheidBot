@@ -34,7 +34,11 @@ if (!token) {
     process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
+const baseApiUrl = process.env.TELEGRAM_API_BASE_URL;
+const bot = new TelegramBot(token, {
+    polling: true,
+    ...(baseApiUrl ? { baseApiUrl } : {})
+});
 const dao = new DAO();
 const steamEnabled = !!(process.env.STEAM_USERNAME && process.env.STEAM_PASSWORD);
 

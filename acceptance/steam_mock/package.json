@@ -1,0 +1,7 @@
+{
+  "name": "steam-user",
+  "version": "0.0.0-acceptance-mock",
+  "description": "Fake steam-user used only by acceptance tests.",
+  "main": "index.js",
+  "license": "GPL-3.0"
+}
