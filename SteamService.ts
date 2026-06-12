@@ -39,6 +39,7 @@ class SteamService {
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
+    private telegramNameCache: Record<string, { name: string; fetchedAt: number }> = {};
     private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
@@ -283,13 +284,6 @@ class SteamService {
 
         const info: GameUpdateInfo = { gameId, map, status, score };
 
-        // If no map/status yet, maybe it's just starting
-        let text = `🟢 *${escapeMarkdown(playerName)}* is playing Counter-Strike`;
-        if (map || status || score) text += `\n`;
-        if (map) text += `\nMap: ${escapeMarkdown(map)}`;
-        if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
-        if (score) text += `\nScore: ${escapeMarkdown(score)}`;
-
         const chats = await this.dao.getUserChats(tgUserId);
         if (chats.length === 0) {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
@@ -300,8 +294,37 @@ class SteamService {
                 console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
                 continue;
             }
+
+            // Prefer the user's Telegram name; fall back to their Steam display name
+            const displayName = (await this.getTelegramDisplayName(chatId, tgUserId)) || playerName;
+
+            // If no map/status yet, maybe it's just starting
+            let text = `🟢 *${escapeMarkdown(displayName)}* is playing Counter-Strike`;
+            if (map || status || score) text += `\n`;
+            if (map) text += `\nMap: ${escapeMarkdown(map)}`;
+            if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
+            if (score) text += `\nScore: ${escapeMarkdown(score)}`;
+
             console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
+        }
+    }
+
+    async getTelegramDisplayName(chatId: number, tgUserId: number): Promise<string | null> {
+        const cacheKey = `${chatId}:${tgUserId}`;
+        const cached = this.telegramNameCache[cacheKey];
+        if (cached && Date.now() - cached.fetchedAt < 60 * 60 * 1000) {
+            return cached.name || null;
+        }
+        try {
+            const member = await this.bot.getChatMember(chatId, tgUserId);
+            // Use the username without the @ prefix so it doesn't trigger a mention notification
+            const name = member.user.first_name || member.user.username || '';
+            this.telegramNameCache[cacheKey] = { name, fetchedAt: Date.now() };
+            return name || null;
+        } catch (err) {
+            console.debug(`Could not fetch Telegram name for user ${tgUserId} in chat ${chatId}:`, err);
+            return null;
         }
     }
 
