@@ -10,14 +10,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - name: Publish to Github Docker registry
-        uses: elgohr/Publish-Docker-Github-Action@master
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          name: robinj1995/totaleblindheidbot/totale-blindheid-bot
           registry: ghcr.io
           username: RobinJ1995
           password: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          snapshot: true
+
+      - name: Build and push multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/robinj1995/totaleblindheidbot/totale-blindheid-bot:latest
+            ghcr.io/robinj1995/totaleblindheidbot/totale-blindheid-bot:${{ github.sha }}
+
       - name: Trigger deployment
         if: ${{ success() }}
         run: |
