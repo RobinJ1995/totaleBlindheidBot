@@ -4,9 +4,13 @@ import { loadJSON, saveJSON } from './S3Client';
 
 const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
 const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
+const FILE_RSVP_LISTS = 'rsvp_lists.json';
 const FILE_USER_SETTINGS = 'user_settings.json';
 const FILE_GITHUB_NOTIFY_CHATS = 'github_notify_chats.json';
 const FILE_GITHUB_STATE = 'github_state.json';
+
+// RSVP lists older than this are pruned on write.
+const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface UserSettings {
     steam_id?: string;
@@ -31,7 +35,40 @@ export interface RollcallPlayer {
     key?: string;
 }
 
-export type ScheduledRollcalls = Record<string, string>;
+export interface ScheduledRollcall {
+    time: string;
+    rsvp_id?: string;
+    initiator_id?: number;
+}
+
+// Stored value may be a legacy bare ISO string (time only) or the richer object above.
+export type ScheduledRollcalls = Record<string, ScheduledRollcall | string>;
+
+export const normalizeSchedule = (value: ScheduledRollcall | string): ScheduledRollcall =>
+    typeof value === 'string' ? { time: value } : value;
+
+export type Rsvp = 'yes' | 'maybe' | 'no';
+
+export interface RsvpEntry {
+    user_id: number;
+    name: string;        // non-pinging display name
+    username?: string;   // telegram @username (no @) for rotation matching
+    rsvp: Rsvp;
+}
+
+export interface RsvpMessageRef {
+    message_id: number;
+    base_text: string;                 // text above the lists (differs per message)
+    keyboard: 'schedule' | 'rollcall'; // which button labels to show on this message
+}
+
+export interface RsvpList {
+    rsvp_id: string;
+    chat_id: number;
+    entries: Record<string, RsvpEntry>; // keyed by user_id (incl. seeded initiator)
+    messages: RsvpMessageRef[];         // every message currently displaying this list
+    created_at: string;                 // for pruning
+}
 
 export interface GithubState {
     last_sha?: string;
@@ -209,11 +246,18 @@ class DAO {
         return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES);
     }
 
-    setScheduledRollcall(chat_id: number, time: Date): Promise<void> {
+    setScheduledRollcall(chat_id: number, time: Date, rsvp_id?: string, initiator_id?: number): Promise<void> {
         return this._withLock(FILE_ROLLCALL_SCHEDULES, () => {
             return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES)
                 .then(schedules => {
-                    schedules[chat_id] = time.toISOString();
+                    const schedule: ScheduledRollcall = { time: time.toISOString() };
+                    if (rsvp_id !== undefined) {
+                        schedule.rsvp_id = rsvp_id;
+                    }
+                    if (initiator_id !== undefined) {
+                        schedule.initiator_id = initiator_id;
+                    }
+                    schedules[chat_id] = schedule;
                     return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
                 });
         });
@@ -225,6 +269,98 @@ class DAO {
                 .then(schedules => {
                     delete schedules[chat_id];
                     return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
+                });
+        });
+    }
+
+    // Drop RSVP lists older than the TTL so the file doesn't grow unbounded.
+    private _pruneRsvpLists(lists: Record<string, RsvpList>): void {
+        const cutoff: number = Date.now() - RSVP_LIST_TTL_MS;
+        for (const [id, list] of Object.entries(lists)) {
+            if (new Date(list.created_at).getTime() < cutoff) {
+                delete lists[id];
+            }
+        }
+    }
+
+    createRsvpList(list: Omit<RsvpList, 'rsvp_id' | 'created_at'>): Promise<string> {
+        return this._withLock(FILE_RSVP_LISTS, () => {
+            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+                .then(lists => {
+                    this._pruneRsvpLists(lists);
+                    const rsvp_id: string = uuid();
+                    lists[rsvp_id] = {
+                        ...list,
+                        rsvp_id,
+                        created_at: new Date().toISOString()
+                    };
+                    return saveJSON(FILE_RSVP_LISTS, lists).then(() => rsvp_id);
+                });
+        });
+    }
+
+    getRsvpList(rsvp_id: string): Promise<RsvpList | undefined> {
+        return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+            .then(lists => lists[rsvp_id]);
+    }
+
+    getRsvpListByMessage(chat_id: number, message_id: number): Promise<RsvpList | undefined> {
+        return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+            .then(lists => Object.values(lists).find(list =>
+                String(list.chat_id) === String(chat_id) &&
+                list.messages.some(ref => ref.message_id === message_id)
+            ));
+    }
+
+    setRsvpEntry(rsvp_id: string, entry: RsvpEntry): Promise<RsvpList | undefined> {
+        return this._withLock(FILE_RSVP_LISTS, () => {
+            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+                .then(lists => {
+                    const list: RsvpList | undefined = lists[rsvp_id];
+                    if (!list) {
+                        return undefined;
+                    }
+                    list.entries[entry.user_id] = entry;
+                    return saveJSON(FILE_RSVP_LISTS, lists).then(() => list);
+                });
+        });
+    }
+
+    addRsvpMessage(rsvp_id: string, ref: RsvpMessageRef): Promise<void> {
+        return this._withLock(FILE_RSVP_LISTS, () => {
+            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+                .then(lists => {
+                    const list: RsvpList | undefined = lists[rsvp_id];
+                    if (!list) {
+                        return;
+                    }
+                    list.messages = list.messages.filter(m => m.message_id !== ref.message_id);
+                    list.messages.push(ref);
+                    return saveJSON(FILE_RSVP_LISTS, lists);
+                });
+        });
+    }
+
+    removeRsvpMessage(rsvp_id: string, message_id: number): Promise<void> {
+        return this._withLock(FILE_RSVP_LISTS, () => {
+            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+                .then(lists => {
+                    const list: RsvpList | undefined = lists[rsvp_id];
+                    if (!list) {
+                        return;
+                    }
+                    list.messages = list.messages.filter(m => m.message_id !== message_id);
+                    return saveJSON(FILE_RSVP_LISTS, lists);
+                });
+        });
+    }
+
+    deleteRsvpList(rsvp_id: string): Promise<void> {
+        return this._withLock(FILE_RSVP_LISTS, () => {
+            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
+                .then(lists => {
+                    delete lists[rsvp_id];
+                    return saveJSON(FILE_RSVP_LISTS, lists);
                 });
         });
     }
