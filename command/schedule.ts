@@ -1,8 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
 import { parseTime } from '../timeUtils';
-import DAO from '../dao/DAO';
+import DAO, { RsvpEntry } from '../dao/DAO';
 import { formatError, escapeMarkdown } from '../utils';
+import { keyboard, resolve, renderMessage } from '../rsvp';
 
 const dao = new DAO();
 
@@ -38,7 +39,8 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
 
             const chat_id: number = msg.chat.id;
             return dao.setScheduledRollcall(chat_id, scheduledTime)
-                .then(() => {
+                .then(() => dao.getRollcallPlayerUsernames(chat_id))
+                .then((rotation: string[]) => {
                     const timeString: string = scheduledTime.toLocaleString('en-GB', {
                         timeZone: timezone,
                         year: 'numeric',
@@ -49,7 +51,36 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                         second: 'numeric',
                         timeZoneName: 'short'
                     });
-                    msg.reply(`Rollcall scheduled for ${escapeMarkdown(timeString)}`);
+
+                    // Seed the initiator into the "yes" list.
+                    const entries: Record<string, RsvpEntry> = {};
+                    if (user_id) {
+                        entries[user_id] = {
+                            user_id,
+                            name: msg.from?.first_name || msg.from?.username || 'someone',
+                            username: msg.from?.username,
+                            rsvp: 'yes'
+                        };
+                    }
+
+                    const baseText: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
+                    const { groups } = resolve(rotation, entries);
+
+                    return bot.sendMessage(chat_id, renderMessage(baseText, groups), {
+                        reply_to_message_id: msg.message_id,
+                        parse_mode: 'Markdown',
+                        reply_markup: keyboard('schedule')
+                    }).then((sent: TelegramBot.Message) => {
+                        return dao.createRsvpList({
+                            chat_id,
+                            entries,
+                            messages: [{ message_id: sent.message_id, base_text: baseText, keyboard: 'schedule' }]
+                        }).then((rsvp_id: string) =>
+                            // Store the rsvp_id + initiator on the schedule so the timer can
+                            // find and share the same list when the rollcall fires.
+                            dao.setScheduledRollcall(chat_id, scheduledTime, rsvp_id, user_id)
+                        );
+                    });
                 });
         })
         .catch((err: Error) => msg.reply(formatError(err)));
