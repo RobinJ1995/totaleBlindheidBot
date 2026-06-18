@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
 import DAO, { ScheduledRollcalls, normalizeSchedule } from '../dao/DAO';
 import { formatError } from '../utils';
+import { retireRsvpList } from '../rsvp';
 
 const dao = new DAO();
 
@@ -12,7 +13,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
             if (schedules[chat_id]) {
                 const schedule = normalizeSchedule(schedules[chat_id]);
                 return dao.removeScheduledRollcall(chat_id)
-                    .then(() => schedule.rsvp_id ? dao.deleteRsvpList(schedule.rsvp_id) : undefined)
+                    .then(() => schedule.rsvp_id ? retireRsvpList(bot, dao, schedule.rsvp_id) : undefined)
                     .then(() => {
                         msg.reply('Scheduled rollcall cancelled.');
                     });

@@ -9,7 +9,7 @@ import { executeRollcall } from './command/rollcall';
 import MessageRouter, { ExtendedMessage } from './MessageRouter';
 import { escapeMarkdown } from './utils';
 import { normalizeSchedule, Rsvp, RsvpList } from './dao/DAO';
-import { keyboard, resolve, renderMessage } from './rsvp';
+import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp';
 
 // Command Handlers
 import hiHandler from './command/hi';
@@ -128,12 +128,7 @@ const handleRsvpCallback = (query: TelegramBot.CallbackQuery): void => {
                 return bot.answerCallbackQuery(query.id, { text: 'This RSVP has expired.' });
             }
 
-            return dao.setRsvpEntry(list.rsvp_id, {
-                user_id: query.from.id,
-                name: query.from.first_name || query.from.username || 'someone',
-                username: query.from.username,
-                rsvp
-            })
+            return dao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
                 .then(updated => updated ? renderRsvpMessages(updated) : undefined)
                 .then(() => bot.answerCallbackQuery(query.id));
         })
