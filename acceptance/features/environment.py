@@ -48,7 +48,10 @@ def before_all(context: Context) -> None:
     _wait_for(f"{helpers.STEAM_CONTROL_URL}/steam/health", name="steam control")
     helpers.ensure_bucket()
     helpers.clear_bucket()
+    # The bot creates the schema on startup; wait for it, warm up, then reset app data.
+    helpers.wait_for_db()
     _wait_for_bot_polling()
+    helpers.reset_db()
 
 
 def before_scenario(context: Context, scenario: Scenario) -> None:

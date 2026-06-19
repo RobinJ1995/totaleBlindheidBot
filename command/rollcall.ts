@@ -20,7 +20,7 @@ interface ExecuteRollcallOptions {
     initiator?: TelegramBot.User;
     // When set, the rollcall attaches to (shares) this existing RSVP list instead of
     // creating a fresh one. Used when a schedule triggers the rollcall.
-    rsvp_id?: string;
+    rsvp_id?: number;
 }
 
 const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<TelegramBot.Message> => {

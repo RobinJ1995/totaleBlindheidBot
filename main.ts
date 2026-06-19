@@ -8,7 +8,8 @@ import GitHubService from './GitHubService';
 import { executeRollcall } from './command/rollcall';
 import MessageRouter, { ExtendedMessage } from './MessageRouter';
 import { escapeMarkdown } from './utils';
-import { normalizeSchedule, Rsvp, RsvpList } from './dao/DAO';
+import { Rsvp, RsvpList } from './dao/DAO';
+import { ensureSchema } from './dao/Database';
 import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp';
 
 // Command Handlers
@@ -49,9 +50,8 @@ setInterval(() => {
     dao.getScheduledRollcalls()
         .then(schedules => {
             const now: Date = new Date();
-            for (const [chat_id, value] of Object.entries(schedules)) {
-                const schedule = normalizeSchedule(value);
-                const scheduledTime: Date = new Date(schedule.time);
+            for (const [chat_id, schedule] of Object.entries(schedules)) {
+                const scheduledTime: Date = schedule.time;
                 if (scheduledTime <= now) {
                     console.log(`Executing scheduled rollcall for chat ${chat_id}`);
                     executeRollcall(bot, parseInt(chat_id), { rsvp_id: schedule.rsvp_id })
@@ -66,7 +66,7 @@ setInterval(() => {
 
 // When a schedule fires, the rollcall message takes over the shared RSVP list. Strip the
 // buttons from the now-stale confirmation message and detach it so only the rollcall stays live.
-const closeScheduleConfirmation = (chat_id: number, rsvp_id?: string): Promise<void> => {
+const closeScheduleConfirmation = (chat_id: number, rsvp_id?: number): Promise<void> => {
     if (!rsvp_id) {
         return Promise.resolve();
     }
@@ -142,12 +142,22 @@ const handleRsvpCallback = (query: TelegramBot.CallbackQuery): void => {
 let steamService: SteamService | null = null;
 if (steamEnabled) {
     steamService = new SteamService(bot);
-    steamService.start();
 }
 
 // GitHub Service (public repo, no auth required)
 const githubService: GitHubService = new GitHubService(bot);
-githubService.start();
+
+// Create the database schema before any service starts querying it.
+ensureSchema()
+    .then(() => {
+        console.log('Database schema ready.');
+        steamService?.start();
+        githubService.start();
+    })
+    .catch((err: Error) => {
+        console.error('Failed to initialise database schema:', err);
+        process.exit(1);
+    });
 
 const router: MessageRouter = new MessageRouter(bot);
 

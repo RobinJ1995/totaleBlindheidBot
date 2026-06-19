@@ -1,13 +1,6 @@
-import { v4 as uuid } from 'uuid';
+import { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { checkNotEmpty } from '../utils';
-import { loadJSON, saveJSON } from './S3Client';
-
-const FILE_ROLLCALL_PLAYERS = 'rollcall_players.json';
-const FILE_ROLLCALL_SCHEDULES = 'rollcall_schedules.json';
-const FILE_RSVP_LISTS = 'rsvp_lists.json';
-const FILE_USER_SETTINGS = 'user_settings.json';
-const FILE_GITHUB_NOTIFY_CHATS = 'github_notify_chats.json';
-const FILE_GITHUB_STATE = 'github_state.json';
+import { query, withTransaction } from './Database';
 
 // RSVP lists older than this are pruned on write.
 const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;
@@ -26,26 +19,16 @@ export interface GameUpdate {
     message_id: number;
     text: string;
     info: any;
-    timestamp: string;
-}
-
-export interface RollcallPlayer {
-    username: string;
-    chat_id: number;
-    key?: string;
+    timestamp: Date;
 }
 
 export interface ScheduledRollcall {
-    time: string;
-    rsvp_id?: string;
+    time: Date;
+    rsvp_id?: number;
     initiator_id?: number;
 }
 
-// Stored value may be a legacy bare ISO string (time only) or the richer object above.
-export type ScheduledRollcalls = Record<string, ScheduledRollcall | string>;
-
-export const normalizeSchedule = (value: ScheduledRollcall | string): ScheduledRollcall =>
-    typeof value === 'string' ? { time: value } : value;
+export type ScheduledRollcalls = Record<string, ScheduledRollcall>;
 
 export type Rsvp = 'yes' | 'maybe' | 'no';
 
@@ -63,373 +46,438 @@ export interface RsvpMessageRef {
 }
 
 export interface RsvpList {
-    rsvp_id: string;
+    rsvp_id: number;
     chat_id: number;
     entries: Record<string, RsvpEntry>; // keyed by user_id (incl. seeded initiator)
     messages: RsvpMessageRef[];         // every message currently displaying this list
-    created_at: string;                 // for pruning
+    created_at: Date;                   // for pruning
 }
 
-export interface GithubState {
-    last_sha?: string;
+// A rollcall roster row. A player is identified by a Telegram user id (text mention),
+// an @username, or just a display name, depending on how the admin added them.
+interface RollcallPlayerRow extends RowDataPacket {
+    id: number;
+    chat_id: number;
+    user_id: number | null;
+    username: string | null;
+    display_name: string | null;
 }
 
 class DAO {
-    // Static so that all DAO instances (one per module) serialize writes to the same files
-    private static locks: Map<string, Promise<any>> = new Map();
+    // Ensure a telegram_user row exists so FK-bearing child rows can reference it.
+    // name/username are only overwritten when a non-empty value is supplied.
+    private async _ensureTelegramUser(conn: PoolConnection, user_id: number, name?: string, username?: string): Promise<void> {
+        await conn.query(
+            'INSERT INTO telegram_user (user_id, name, username) VALUES (:user_id, :name, :username) ' +
+            'ON DUPLICATE KEY UPDATE name = COALESCE(VALUES(name), name), username = COALESCE(VALUES(username), username)',
+            { user_id, name: name ?? null, username: username ?? null }
+        );
+    }
 
-    async _withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-        if (!DAO.locks.has(key)) {
-            DAO.locks.set(key, Promise.resolve());
+    // Reconstruct the legacy rotation mention string from a normalised player row.
+    private _playerMention(row: RollcallPlayerRow): string {
+        if (row.user_id !== null) {
+            return `[${row.display_name ?? ''}](tg://user?id=${row.user_id})`;
         }
-        const lock = DAO.locks.get(key)!;
-        const nextLock = lock.then(async () => {
-            try {
-                return await fn();
-            } catch (err) {
-                // We want to return the error but ensure the lock continues
-                throw err;
+        if (row.username !== null) {
+            return `@${row.username}`;
+        }
+        return row.display_name ?? '';
+    }
+
+    // Parse a rotation mention string into its normalised columns.
+    private _parsePlayer(input: string): { user_id: number | null; username: string | null; display_name: string | null } {
+        const match = input.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+        if (match) {
+            return { user_id: Number(match[2]), username: null, display_name: match[1] };
+        }
+        if (input.startsWith('@')) {
+            return { user_id: null, username: input.substring(1), display_name: null };
+        }
+        return { user_id: null, username: null, display_name: input };
+    }
+
+    async getUserSettings(user_id: number): Promise<UserSettings> {
+        const [settingsRows, steamRows] = await Promise.all([
+            query<RowDataPacket[]>('SELECT timezone FROM user_settings WHERE user_id = :user_id', { user_id }),
+            query<RowDataPacket[]>('SELECT steam_id FROM user_steam_id WHERE user_id = :user_id', { user_id })
+        ]);
+        const result: UserSettings = {};
+        if (steamRows.length > 0) {
+            result.steam_ids = steamRows.map(r => String(r.steam_id));
+        }
+        const timezone = settingsRows[0]?.timezone;
+        if (timezone != null) {
+            result.timezone = timezone;
+        }
+        return result;
+    }
+
+    async getAllUserSettings(): Promise<Record<string, UserSettings>> {
+        const [settingsRows, steamRows] = await Promise.all([
+            query<RowDataPacket[]>('SELECT user_id, timezone FROM user_settings'),
+            query<RowDataPacket[]>('SELECT user_id, steam_id FROM user_steam_id')
+        ]);
+        const result: Record<string, UserSettings> = {};
+        for (const row of settingsRows) {
+            const key = String(row.user_id);
+            result[key] = result[key] || {};
+            if (row.timezone != null) {
+                result[key].timezone = row.timezone;
             }
-        });
-        // Ensure the next lock doesn't fail just because this one did
-        DAO.locks.set(key, nextLock.catch(() => {}));
-        return nextLock;
-    }
-
-    getUserSettings(user_id: number): Promise<UserSettings> {
-        return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
-            .then(settings => settings[user_id] || {});
-    }
-
-    getAllUserSettings(): Promise<Record<string, UserSettings>> {
-        return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS);
+        }
+        for (const row of steamRows) {
+            const key = String(row.user_id);
+            result[key] = result[key] || {};
+            (result[key].steam_ids = result[key].steam_ids || []).push(String(row.steam_id));
+        }
+        return result;
     }
 
     setSteamUserId(user_id: number, steam_id: string | string[]): Promise<void> {
-        return this._withLock(FILE_USER_SETTINGS, () => {
-            return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
-                .then(settings => {
-                    if (!settings[user_id]) settings[user_id] = {};
-                    const steamIds: string[] = Array.isArray(steam_id) ? steam_id : [steam_id];
-                    settings[user_id].steam_id = steamIds[0];
-                    settings[user_id].steam_ids = steamIds;
-                    return saveJSON(FILE_USER_SETTINGS, settings);
-                });
+        const steamIds: string[] = Array.isArray(steam_id) ? steam_id : [steam_id];
+        return withTransaction(async conn => {
+            await this._ensureTelegramUser(conn, user_id);
+            await conn.query('DELETE FROM user_steam_id WHERE user_id = :user_id', { user_id });
+            for (const sid of steamIds) {
+                await conn.query(
+                    'INSERT IGNORE INTO user_steam_id (user_id, steam_id) VALUES (:user_id, :steam_id)',
+                    { user_id, steam_id: sid }
+                );
+            }
         });
     }
 
-    getUserTimezone(user_id: number): Promise<string> {
-        return this.getUserSettings(user_id)
-            .then((settings: UserSettings) => settings.timezone || 'UTC');
+    async getUserTimezone(user_id: number): Promise<string> {
+        const rows = await query<RowDataPacket[]>('SELECT timezone FROM user_settings WHERE user_id = :user_id', { user_id });
+        return rows[0]?.timezone || 'UTC';
     }
 
     setUserTimezone(user_id: number, timezone: string): Promise<void> {
-        return this._withLock(FILE_USER_SETTINGS, () => {
-            return loadJSON<Record<string, UserSettings>>(FILE_USER_SETTINGS)
-                .then(settings => {
-                    if (!settings[user_id]) settings[user_id] = {};
-                    settings[user_id].timezone = timezone;
-                    return saveJSON(FILE_USER_SETTINGS, settings);
-                });
+        return withTransaction(async conn => {
+            await this._ensureTelegramUser(conn, user_id);
+            await conn.query(
+                'INSERT INTO user_settings (user_id, timezone) VALUES (:user_id, :timezone) ' +
+                'ON DUPLICATE KEY UPDATE timezone = VALUES(timezone)',
+                { user_id, timezone }
+            );
         });
     }
 
     addUserChat(user_id: number, chat_id: number): Promise<boolean> {
-        const key = `user_chats/${user_id}.json`;
-        return this._withLock(key, () => {
-            return loadJSON<(string | number)[]>(key)
-                .then((userChats: (string | number)[]) => {
-                    const chats: (string | number)[] = Array.isArray(userChats) ? userChats : [];
-                    if (!chats.includes(chat_id)) {
-                        chats.push(chat_id);
-                        return saveJSON(key, chats).then(() => true);
-                    }
-                    return false;
-                });
+        return withTransaction(async conn => {
+            await this._ensureTelegramUser(conn, user_id);
+            const [res] = await conn.query<ResultSetHeader>(
+                'INSERT IGNORE INTO user_chat (user_id, chat_id) VALUES (:user_id, :chat_id)',
+                { user_id, chat_id }
+            );
+            return res.affectedRows === 1;
         });
     }
 
-    getUserChats(user_id: number): Promise<(number)[]> {
-        const key = `user_chats/${user_id}.json`;
-        return loadJSON<(string | number)[]>(key)
-            .then((userChats: (string | number)[]) => Array.isArray(userChats) ? userChats.map(id => Number(id)) : []);
+    async getUserChats(user_id: number): Promise<number[]> {
+        const rows = await query<RowDataPacket[]>('SELECT chat_id FROM user_chat WHERE user_id = :user_id', { user_id });
+        return rows.map(r => Number(r.chat_id));
     }
 
-    getChatSettings(chat_id: number): Promise<ChatSettings> {
-        const key = `chat_settings/${chat_id}.json`;
-        return loadJSON<ChatSettings>(key);
+    async getChatSettings(chat_id: number): Promise<ChatSettings> {
+        const rows = await query<RowDataPacket[]>('SELECT steam_updates FROM chat_settings WHERE chat_id = :chat_id', { chat_id });
+        const result: ChatSettings = {};
+        if (rows.length > 0 && rows[0].steam_updates != null) {
+            result.steam_updates = !!rows[0].steam_updates;
+        }
+        return result;
     }
 
     setChatSettings(chat_id: number, newSettings: ChatSettings): Promise<void> {
-        const key = `chat_settings/${chat_id}.json`;
-        return this._withLock(key, () => {
-            return loadJSON<ChatSettings>(key)
-                .then(settings => {
-                    const updated: ChatSettings = {
-                        ...settings,
-                        ...newSettings
-                    };
-                    return saveJSON(key, updated);
-                });
-        });
+        // ChatSettings only carries steam_updates; upsert just that column so other
+        // columns (github_notify) are preserved.
+        return query<ResultSetHeader>(
+            'INSERT INTO chat_settings (chat_id, steam_updates) VALUES (:chat_id, :steam_updates) ' +
+            'ON DUPLICATE KEY UPDATE steam_updates = VALUES(steam_updates)',
+            { chat_id, steam_updates: newSettings.steam_updates == null ? null : (newSettings.steam_updates ? 1 : 0) }
+        ).then(() => undefined);
     }
 
-    getGithubNotifyChats(): Promise<number[]> {
-        return loadJSON<(string | number)[]>(FILE_GITHUB_NOTIFY_CHATS)
-            .then((chats: (string | number)[]) => Array.isArray(chats) ? chats.map(id => Number(id)) : []);
+    async getGithubNotifyChats(): Promise<number[]> {
+        const rows = await query<RowDataPacket[]>('SELECT chat_id FROM chat_settings WHERE github_notify = 1');
+        return rows.map(r => Number(r.chat_id));
     }
 
     setGithubNotify(chat_id: number, enabled: boolean): Promise<void> {
-        return this._withLock(FILE_GITHUB_NOTIFY_CHATS, () => {
-            return loadJSON<(string | number)[]>(FILE_GITHUB_NOTIFY_CHATS)
-                .then((stored: (string | number)[]) => {
-                    const chats: number[] = Array.isArray(stored) ? stored.map(id => Number(id)) : [];
-                    const has: boolean = chats.includes(Number(chat_id));
-                    if (enabled && !has) {
-                        chats.push(Number(chat_id));
-                    } else if (!enabled && has) {
-                        return saveJSON(FILE_GITHUB_NOTIFY_CHATS, chats.filter(id => id !== Number(chat_id)));
-                    } else if (!enabled) {
-                        return; // not present, nothing to remove
-                    } else {
-                        return; // already present, nothing to add
-                    }
-                    return saveJSON(FILE_GITHUB_NOTIFY_CHATS, chats);
-                });
-        });
+        return query<ResultSetHeader>(
+            'INSERT INTO chat_settings (chat_id, github_notify) VALUES (:chat_id, :github_notify) ' +
+            'ON DUPLICATE KEY UPDATE github_notify = VALUES(github_notify)',
+            { chat_id, github_notify: enabled ? 1 : 0 }
+        ).then(() => undefined);
     }
 
-    getGithubLastSha(): Promise<string | undefined> {
-        return loadJSON<GithubState>(FILE_GITHUB_STATE)
-            .then((state: GithubState) => state.last_sha);
+    async getGithubLastSha(): Promise<string | undefined> {
+        const rows = await query<RowDataPacket[]>('SELECT last_sha FROM github_state WHERE id = 1');
+        return rows[0]?.last_sha ?? undefined;
     }
 
     setGithubLastSha(sha: string): Promise<void> {
-        return this._withLock(FILE_GITHUB_STATE, () => {
-            return saveJSON(FILE_GITHUB_STATE, { last_sha: sha });
-        });
+        return query<ResultSetHeader>(
+            'INSERT INTO github_state (id, last_sha) VALUES (1, :sha) ON DUPLICATE KEY UPDATE last_sha = VALUES(last_sha)',
+            { sha }
+        ).then(() => undefined);
     }
 
-    getGameUpdate(chat_id: number, user_id: number): Promise<GameUpdate> {
-        const key = `game_updates/${chat_id}_${user_id}.json`;
-        return loadJSON<GameUpdate>(key);
+    // gameId is the only info field that may be numeric; reconstruct it as a number
+    // when it parses as one so the publishUpdate diff logic keeps comparing like for like.
+    private _reconstructInfo(row: RowDataPacket): any {
+        const gameId = row.game_id == null ? undefined : (/^\d+$/.test(row.game_id) ? Number(row.game_id) : row.game_id);
+        return { gameId, map: row.map ?? undefined, status: row.status ?? undefined, score: row.score ?? undefined };
+    }
+
+    async getGameUpdate(chat_id: number, user_id: number): Promise<GameUpdate> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT message_id, text, game_id, map, status, score, timestamp FROM game_update ' +
+            'WHERE chat_id = :chat_id AND user_id = :user_id ORDER BY id DESC LIMIT 1',
+            { chat_id, user_id }
+        );
+        if (rows.length === 0) {
+            return {} as GameUpdate;
+        }
+        const row = rows[0];
+        return {
+            message_id: Number(row.message_id),
+            text: row.text,
+            info: this._reconstructInfo(row),
+            timestamp: row.timestamp
+        };
     }
 
     setGameUpdate(chat_id: number, user_id: number, message_id: number, text: string, info: any = {}): Promise<void> {
-        const key = `game_updates/${chat_id}_${user_id}.json`;
-        return this._withLock(key, () => {
-            const update: GameUpdate = {
-                message_id,
-                text,
-                info,
-                timestamp: new Date().toISOString()
-            };
-            return saveJSON(key, update);
+        return withTransaction(async conn => {
+            await this._ensureTelegramUser(conn, user_id);
+            await conn.query('DELETE FROM game_update WHERE chat_id = :chat_id AND user_id = :user_id', { chat_id, user_id });
+            await conn.query(
+                'INSERT INTO game_update (chat_id, user_id, message_id, text, game_id, map, status, score, timestamp) ' +
+                'VALUES (:chat_id, :user_id, :message_id, :text, :game_id, :map, :status, :score, :timestamp)',
+                {
+                    chat_id, user_id, message_id, text,
+                    game_id: info.gameId == null ? null : String(info.gameId),
+                    map: info.map ?? null,
+                    status: info.status ?? null,
+                    score: info.score ?? null,
+                    timestamp: new Date()
+                }
+            );
         });
     }
 
     updateGameUpdateText(chat_id: number, user_id: number, text: string, info: any = {}): Promise<void> {
-        const key = `game_updates/${chat_id}_${user_id}.json`;
-        return this._withLock(key, () => {
-            return loadJSON<GameUpdate>(key)
-                .then(update => {
-                    if (update && update.message_id) {
-                        update.text = text;
-                        update.info = info;
-                        return saveJSON(key, update);
-                    }
-                });
-        });
+        // Update the current row's text/info, keeping its original timestamp. No-op if none.
+        return query<ResultSetHeader>(
+            'UPDATE game_update SET text = :text, game_id = :game_id, map = :map, status = :status, score = :score ' +
+            'WHERE chat_id = :chat_id AND user_id = :user_id',
+            {
+                chat_id, user_id, text,
+                game_id: info.gameId == null ? null : String(info.gameId),
+                map: info.map ?? null,
+                status: info.status ?? null,
+                score: info.score ?? null
+            }
+        ).then(() => undefined);
     }
 
-    getScheduledRollcalls(): Promise<ScheduledRollcalls> {
-        return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES);
+    async getScheduledRollcalls(): Promise<ScheduledRollcalls> {
+        const rows = await query<RowDataPacket[]>('SELECT chat_id, trigger_at, rsvp_list_id, initiator_id FROM rollcall_schedule');
+        const result: ScheduledRollcalls = {};
+        for (const row of rows) {
+            const schedule: ScheduledRollcall = { time: row.trigger_at };
+            if (row.rsvp_list_id != null) {
+                schedule.rsvp_id = Number(row.rsvp_list_id);
+            }
+            if (row.initiator_id != null) {
+                schedule.initiator_id = Number(row.initiator_id);
+            }
+            result[String(row.chat_id)] = schedule;
+        }
+        return result;
     }
 
-    setScheduledRollcall(chat_id: number, time: Date, rsvp_id?: string, initiator_id?: number): Promise<void> {
-        return this._withLock(FILE_ROLLCALL_SCHEDULES, () => {
-            return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES)
-                .then(schedules => {
-                    const schedule: ScheduledRollcall = { time: time.toISOString() };
-                    if (rsvp_id !== undefined) {
-                        schedule.rsvp_id = rsvp_id;
-                    }
-                    if (initiator_id !== undefined) {
-                        schedule.initiator_id = initiator_id;
-                    }
-                    schedules[chat_id] = schedule;
-                    return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
-                });
+    setScheduledRollcall(chat_id: number, time: Date, rsvp_id?: number, initiator_id?: number): Promise<void> {
+        return withTransaction(async conn => {
+            if (initiator_id !== undefined) {
+                await this._ensureTelegramUser(conn, initiator_id);
+            }
+            // Replace any existing schedule for this chat (keeps one-per-chat behaviour).
+            await conn.query('DELETE FROM rollcall_schedule WHERE chat_id = :chat_id', { chat_id });
+            await conn.query(
+                'INSERT INTO rollcall_schedule (chat_id, trigger_at, rsvp_list_id, initiator_id) ' +
+                'VALUES (:chat_id, :trigger_at, :rsvp_list_id, :initiator_id)',
+                { chat_id, trigger_at: time, rsvp_list_id: rsvp_id ?? null, initiator_id: initiator_id ?? null }
+            );
         });
     }
 
     removeScheduledRollcall(chat_id: number): Promise<void> {
-        return this._withLock(FILE_ROLLCALL_SCHEDULES, () => {
-            return loadJSON<ScheduledRollcalls>(FILE_ROLLCALL_SCHEDULES)
-                .then(schedules => {
-                    delete schedules[chat_id];
-                    return saveJSON(FILE_ROLLCALL_SCHEDULES, schedules);
-                });
-        });
+        return query<ResultSetHeader>('DELETE FROM rollcall_schedule WHERE chat_id = :chat_id', { chat_id }).then(() => undefined);
     }
 
-    // Drop RSVP lists older than the TTL so the file doesn't grow unbounded.
-    private _pruneRsvpLists(lists: Record<string, RsvpList>): void {
-        const cutoff: number = Date.now() - RSVP_LIST_TTL_MS;
-        for (const [id, list] of Object.entries(lists)) {
-            if (new Date(list.created_at).getTime() < cutoff) {
-                delete lists[id];
-            }
+    private async _loadRsvpList(conn: PoolConnection, rsvp_id: number): Promise<RsvpList | undefined> {
+        const [listRows] = await conn.query<RowDataPacket[]>('SELECT id, chat_id, created_at FROM rsvp_list WHERE id = :id', { id: rsvp_id });
+        if (listRows.length === 0) {
+            return undefined;
         }
+        const [entryRows] = await conn.query<RowDataPacket[]>(
+            'SELECT e.user_id, e.rsvp, u.name, u.username FROM rsvp_entry e ' +
+            'JOIN telegram_user u ON u.user_id = e.user_id WHERE e.rsvp_list_id = :id',
+            { id: rsvp_id }
+        );
+        const [messageRows] = await conn.query<RowDataPacket[]>(
+            'SELECT message_id, base_text, keyboard FROM rsvp_message WHERE rsvp_list_id = :id',
+            { id: rsvp_id }
+        );
+        const entries: Record<string, RsvpEntry> = {};
+        for (const row of entryRows) {
+            entries[String(row.user_id)] = {
+                user_id: Number(row.user_id),
+                name: row.name ?? '',
+                username: row.username ?? undefined,
+                rsvp: row.rsvp
+            };
+        }
+        return {
+            rsvp_id: Number(listRows[0].id),
+            chat_id: Number(listRows[0].chat_id),
+            entries,
+            messages: messageRows.map(row => ({
+                message_id: Number(row.message_id),
+                base_text: row.base_text,
+                keyboard: row.keyboard
+            })),
+            created_at: listRows[0].created_at
+        };
     }
 
-    createRsvpList(list: Omit<RsvpList, 'rsvp_id' | 'created_at'>): Promise<string> {
-        return this._withLock(FILE_RSVP_LISTS, () => {
-            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-                .then(lists => {
-                    this._pruneRsvpLists(lists);
-                    const rsvp_id: string = uuid();
-                    lists[rsvp_id] = {
-                        ...list,
-                        rsvp_id,
-                        created_at: new Date().toISOString()
-                    };
-                    return saveJSON(FILE_RSVP_LISTS, lists).then(() => rsvp_id);
-                });
+    createRsvpList(list: Omit<RsvpList, 'rsvp_id' | 'created_at'>): Promise<number> {
+        return withTransaction(async conn => {
+            // Prune expired lists so the table doesn't grow unbounded.
+            await conn.query('DELETE FROM rsvp_list WHERE created_at < :cutoff', { cutoff: new Date(Date.now() - RSVP_LIST_TTL_MS) });
+            const [res] = await conn.query<ResultSetHeader>(
+                'INSERT INTO rsvp_list (chat_id, created_at) VALUES (:chat_id, :created_at)',
+                { chat_id: list.chat_id, created_at: new Date() }
+            );
+            const rsvp_id = res.insertId;
+            for (const entry of Object.values(list.entries)) {
+                await this._ensureTelegramUser(conn, entry.user_id, entry.name, entry.username);
+                await conn.query(
+                    'INSERT INTO rsvp_entry (rsvp_list_id, user_id, rsvp) VALUES (:rsvp_id, :user_id, :rsvp)',
+                    { rsvp_id, user_id: entry.user_id, rsvp: entry.rsvp }
+                );
+            }
+            for (const ref of list.messages) {
+                await conn.query(
+                    'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, keyboard) VALUES (:rsvp_id, :message_id, :base_text, :keyboard)',
+                    { rsvp_id, message_id: ref.message_id, base_text: ref.base_text, keyboard: ref.keyboard }
+                );
+            }
+            return rsvp_id;
         });
     }
 
-    getRsvpList(rsvp_id: string): Promise<RsvpList | undefined> {
-        return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-            .then(lists => lists[rsvp_id]);
+    getRsvpList(rsvp_id: number): Promise<RsvpList | undefined> {
+        return withTransaction(conn => this._loadRsvpList(conn, rsvp_id));
     }
 
-    getRsvpListByMessage(chat_id: number, message_id: number): Promise<RsvpList | undefined> {
-        return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-            .then(lists => Object.values(lists).find(list =>
-                String(list.chat_id) === String(chat_id) &&
-                list.messages.some(ref => ref.message_id === message_id)
-            ));
+    async getRsvpListByMessage(chat_id: number, message_id: number): Promise<RsvpList | undefined> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT l.id FROM rsvp_list l JOIN rsvp_message m ON m.rsvp_list_id = l.id ' +
+            'WHERE l.chat_id = :chat_id AND m.message_id = :message_id LIMIT 1',
+            { chat_id, message_id }
+        );
+        if (rows.length === 0) {
+            return undefined;
+        }
+        return this.getRsvpList(Number(rows[0].id));
     }
 
-    setRsvpEntry(rsvp_id: string, entry: RsvpEntry): Promise<RsvpList | undefined> {
-        return this._withLock(FILE_RSVP_LISTS, () => {
-            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-                .then(lists => {
-                    const list: RsvpList | undefined = lists[rsvp_id];
-                    if (!list) {
-                        return undefined;
-                    }
-                    list.entries[entry.user_id] = entry;
-                    return saveJSON(FILE_RSVP_LISTS, lists).then(() => list);
-                });
+    setRsvpEntry(rsvp_id: number, entry: RsvpEntry): Promise<RsvpList | undefined> {
+        return withTransaction(async conn => {
+            const [listRows] = await conn.query<RowDataPacket[]>('SELECT id FROM rsvp_list WHERE id = :id', { id: rsvp_id });
+            if (listRows.length === 0) {
+                return undefined;
+            }
+            await this._ensureTelegramUser(conn, entry.user_id, entry.name, entry.username);
+            await conn.query(
+                'INSERT INTO rsvp_entry (rsvp_list_id, user_id, rsvp) VALUES (:rsvp_id, :user_id, :rsvp) ' +
+                'ON DUPLICATE KEY UPDATE rsvp = VALUES(rsvp)',
+                { rsvp_id, user_id: entry.user_id, rsvp: entry.rsvp }
+            );
+            return this._loadRsvpList(conn, rsvp_id);
         });
     }
 
-    addRsvpMessage(rsvp_id: string, ref: RsvpMessageRef): Promise<void> {
-        return this._withLock(FILE_RSVP_LISTS, () => {
-            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-                .then(lists => {
-                    const list: RsvpList | undefined = lists[rsvp_id];
-                    if (!list) {
-                        return;
-                    }
-                    list.messages = list.messages.filter(m => m.message_id !== ref.message_id);
-                    list.messages.push(ref);
-                    return saveJSON(FILE_RSVP_LISTS, lists);
-                });
+    addRsvpMessage(rsvp_id: number, ref: RsvpMessageRef): Promise<void> {
+        return withTransaction(async conn => {
+            const [listRows] = await conn.query<RowDataPacket[]>('SELECT id FROM rsvp_list WHERE id = :id', { id: rsvp_id });
+            if (listRows.length === 0) {
+                return;
+            }
+            await conn.query(
+                'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, keyboard) VALUES (:rsvp_id, :message_id, :base_text, :keyboard) ' +
+                'ON DUPLICATE KEY UPDATE base_text = VALUES(base_text), keyboard = VALUES(keyboard)',
+                { rsvp_id, message_id: ref.message_id, base_text: ref.base_text, keyboard: ref.keyboard }
+            );
         });
     }
 
-    removeRsvpMessage(rsvp_id: string, message_id: number): Promise<void> {
-        return this._withLock(FILE_RSVP_LISTS, () => {
-            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-                .then(lists => {
-                    const list: RsvpList | undefined = lists[rsvp_id];
-                    if (!list) {
-                        return;
-                    }
-                    list.messages = list.messages.filter(m => m.message_id !== message_id);
-                    return saveJSON(FILE_RSVP_LISTS, lists);
-                });
-        });
+    removeRsvpMessage(rsvp_id: number, message_id: number): Promise<void> {
+        return query<ResultSetHeader>(
+            'DELETE FROM rsvp_message WHERE rsvp_list_id = :rsvp_id AND message_id = :message_id',
+            { rsvp_id, message_id }
+        ).then(() => undefined);
     }
 
-    deleteRsvpList(rsvp_id: string): Promise<void> {
-        return this._withLock(FILE_RSVP_LISTS, () => {
-            return loadJSON<Record<string, RsvpList>>(FILE_RSVP_LISTS)
-                .then(lists => {
-                    delete lists[rsvp_id];
-                    return saveJSON(FILE_RSVP_LISTS, lists);
-                });
-        });
+    deleteRsvpList(rsvp_id: number): Promise<void> {
+        return query<ResultSetHeader>('DELETE FROM rsvp_list WHERE id = :id', { id: rsvp_id }).then(() => undefined);
     }
 
-    _getRollcallPlayers(chat_id: number): Promise<RollcallPlayer[]> {
-        return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
-            .then(players => Object.keys(players).reduce((acc: RollcallPlayer[], key) => ([
-                ...acc,
-                {
-                    key,
-                    ...players[key]
-                }
-            ]), []))
-            .then((players: RollcallPlayer[]) => players.filter((player: RollcallPlayer) => String(player?.chat_id) === String(chat_id)));
+    private _getRollcallPlayerRows(chat_id: number): Promise<RollcallPlayerRow[]> {
+        return query<RollcallPlayerRow[]>(
+            'SELECT id, chat_id, user_id, username, display_name FROM rollcall_player WHERE chat_id = :chat_id',
+            { chat_id }
+        );
     }
 
     getRollcallPlayerUsernames(chat_id: number): Promise<string[]> {
-        return this._getRollcallPlayers(chat_id)
-            .then(players => players.map(player => player.username));
+        return this._getRollcallPlayerRows(chat_id).then(rows => rows.map(row => this._playerMention(row)));
     }
 
-    addRollcallPlayer(chat_id: number, username: string): Promise<string> {
-        return this._withLock(FILE_ROLLCALL_PLAYERS, () => {
-            return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
-                .then(players => {
-                    const key = uuid();
-                    players[key] = {
-                        username: checkNotEmpty(username),
-                        chat_id: Number(checkNotEmpty(chat_id))
-                    };
-                    return saveJSON(FILE_ROLLCALL_PLAYERS, players)
-                        .then(() => key);
-                });
+    addRollcallPlayer(chat_id: number, username: string): Promise<number> {
+        const parsed = this._parsePlayer(checkNotEmpty(username));
+        return withTransaction(async conn => {
+            if (parsed.user_id !== null) {
+                await this._ensureTelegramUser(conn, parsed.user_id);
+            }
+            const [res] = await conn.query<ResultSetHeader>(
+                'INSERT INTO rollcall_player (chat_id, user_id, username, display_name) VALUES (:chat_id, :user_id, :username, :display_name)',
+                { chat_id: Number(checkNotEmpty(chat_id)), user_id: parsed.user_id, username: parsed.username, display_name: parsed.display_name }
+            );
+            return res.insertId;
         });
     }
 
     removeRollcallPlayer(chat_id: number, username: string): Promise<boolean> {
-        return this._withLock(FILE_ROLLCALL_PLAYERS, () => {
-            return this._getRollcallPlayers(Number(checkNotEmpty(chat_id)))
-                .then(players => players.find(
-                    player => {
-                        if (String(player?.chat_id) !== String(chat_id)) {
-                            return false;
-                        }
-
-                        const storedUsername = player?.username;
-                        const inputUsername = checkNotEmpty(username);
-
-                        if (storedUsername === inputUsername) {
-                            return true;
-                        }
-
-                        // Handle case where stored is [Name](tg://user?id=123) and input is just Name
-                        const match = storedUsername.match(/^\[(.*)\]\(tg:\/\/user\?id=\d+\)$/);
-                        return match && match[1] === inputUsername;
-                    })?.key)
-                .then(key => {
-                    if (!key) {
-                        return false;
-                    }
-
-                    return loadJSON<Record<string, RollcallPlayer>>(FILE_ROLLCALL_PLAYERS)
-                        .then(players => {
-                            delete players[key];
-                            return saveJSON(FILE_ROLLCALL_PLAYERS, players);
-                        })
-                        .then(() => true);
-                });
-        });
+        const inputUsername = checkNotEmpty(username);
+        return this._getRollcallPlayerRows(Number(checkNotEmpty(chat_id)))
+            .then(rows => rows.find(row => {
+                if (this._playerMention(row) === inputUsername) {
+                    return true;
+                }
+                // Match the case where the stored player is a text mention and the input is just the name.
+                return row.user_id !== null && row.display_name === inputUsername;
+            }))
+            .then(row => {
+                if (!row) {
+                    return false;
+                }
+                return query<ResultSetHeader>('DELETE FROM rollcall_player WHERE id = :id', { id: row.id }).then(() => true);
+            });
     }
 }
 

@@ -6,7 +6,8 @@
   "license": "GPL-3.0",
   "scripts": {
     "start": "ts-node main.ts",
-    "build": "tsc",
+    "build": "tsc && cp dao/schema.sql dist/dao/schema.sql",
+    "migrate": "ts-node scripts/migrate-s3-to-mariadb.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "engines": {
@@ -17,6 +18,7 @@
     "chrono-node": "^2.7.5",
     "console-stamp": "^3.1.2",
     "luxon": "^3.4.4",
+    "mysql2": "^3.22.5",
     "node-telegram-bot-api": "^0.66.0",
     "steam-totp": "^2.1.2",
     "steam-user": "^5.3.0",

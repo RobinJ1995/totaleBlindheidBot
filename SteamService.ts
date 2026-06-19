@@ -4,6 +4,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import DAO, { UserSettings, ChatSettings, GameUpdate } from './dao/DAO';
 import { escapeMarkdown } from './utils';
 import { save, readFile } from './dao/S3Client';
+import { saveSteamFile, readSteamFile } from './dao/Database';
 
 interface SteamOptions {
     dataDirectory?: string;
@@ -51,28 +52,37 @@ class SteamService {
     constructor(bot: TelegramBot) {
         this.bot = bot;
 
-        const steamOptions: SteamOptions = {};
-        if (process.env.S3_BUCKET) {
+        // Where the steam-user library persists its own session/sentry files.
+        const backend = (process.env.STEAM_STORAGE_BACKEND || 'filesystem').toLowerCase();
+        const steamOptions: SteamOptions = { dataDirectory: 'data' };
+        if (backend === 's3') {
             console.log(`Using S3 storage for Steam data in bucket: ${process.env.S3_BUCKET}`);
-            steamOptions.dataDirectory = 'data'; // Set generic data directory if needed, or rely on handlers
-            // In original code, it sets dataDirectory to 'data' then overrides storage.
-            // SteamUser constructor takes options
-            
-            // We need to initialize client before attaching listeners, but we need to know if we are using S3
             this.client = new SteamUser(steamOptions);
-            
             this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
                 save(`steam-user/${filename}`, contents)
                     .then(() => callback(null))
                     .catch(err => callback(err));
             });
-
             this.client.storage.on('read', (filename: string, callback: (err: Error | null, content?: any) => void) => {
                 readFile(`steam-user/${filename}`)
                     .then(contents => callback(null, contents))
                     .catch(err => callback(err));
             });
+        } else if (backend === 'database') {
+            console.log('Using database storage for Steam data.');
+            this.client = new SteamUser(steamOptions);
+            this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
+                saveSteamFile(`steam-user/${filename}`, contents)
+                    .then(() => callback(null))
+                    .catch(err => callback(err));
+            });
+            this.client.storage.on('read', (filename: string, callback: (err: Error | null, content?: any) => void) => {
+                readSteamFile(`steam-user/${filename}`)
+                    .then(contents => callback(null, contents))
+                    .catch(err => callback(err));
+            });
         } else {
+            // filesystem (default): use steam-user's built-in dataDirectory handling.
             this.client = new SteamUser();
         }
 

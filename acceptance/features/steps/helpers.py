@@ -8,6 +8,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import boto3
+import pymysql
 import requests
 
 TELEGRAM_MOCK_URL: str = os.environ.get("TELEGRAM_MOCK_URL", "http://telegram-mock:8081")
@@ -20,6 +21,19 @@ S3_BUCKET: str = os.environ.get("S3_BUCKET", "totaleblindheidbot")
 S3_ACCESS_KEY: str = os.environ.get("S3_ACCESS_KEY", "rustfsadmin")
 S3_SECRET_KEY: str = os.environ.get("S3_SECRET_KEY", "rustfsadmin")
 S3_REGION: str = os.environ.get("S3_REGION", "us-east-1")
+
+MARIADB_HOST: str = os.environ.get("MARIADB_HOST", "mariadb")
+MARIADB_PORT: int = int(os.environ.get("MARIADB_PORT", "3306"))
+MARIADB_USER: str = os.environ.get("MARIADB_USER", "root")
+MARIADB_PASSWORD: str = os.environ.get("MARIADB_PASSWORD", "rootpass")
+MARIADB_DATABASE: str = os.environ.get("MARIADB_DATABASE", "totaleblindheidbot")
+
+# Every application-data table; truncated between runs to start from a clean DAO state.
+_APP_TABLES: List[str] = [
+    "telegram_user", "user_settings", "user_steam_id", "user_chat", "chat_settings",
+    "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule",
+    "github_state", "game_update", "steam_storage",
+]
 
 # How long to wait for the bot to poll an update and produce a reply.
 REPLY_TIMEOUT: float = float(os.environ.get("REPLY_TIMEOUT", "15"))
@@ -57,13 +71,61 @@ def ensure_bucket(timeout: int = 90) -> None:
 
 
 def clear_bucket() -> None:
-    """Empty the bucket so local re-runs start from a clean DAO state."""
+    """Empty the bucket so local re-runs start from a clean steam-user state."""
     client = s3_client()
     paginator = client.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET):
         keys: List[Dict[str, str]] = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
         if keys:
             client.delete_objects(Bucket=S3_BUCKET, Delete={"Objects": keys})
+
+
+# ---------------------------------------------------------------------------
+# MariaDB (application data) interactions
+# ---------------------------------------------------------------------------
+
+def db_conn() -> Any:
+    return pymysql.connect(
+        host=MARIADB_HOST,
+        port=MARIADB_PORT,
+        user=MARIADB_USER,
+        password=MARIADB_PASSWORD,
+        database=MARIADB_DATABASE,
+        autocommit=True,
+    )
+
+
+def wait_for_db(timeout: int = 90) -> None:
+    """Wait until MariaDB is up and the bot has created the schema."""
+    deadline: float = time.time() + timeout
+    last_err: Optional[Exception] = None
+    while time.time() < deadline:
+        try:
+            conn = db_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SHOW TABLES LIKE 'telegram_user'")
+                    if cur.fetchone():
+                        return
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+        time.sleep(1)
+    raise RuntimeError(f"Timed out waiting for MariaDB schema: {last_err}")
+
+
+def reset_db() -> None:
+    """Truncate every application-data table so each run starts from a clean DAO state."""
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET FOREIGN_KEY_CHECKS = 0")
+            for table in _APP_TABLES:
+                cur.execute(f"TRUNCATE TABLE {table}")
+            cur.execute("SET FOREIGN_KEY_CHECKS = 1")
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

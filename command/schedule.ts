@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
 import { parseTime } from '../timeUtils';
-import DAO, { RsvpEntry, normalizeSchedule } from '../dao/DAO';
+import DAO, { RsvpEntry } from '../dao/DAO';
 import { formatError, escapeMarkdown } from '../utils';
 import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp';
 
@@ -43,7 +43,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
             // a schedule that will never fire.
             return dao.getScheduledRollcalls()
                 .then(schedules => {
-                    const previous = schedules[chat_id] ? normalizeSchedule(schedules[chat_id]) : undefined;
+                    const previous = schedules[chat_id];
                     return previous?.rsvp_id ? retireRsvpList(bot, dao, previous.rsvp_id) : undefined;
                 })
                 .then(() => dao.setScheduledRollcall(chat_id, scheduledTime))
@@ -78,7 +78,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                             chat_id,
                             entries,
                             messages: [{ message_id: sent.message_id, base_text: baseText, keyboard: 'schedule' }]
-                        }).then((rsvp_id: string) =>
+                        }).then((rsvp_id: number) =>
                             // Store the rsvp_id + initiator on the schedule so the timer can
                             // find and share the same list when the rollcall fires.
                             dao.setScheduledRollcall(chat_id, scheduledTime, rsvp_id, user_id)
