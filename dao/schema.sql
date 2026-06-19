@@ -131,3 +131,63 @@ CREATE TABLE IF NOT EXISTS steam_storage (
     contents LONGBLOB     NOT NULL,
     PRIMARY KEY (filename)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The match a (chat,user) is currently playing. One row per (chat,user); replaced on
+-- write. Survives session closes and bot restarts so a match can span a game relaunch.
+-- A match is finished (and moved to game_history) on a score reset / map / mode change,
+-- or once it has been idle (not playing, no score progress) past the idle window.
+CREATE TABLE IF NOT EXISTS current_match (
+    chat_id          BIGINT       NOT NULL,
+    user_id          BIGINT       NOT NULL,
+    map              VARCHAR(64)  NULL,
+    mode             VARCHAR(255) NULL,
+    max_score        VARCHAR(64)  NULL,
+    player_name      VARCHAR(255) NULL,
+    started_at       DATETIME(3)  NOT NULL,
+    last_progress_at DATETIME(3)  NOT NULL,
+    playing          TINYINT(1)   NOT NULL,
+    PRIMARY KEY (chat_id, user_id),
+    KEY idx_current_match_idle (playing, last_progress_at),
+    CONSTRAINT fk_current_match_user FOREIGN KEY (user_id)
+        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Other tracked players seen in the same in-progress match. name is a point-in-time
+-- snapshot; co_user_id carries no FK so a co-player needn't be ensured every tick.
+CREATE TABLE IF NOT EXISTS current_match_coplayer (
+    chat_id    BIGINT       NOT NULL,
+    user_id    BIGINT       NOT NULL,
+    co_user_id BIGINT       NOT NULL,
+    name       VARCHAR(255) NULL,
+    PRIMARY KEY (chat_id, user_id, co_user_id),
+    CONSTRAINT fk_cmcp_match FOREIGN KEY (chat_id, user_id)
+        REFERENCES current_match (chat_id, user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A finished match. score is the raw "16-14" (player-opponent); win/loss/tie is derived
+-- from it. One row per finished match per (chat,user).
+CREATE TABLE IF NOT EXISTS game_history (
+    id         BIGINT       NOT NULL AUTO_INCREMENT,
+    chat_id    BIGINT       NOT NULL,
+    user_id    BIGINT       NOT NULL,
+    mode       VARCHAR(255) NULL,
+    map        VARCHAR(64)  NULL,
+    score      VARCHAR(64)  NULL,
+    started_at DATETIME(3)  NULL,
+    ended_at   DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_game_history_chat_user (chat_id, user_id),
+    CONSTRAINT fk_game_history_user FOREIGN KEY (user_id)
+        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Co-players recorded against a finished match. name is a point-in-time snapshot.
+CREATE TABLE IF NOT EXISTS game_history_coplayer (
+    game_history_id BIGINT       NOT NULL,
+    co_user_id      BIGINT       NOT NULL,
+    name            VARCHAR(255) NULL,
+    PRIMARY KEY (game_history_id, co_user_id),
+    CONSTRAINT fk_ghcp_history FOREIGN KEY (game_history_id)
+        REFERENCES game_history (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

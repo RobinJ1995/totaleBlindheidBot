@@ -25,6 +25,7 @@ import wingmanHandler from './command/wingman';
 import steamUserIdHandler from './command/steam_user_id';
 import steamUpdatesHandler from './command/steam_updates';
 import steamGuardHandler from './command/steam_guard';
+import gameHistoryHandler from './command/game_history';
 import githubNotifyHandler from './command/github_notify';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player';
@@ -202,6 +203,9 @@ if (steamEnabled) {
     });
     router.route('steam_guard', steamGuardHandler, {
         helpText: 'Submit a Steam Guard code.'
+    });
+    router.route('game_history', gameHistoryHandler, {
+        helpText: 'Show your CS2 game history for this chat.'
     });
 }
 

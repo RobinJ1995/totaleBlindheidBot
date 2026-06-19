@@ -36,6 +36,27 @@ def step_steam_playing_map(context: Context, steam_id: str, map_name: str) -> No
     })
 
 
+@when('a moment passes')
+def step_moment_passes(context: Context) -> None:
+    # Let the bot finish processing the previous presence update before the next one, so
+    # rapid score changes are applied in order (matches are seconds apart in reality).
+    time.sleep(1.5)
+
+
+@when('Steam reports user "{steam_id}" playing CS2 with score "{score}" on map "{map_name}"')
+def step_steam_playing_map_score(context: Context, steam_id: str, score: str, map_name: str) -> None:
+    _capture_steam_baseline(context)
+    helpers.steam_emit_user(steam_id, {
+        "player_name": "Gamer",
+        "gameid": 730,
+        "rich_presence": [
+            {"key": "game:map", "value": map_name},
+            {"key": "status", "value": "Competitive"},
+            {"key": "game:score", "value": score},
+        ],
+    })
+
+
 @when('Steam reports user "{steam_id}" playing CS2')
 def step_steam_playing(context: Context, steam_id: str) -> None:
     _capture_steam_baseline(context)
@@ -89,6 +110,24 @@ def step_steam_message_edited(context: Context, chat_id: int, expected: str) -> 
         time.sleep(helpers.POLL_INTERVAL)
     raise AssertionError(
         f"No editMessageText containing {expected!r} reached chat {chat_id}"
+    )
+
+
+@then('chat {chat_id:d} eventually receives a new Steam message containing "{expected}"')
+def step_chat_receives_new_steam(context: Context, chat_id: int, expected: str) -> None:
+    # Poll for a fresh sendMessage (e.g. the end-of-game notification), which may arrive a
+    # few seconds after an unrelated edit has already grown the outbox.
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    while time.time() < deadline:
+        outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
+        sends: List[Dict[str, Any]] = [
+            m for m in outbox if m["method"] == "sendMessage" and expected in m["text"]
+        ]
+        if sends:
+            return
+        time.sleep(helpers.POLL_INTERVAL)
+    raise AssertionError(
+        f"No sendMessage containing {expected!r} reached chat {chat_id}"
     )
 
 

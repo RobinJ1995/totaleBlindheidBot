@@ -33,6 +33,7 @@ _APP_TABLES: List[str] = [
     "telegram_user", "user_settings", "user_steam_id", "user_chat", "chat_settings",
     "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule",
     "github_state", "game_update", "steam_storage",
+    "current_match_coplayer", "current_match", "game_history_coplayer", "game_history",
 ]
 
 # How long to wait for the bot to poll an update and produce a reply.
