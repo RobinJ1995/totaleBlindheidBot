@@ -1,9 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
-import DAO from '../dao/DAO';
+import ChatDAO from '../dao/ChatDAO';
 import { formatError } from '../utils';
 
-const dao = new DAO();
+const dao = new ChatDAO();
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const arg: string | undefined = msg.command?.argument?.toLowerCase();

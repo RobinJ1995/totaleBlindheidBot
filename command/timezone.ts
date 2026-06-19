@@ -1,10 +1,10 @@
 import tzSoft from 'timezone-soft';
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
-import DAO from '../dao/DAO';
+import UserDAO from '../dao/UserDAO';
 import { formatError } from '../utils';
 
-const dao = new DAO();
+const dao = new UserDAO();
 
 // Define a minimal interface for timezone-soft results since @types might not exist
 interface TimezoneResult {

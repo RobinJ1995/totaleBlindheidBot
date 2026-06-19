@@ -1,10 +1,12 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
 import { pickRandom, escapeMarkdown } from '../utils';
-import DAO, { RsvpEntry } from '../dao/DAO';
+import RollcallPlayerDAO from '../dao/RollcallPlayerDAO';
+import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp';
 
-const dao = new DAO();
+const rollcallPlayerDao = new RollcallPlayerDAO();
+const rsvpDao = new RsvpDAO();
 
 const QUOTES: string[] = [
     "Are we rushin' in, or are we going' sneaky-beaky like?",
@@ -20,13 +22,13 @@ interface ExecuteRollcallOptions {
     initiator?: TelegramBot.User;
     // When set, the rollcall attaches to (shares) this existing RSVP list instead of
     // creating a fresh one. Used when a schedule triggers the rollcall.
-    rsvp_id?: string;
+    rsvp_id?: number;
 }
 
 const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<TelegramBot.Message> => {
     return Promise.all([
-        dao.getRollcallPlayerUsernames(chat_id),
-        opts.rsvp_id ? dao.getRsvpList(opts.rsvp_id) : Promise.resolve(undefined)
+        rollcallPlayerDao.getRollcallPlayerUsernames(chat_id),
+        opts.rsvp_id ? rsvpDao.getRsvpList(opts.rsvp_id) : Promise.resolve(undefined)
     ]).then(([rotation, existing]) => {
         // Inherit the shared list's entries when triggered by a schedule; otherwise seed
         // a fresh list with the initiator marked as joining.
@@ -46,8 +48,8 @@ const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcal
         }).then((sent: TelegramBot.Message) => {
             const ref = { message_id: sent.message_id, base_text: baseText, keyboard: 'rollcall' as const };
             const attach: Promise<unknown> = (existing && opts.rsvp_id)
-                ? dao.addRsvpMessage(opts.rsvp_id, ref)
-                : dao.createRsvpList({ chat_id, entries, messages: [ref] });
+                ? rsvpDao.addRsvpMessage(opts.rsvp_id, ref)
+                : rsvpDao.createRsvpList({ chat_id, entries, messages: [ref] });
             return attach.then(() => sent);
         });
     });

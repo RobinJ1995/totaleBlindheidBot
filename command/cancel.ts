@@ -1,19 +1,21 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
-import DAO, { ScheduledRollcalls, normalizeSchedule } from '../dao/DAO';
+import ScheduleDAO, { ScheduledRollcalls } from '../dao/ScheduleDAO';
+import RsvpDAO from '../dao/RsvpDAO';
 import { formatError } from '../utils';
 import { retireRsvpList } from '../rsvp';
 
-const dao = new DAO();
+const scheduleDao = new ScheduleDAO();
+const rsvpDao = new RsvpDAO();
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const chat_id: number = msg.chat.id;
-    dao.getScheduledRollcalls()
+    scheduleDao.getScheduledRollcalls()
         .then((schedules: ScheduledRollcalls) => {
             if (schedules[chat_id]) {
-                const schedule = normalizeSchedule(schedules[chat_id]);
-                return dao.removeScheduledRollcall(chat_id)
-                    .then(() => schedule.rsvp_id ? retireRsvpList(bot, dao, schedule.rsvp_id) : undefined)
+                const schedule = schedules[chat_id];
+                return scheduleDao.removeScheduledRollcall(chat_id)
+                    .then(() => schedule.rsvp_id ? retireRsvpList(bot, rsvpDao, schedule.rsvp_id) : undefined)
                     .then(() => {
                         msg.reply('Scheduled rollcall cancelled.');
                     });

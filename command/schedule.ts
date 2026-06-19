@@ -1,11 +1,17 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter';
 import { parseTime } from '../timeUtils';
-import DAO, { RsvpEntry, normalizeSchedule } from '../dao/DAO';
+import UserDAO from '../dao/UserDAO';
+import ScheduleDAO from '../dao/ScheduleDAO';
+import RollcallPlayerDAO from '../dao/RollcallPlayerDAO';
+import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO';
 import { formatError, escapeMarkdown } from '../utils';
 import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp';
 
-const dao = new DAO();
+const userDao = new UserDAO();
+const scheduleDao = new ScheduleDAO();
+const rollcallPlayerDao = new RollcallPlayerDAO();
+const rsvpDao = new RsvpDAO();
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const argument: string | undefined = msg.command?.argument;
@@ -15,7 +21,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     }
 
     const user_id: number = msg.from?.id || 0;
-    dao.getUserTimezone(user_id)
+    userDao.getUserTimezone(user_id)
         .then((timezone: string) => {
             const scheduledTime: Date | null = parseTime(argument, new Date(), timezone);
             if (!scheduledTime) {
@@ -41,13 +47,13 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
             // Rescheduling replaces any existing schedule for this chat: retire the previous
             // RSVP list first so its stale confirmation buttons can't record responses against
             // a schedule that will never fire.
-            return dao.getScheduledRollcalls()
+            return scheduleDao.getScheduledRollcalls()
                 .then(schedules => {
-                    const previous = schedules[chat_id] ? normalizeSchedule(schedules[chat_id]) : undefined;
-                    return previous?.rsvp_id ? retireRsvpList(bot, dao, previous.rsvp_id) : undefined;
+                    const previous = schedules[chat_id];
+                    return previous?.rsvp_id ? retireRsvpList(bot, rsvpDao, previous.rsvp_id) : undefined;
                 })
-                .then(() => dao.setScheduledRollcall(chat_id, scheduledTime))
-                .then(() => dao.getRollcallPlayerUsernames(chat_id))
+                .then(() => scheduleDao.setScheduledRollcall(chat_id, scheduledTime))
+                .then(() => rollcallPlayerDao.getRollcallPlayerUsernames(chat_id))
                 .then((rotation: string[]) => {
                     const timeString: string = scheduledTime.toLocaleString('en-GB', {
                         timeZone: timezone,
@@ -74,14 +80,14 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                         parse_mode: 'Markdown',
                         reply_markup: keyboard('schedule')
                     }).then((sent: TelegramBot.Message) => {
-                        return dao.createRsvpList({
+                        return rsvpDao.createRsvpList({
                             chat_id,
                             entries,
                             messages: [{ message_id: sent.message_id, base_text: baseText, keyboard: 'schedule' }]
-                        }).then((rsvp_id: string) =>
+                        }).then((rsvp_id: number) =>
                             // Store the rsvp_id + initiator on the schedule so the timer can
                             // find and share the same list when the rollcall fires.
-                            dao.setScheduledRollcall(chat_id, scheduledTime, rsvp_id, user_id)
+                            scheduleDao.setScheduledRollcall(chat_id, scheduledTime, rsvp_id, user_id)
                         );
                     });
                 });
