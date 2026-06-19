@@ -4,9 +4,23 @@ import TelegramBot from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO';
 import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO';
+import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer } from './dao/GameHistoryDAO';
+import RollcallPlayerDAO from './dao/RollcallPlayerDAO';
 import { escapeMarkdown } from './utils';
+import { parseMention } from './rsvp';
 import { save, readFile } from './dao/S3Client';
 import { saveSteamFile, readSteamFile } from './dao/Database';
+
+// A finished match with no further score progress is recorded once it has been idle
+// (CS2 not running, score unchanged) for this long. Overridable for tests.
+const MATCH_IDLE_MS = Number(process.env.MATCH_IDLE_MS) || 30 * 60 * 1000;
+
+// How often the idle-match sweep runs. Overridable for tests.
+const MATCH_SWEEP_MS = Number(process.env.MATCH_SWEEP_MS) || 60 * 1000;
+
+// How far a freshly reported round-total may dip below the running match total before we
+// treat it as a brand new match rather than out-of-order update noise.
+const RESET_TOLERANCE = 2;
 
 interface SteamOptions {
     dataDirectory?: string;
@@ -41,13 +55,19 @@ class SteamService {
     private userDao: UserDAO;
     private chatDao: ChatDAO;
     private gameUpdateDao: GameUpdateDAO;
+    private gameHistoryDao: GameHistoryDAO;
+    private rollcallPlayerDao: RollcallPlayerDAO;
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
     private telegramNameCache: Record<string, { name: string; fetchedAt: number }> = {};
+    // Serialises read-modify-write of a (chat,user)'s match buffer so rapidly-arriving
+    // presence updates can't race (a score reset finalising before a continuation persists).
+    private matchLocks: Record<string, Promise<unknown>> = {};
     private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
+    private matchSweepInterval: NodeJS.Timeout | null;
     private reconnectTimer: NodeJS.Timeout | null;
     private logOnOptions: any;
     private sharedSecret: string | undefined;
@@ -93,11 +113,14 @@ class SteamService {
         this.userDao = new UserDAO();
         this.chatDao = new ChatDAO();
         this.gameUpdateDao = new GameUpdateDAO();
+        this.gameHistoryDao = new GameHistoryDAO();
+        this.rollcallPlayerDao = new RollcallPlayerDAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
         this.steamGuardCallback = null;
         this.adminUserId = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
         this.updateInterval = null;
+        this.matchSweepInterval = null;
         this.reconnectTimer = null;
         this.logOnOptions = null;
         this.sharedSecret = undefined;
@@ -182,6 +205,12 @@ class SteamService {
 
         // Periodically update mappings in case new users register
         this.updateInterval = setInterval(() => this.updateUserMappings(), 60000);
+
+        // Finalise matches that have gone idle (the last match of a play session has no
+        // following reset to close it).
+        this.matchSweepInterval = setInterval(() => {
+            this.sweepIdleMatches().catch(err => console.error('Error sweeping idle matches:', err));
+        }, MATCH_SWEEP_MS);
     }
 
     private reconnect(delayMs = 30_000): void {
@@ -205,6 +234,10 @@ class SteamService {
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
+        }
+        if (this.matchSweepInterval) {
+            clearInterval(this.matchSweepInterval);
+            this.matchSweepInterval = null;
         }
         this.client.logOff();
     }
@@ -265,6 +298,9 @@ class SteamService {
 
             const chats = await this.userDao.getUserChats(tgUserId);
             for (const chatId of chats) {
+                // The match (if any) is not over yet — a relaunch may continue it. Just mark
+                // it idle so the periodic sweep can finalise it after the idle window.
+                await this.markMatchNotPlaying(chatId, tgUserId);
                 await this.maybeCloseSession(chatId, tgUserId);
             }
             return;
@@ -273,22 +309,33 @@ class SteamService {
         console.debug(`User update: ${playerName} (${steamId}) is playing CS2`);
 
         // Extract game info from rich presence
-        let map: string | undefined, status: string | undefined, score: string | undefined;
+        let map: string | undefined, status: string | undefined, score: string | undefined, mode: string | undefined;
         const rp = user.rich_presence;
         if (Array.isArray(rp)) {
             map = rp.find((i: SteamRichPresenceItem) => i.key === 'game:map' || i.key === 'map')?.value;
             status = rp.find((i: SteamRichPresenceItem) => i.key === 'status')?.value;
             score = rp.find((i: SteamRichPresenceItem) => i.key === 'game:score' || i.key === 'score')?.value;
+            mode = rp.find((i: SteamRichPresenceItem) => i.key === 'game:mode' || i.key === 'mode')?.value;
         } else if (rp && typeof rp === 'object') {
             map = rp['game:map'] || rp['map'];
             status = rp['status'];
             score = rp['game:score'] || rp['score'];
+            mode = rp['game:mode'] || rp['mode'];
         }
 
         if (user.rich_presence_string) {
             // If we have a rich_presence_string, it's usually the most user-friendly summary
             status = user.rich_presence_string;
         }
+
+        // The game mode often isn't its own key; fall back to the status string.
+        if (!mode) {
+            mode = status;
+        }
+
+        // Keep the raw "16-14" before it's turned into emoji digits for display, so we can
+        // record it in history and compute win/loss/tie.
+        const rawScore: string | undefined = score ? score.replace(/[\[\]]/g, '').trim() : undefined;
 
         if (score) {
             score = this.formatScore(score);
@@ -305,6 +352,11 @@ class SteamService {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
+            // Track match progress / boundaries regardless of the chat's live-update setting;
+            // history is a separate pull (/game_history) and the end-of-game notification is
+            // gated by steam_updates inside finalizeMatch.
+            await this.updateMatchState(chatId, tgUserId, { map, mode, rawScore, playerName });
+
             const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
                 console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
@@ -445,6 +497,245 @@ class SteamService {
         const cleanScore = score.replace(/[\[\]]/g, '').trim();
         const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
         return cleanScore.replace(/\d/g, (match: string) => numberEmojis[parseInt(match)]);
+    }
+
+    // Parse a raw "16-14" (or "16:14") score into its parts and round total.
+    parseRawScore(score?: string): { a: number; b: number; total: number } | null {
+        if (!score) return null;
+        const m = score.replace(/[\[\]]/g, '').trim().match(/^(\d+)\s*[-:]\s*(\d+)$/);
+        if (!m) return null;
+        const a = parseInt(m[1], 10);
+        const b = parseInt(m[2], 10);
+        return { a, b, total: a + b };
+    }
+
+    // 🏆/☠️/🤝 from a raw score (first part = player, second = opponents).
+    resultEmoji(score?: string): string {
+        const parsed = this.parseRawScore(score);
+        if (!parsed) return '•';
+        if (parsed.a > parsed.b) return '🏆';
+        if (parsed.a < parsed.b) return '☠️';
+        return '🤝';
+    }
+
+    // Pull map / mode / round-total out of a steam-user presence object (used when looking at
+    // other tracked players to decide who is in the same match).
+    private extractMapModeTotal(user: any): { map?: string; mode?: string; total?: number } {
+        let map: string | undefined, status: string | undefined, score: string | undefined, mode: string | undefined;
+        const rp = user?.rich_presence;
+        if (Array.isArray(rp)) {
+            map = rp.find((i: SteamRichPresenceItem) => i.key === 'game:map' || i.key === 'map')?.value;
+            status = rp.find((i: SteamRichPresenceItem) => i.key === 'status')?.value;
+            score = rp.find((i: SteamRichPresenceItem) => i.key === 'game:score' || i.key === 'score')?.value;
+            mode = rp.find((i: SteamRichPresenceItem) => i.key === 'game:mode' || i.key === 'mode')?.value;
+        } else if (rp && typeof rp === 'object') {
+            map = rp['game:map'] || rp['map'];
+            status = rp['status'];
+            score = rp['game:score'] || rp['score'];
+            mode = rp['game:mode'] || rp['mode'];
+        }
+        if (!mode) mode = status;
+        return { map, mode, total: this.parseRawScore(score)?.total };
+    }
+
+    // Run fn with exclusive access to a (chat,user)'s match buffer, chaining onto any in-flight
+    // operation for the same key so concurrent presence updates are applied in series.
+    private withMatchLock<T>(chatId: number, tgUserId: number, fn: () => Promise<T>): Promise<T> {
+        const key = `${chatId}_${tgUserId}`;
+        const prev = this.matchLocks[key] || Promise.resolve();
+        const run = prev.then(fn, fn);
+        this.matchLocks[key] = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    // Update the persisted "current match" buffer for a (chat, user) from a presence tick,
+    // detecting match boundaries (score reset / map change / mode change) and accumulating
+    // co-players. Finalises the previous match when a boundary is crossed.
+    private updateMatchState(chatId: number, tgUserId: number, info: { map?: string; mode?: string; rawScore?: string; playerName?: string }): Promise<void> {
+      return this.withMatchLock(chatId, tgUserId, async () => {
+        try {
+            const { map, mode, rawScore, playerName } = info;
+            const cur = await this.gameHistoryDao.getCurrentMatch(chatId, tgUserId);
+            const newParsed = this.parseRawScore(rawScore);
+
+            if (cur) {
+                const mapChanged = !!(map && cur.map && map.toLowerCase() !== cur.map.toLowerCase());
+                const modeChanged = !!(mode && cur.mode && mode !== cur.mode);
+                const curParsed = this.parseRawScore(cur.max_score);
+                const scoreReset = !!(newParsed && curParsed && newParsed.total < curParsed.total - RESET_TOLERANCE);
+
+                if (!mapChanged && !modeChanged && !scoreReset) {
+                    // Continuation of the same match (incl. a relaunch resuming it).
+                    let max_score = cur.max_score;
+                    if (newParsed && (!curParsed || newParsed.total > curParsed.total)) {
+                        max_score = rawScore;
+                    }
+                    const matchMap = cur.map || map;
+                    const matchMode = cur.mode || mode;
+                    const incoming = await this.collectCoPlayers(chatId, tgUserId, matchMap, matchMode, this.parseRawScore(max_score)?.total);
+                    await this.gameHistoryDao.setCurrentMatch({
+                        chat_id: chatId,
+                        user_id: tgUserId,
+                        map: matchMap,
+                        mode: matchMode,
+                        max_score,
+                        player_name: playerName || cur.player_name,
+                        co_players: this.mergeCoPlayers(cur.co_players, incoming),
+                        started_at: cur.started_at,
+                        last_progress_at: new Date(),
+                        playing: true
+                    });
+                    return;
+                }
+
+                // Boundary: the previous match is finished. Record it, then start fresh.
+                await this.finalizeMatch(cur);
+            }
+
+            const coPlayers = await this.collectCoPlayers(chatId, tgUserId, map, mode, newParsed?.total);
+            const now = new Date();
+            await this.gameHistoryDao.setCurrentMatch({
+                chat_id: chatId,
+                user_id: tgUserId,
+                map,
+                mode,
+                max_score: rawScore,
+                player_name: playerName,
+                co_players: coPlayers,
+                started_at: now,
+                last_progress_at: now,
+                playing: true
+            });
+        } catch (err) {
+            console.error(`Error updating match state for user ${tgUserId} in chat ${chatId}:`, err);
+        }
+      });
+    }
+
+    // Other tracked users currently in the same match: playing CS2, same map + mode, scores
+    // not diverging too far, and sharing this chat. Returns them as resolved co-player names.
+    private async collectCoPlayers(chatId: number, tgUserId: number, map?: string, mode?: string, total?: number): Promise<GameHistoryCoPlayer[]> {
+        const result: GameHistoryCoPlayer[] = [];
+        const seen = new Set<number>();
+        for (const [otherSteamId, otherTgId] of Object.entries(this.steamToTelegram)) {
+            if (otherTgId === tgUserId || seen.has(otherTgId)) continue;
+            const otherUser = this.client.users[otherSteamId];
+            if (!otherUser || otherUser.gameid != this.appIdCS2) continue;
+
+            const other = this.extractMapModeTotal(otherUser);
+            if (map && other.map && map.toLowerCase() !== other.map.toLowerCase()) continue;
+            if (mode && other.mode && mode !== other.mode) continue;
+            if (total != null && other.total != null && Math.abs(total - other.total) > RESET_TOLERANCE) continue;
+
+            const otherChats = await this.userDao.getUserChats(otherTgId);
+            if (!otherChats.includes(chatId)) continue;
+
+            const name = await this.resolveCoPlayerName(chatId, otherTgId, otherUser.player_name);
+            result.push({ tg_user_id: otherTgId, name });
+            seen.add(otherTgId);
+        }
+        return result;
+    }
+
+    private mergeCoPlayers(existing: GameHistoryCoPlayer[], incoming: GameHistoryCoPlayer[]): GameHistoryCoPlayer[] {
+        const byId = new Map<number, GameHistoryCoPlayer>();
+        for (const p of existing || []) byId.set(p.tg_user_id, p);
+        for (const p of incoming || []) byId.set(p.tg_user_id, p);
+        return Array.from(byId.values());
+    }
+
+    // Resolve a co-player's display name: Telegram name → rollcall mention → Steam name → id.
+    private async resolveCoPlayerName(chatId: number, otherTgId: number, fallback?: string): Promise<string> {
+        const tgName = await this.getTelegramDisplayName(chatId, otherTgId);
+        if (tgName) return tgName;
+        try {
+            const rotation = await this.rollcallPlayerDao.getRollcallPlayerUsernames(chatId);
+            for (const mention of rotation) {
+                const parsed = parseMention(mention);
+                if (parsed.id === otherTgId) {
+                    return parsed.display;
+                }
+            }
+        } catch (err) {
+            console.debug(`Could not match co-player ${otherTgId} against rollcall:`, err);
+        }
+        return fallback || String(otherTgId);
+    }
+
+    // The user stopped playing CS2: don't finalise yet (a relaunch may continue the match),
+    // just mark it idle so the periodic sweep can finalise it after the idle window.
+    private markMatchNotPlaying(chatId: number, tgUserId: number): Promise<void> {
+        return this.withMatchLock(chatId, tgUserId, async () => {
+            try {
+                const cur = await this.gameHistoryDao.getCurrentMatch(chatId, tgUserId);
+                if (cur && cur.playing) {
+                    cur.playing = false;
+                    await this.gameHistoryDao.setCurrentMatch(cur);
+                }
+            } catch (err) {
+                console.error(`Error marking match not playing for user ${tgUserId} in chat ${chatId}:`, err);
+            }
+        });
+    }
+
+    // Record a finished match to history and (if the chat allows) post an end-of-game message.
+    private async finalizeMatch(match: CurrentMatch): Promise<void> {
+        const chatId = match.chat_id;
+        const tgUserId = match.user_id;
+        try {
+            if (match.max_score) {
+                const entry: GameHistoryEntry = {
+                    chat_id: chatId,
+                    user_id: tgUserId,
+                    mode: match.mode,
+                    map: match.map,
+                    score: match.max_score,
+                    co_players: match.co_players || [],
+                    started_at: match.started_at,
+                    ended_at: new Date()
+                };
+                await this.gameHistoryDao.addGameHistoryEntry(entry);
+
+                const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
+                if (chatSettings.steam_updates !== false) {
+                    await this.postEndOfGameNotification(chatId, tgUserId, match);
+                }
+            }
+        } catch (err) {
+            console.error(`Failed to finalise match for user ${tgUserId} in chat ${chatId}:`, err);
+        } finally {
+            // Clear the buffer either way so we never record the same match twice.
+            await this.gameHistoryDao.deleteCurrentMatch(chatId, tgUserId).catch(() => {});
+        }
+    }
+
+    private async postEndOfGameNotification(chatId: number, tgUserId: number, match: CurrentMatch): Promise<void> {
+        const displayName = (await this.getTelegramDisplayName(chatId, tgUserId)) || match.player_name || 'Someone';
+        let text = `🏁 *${escapeMarkdown(displayName)}* finished a game`;
+        if (match.map) text += ` on ${escapeMarkdown(match.map)}`;
+        if (match.mode) text += ` (${escapeMarkdown(match.mode)})`;
+        if (match.max_score) text += `: ${escapeMarkdown(this.formatScore(match.max_score))} ${this.resultEmoji(match.max_score)}`;
+        await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+    }
+
+    // Finalise matches that have gone idle (CS2 not running, no score progress) past the window.
+    private async sweepIdleMatches(): Promise<void> {
+        try {
+            const cutoff = new Date(Date.now() - MATCH_IDLE_MS);
+            const idle = await this.gameHistoryDao.getIdleMatches(cutoff);
+            for (const match of idle) {
+                await this.withMatchLock(match.chat_id, match.user_id, async () => {
+                    // Re-read under the lock so we don't race a concurrent presence update.
+                    const cur = await this.gameHistoryDao.getCurrentMatch(match.chat_id, match.user_id);
+                    if (cur && !cur.playing && (Date.now() - new Date(cur.last_progress_at).getTime()) > MATCH_IDLE_MS) {
+                        console.log(`Match for user ${match.user_id} in chat ${match.chat_id} is idle; finalising.`);
+                        await this.finalizeMatch(cur);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Error during idle match sweep:', err);
+        }
     }
 
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
