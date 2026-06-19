@@ -1,7 +1,9 @@
 import SteamUser from 'steam-user';
 import SteamTotp from 'steam-totp';
 import TelegramBot from 'node-telegram-bot-api';
-import DAO, { UserSettings, ChatSettings, GameUpdate } from './dao/DAO';
+import UserDAO, { UserSettings } from './dao/UserDAO';
+import ChatDAO, { ChatSettings } from './dao/ChatDAO';
+import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO';
 import { escapeMarkdown } from './utils';
 import { save, readFile } from './dao/S3Client';
 import { saveSteamFile, readSteamFile } from './dao/Database';
@@ -36,7 +38,9 @@ interface SteamUserUpdate {
 class SteamService {
     private bot: TelegramBot;
     private client: SteamUser; // Initialize in constructor
-    private dao: DAO;
+    private userDao: UserDAO;
+    private chatDao: ChatDAO;
+    private gameUpdateDao: GameUpdateDAO;
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
@@ -86,7 +90,9 @@ class SteamService {
             this.client = new SteamUser();
         }
 
-        this.dao = new DAO();
+        this.userDao = new UserDAO();
+        this.chatDao = new ChatDAO();
+        this.gameUpdateDao = new GameUpdateDAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
         this.steamGuardCallback = null;
@@ -205,7 +211,7 @@ class SteamService {
 
     async updateUserMappings(): Promise<void> {
         try {
-            const settings = await this.dao.getAllUserSettings();
+            const settings = await this.userDao.getAllUserSettings();
             const newMappings: Record<string, number> = {};
             const steamIds: string[] = [];
             for (const [tgId, data] of Object.entries<UserSettings>(settings)) {
@@ -257,7 +263,7 @@ class SteamService {
                 console.debug(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
             }
 
-            const chats = await this.dao.getUserChats(tgUserId);
+            const chats = await this.userDao.getUserChats(tgUserId);
             for (const chatId of chats) {
                 await this.maybeCloseSession(chatId, tgUserId);
             }
@@ -294,12 +300,12 @@ class SteamService {
 
         const info: GameUpdateInfo = { gameId, map, status, score };
 
-        const chats = await this.dao.getUserChats(tgUserId);
+        const chats = await this.userDao.getUserChats(tgUserId);
         if (chats.length === 0) {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
-            const chatSettings: ChatSettings = await this.dao.getChatSettings(chatId);
+            const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
                 console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
                 continue;
@@ -340,7 +346,7 @@ class SteamService {
 
     async publishUpdate(chatId: number, tgUserId: number, text: string, info: GameUpdateInfo): Promise<void> {
         try {
-            const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
+            const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
             
             // Avoid redundant updates
             if (lastUpdate && lastUpdate.text === text) {
@@ -383,13 +389,13 @@ class SteamService {
                         parse_mode: 'Markdown'
                     });
                     // Keep original timestamp, but update text and info
-                    await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
+                    await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, text, info);
                     return;
                 } catch (err: any) {
                     if (err.message && err.message.includes('message is not modified')) {
                         console.log(`Message ${lastUpdate.message_id} in chat ${chatId} was already up to date according to Telegram.`);
                         // Still update our DAO to match what Telegram has (or what we think it should have)
-                        await this.dao.updateGameUpdateText(chatId, tgUserId, text, info);
+                        await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, text, info);
                         return;
                     }
                     console.error(`Failed to edit message ${lastUpdate.message_id} in chat ${chatId}:`, err);
@@ -403,7 +409,7 @@ class SteamService {
                 parse_mode: 'Markdown'
             });
             if (sentMessage && sentMessage.message_id) {
-                await this.dao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text, info);
+                await this.gameUpdateDao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text, info);
             }
         } catch (err) {
             console.error(`Error publishing update to chat ${chatId}:`, err);
@@ -445,7 +451,7 @@ class SteamService {
         try {
             // Check if ANY tracked steam ID for this user is playing CS2
             // We need to fetch settings first to know all steam IDs
-            const settings = await this.dao.getUserSettings(tgUserId);
+            const settings = await this.userDao.getUserSettings(tgUserId);
             const steamIds = settings.steam_ids || (settings.steam_id ? [settings.steam_id] : []);
             
             const isAnyPlaying = steamIds.some(sid => {
@@ -461,7 +467,7 @@ class SteamService {
                  return;
             }
 
-            const lastUpdate: GameUpdate = await this.dao.getGameUpdate(chatId, tgUserId);
+            const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
             if (!lastUpdate || !lastUpdate.text) return;
 
             // If message is too old (> 6 hours), ignore
@@ -492,7 +498,7 @@ class SteamService {
             });
 
             // Update DAO with new text but keep old info
-            await this.dao.updateGameUpdateText(chatId, tgUserId, newText, lastUpdate.info);
+            await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, newText, lastUpdate.info);
 
         } catch (err: any) {
             if (err.message && err.message.includes('message is not modified')) {

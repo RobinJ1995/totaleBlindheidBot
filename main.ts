@@ -2,13 +2,16 @@ import consoleStamp from 'console-stamp';
 consoleStamp(console);
 
 import TelegramBot from 'node-telegram-bot-api';
-import DAO from './dao/DAO';
+import ScheduleDAO from './dao/ScheduleDAO';
+import RsvpDAO from './dao/RsvpDAO';
+import RollcallPlayerDAO from './dao/RollcallPlayerDAO';
+import UserDAO from './dao/UserDAO';
 import SteamService from './SteamService';
 import GitHubService from './GitHubService';
 import { executeRollcall } from './command/rollcall';
 import MessageRouter, { ExtendedMessage } from './MessageRouter';
 import { escapeMarkdown } from './utils';
-import { Rsvp, RsvpList } from './dao/DAO';
+import { Rsvp, RsvpList } from './dao/RsvpDAO';
 import { ensureSchema } from './dao/Database';
 import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp';
 
@@ -39,15 +42,20 @@ if (!token) {
 
 const baseApiUrl = process.env.TELEGRAM_API_BASE_URL;
 const bot = new TelegramBot(token, {
-    polling: true,
+    // Polling is started only after ensureSchema() completes, so no handler can
+    // call a DAO method before the MariaDB tables exist.
+    polling: false,
     ...(baseApiUrl ? { baseApiUrl } : {})
 });
-const dao = new DAO();
+const scheduleDao = new ScheduleDAO();
+const rsvpDao = new RsvpDAO();
+const rollcallPlayerDao = new RollcallPlayerDAO();
+const userDao = new UserDAO();
 const steamEnabled = !!(process.env.STEAM_USERNAME && process.env.STEAM_PASSWORD);
 
 // Scheduler
 setInterval(() => {
-    dao.getScheduledRollcalls()
+    scheduleDao.getScheduledRollcalls()
         .then(schedules => {
             const now: Date = new Date();
             for (const [chat_id, schedule] of Object.entries(schedules)) {
@@ -57,7 +65,7 @@ setInterval(() => {
                     executeRollcall(bot, parseInt(chat_id), { rsvp_id: schedule.rsvp_id })
                         .then(() => closeScheduleConfirmation(parseInt(chat_id), schedule.rsvp_id))
                         .catch((err: Error) => console.error(`Error executing scheduled rollcall for ${chat_id}:`, err))
-                        .finally(() => dao.removeScheduledRollcall(Number(chat_id)));
+                        .finally(() => scheduleDao.removeScheduledRollcall(Number(chat_id)));
                 }
             }
         })
@@ -70,7 +78,7 @@ const closeScheduleConfirmation = (chat_id: number, rsvp_id?: number): Promise<v
     if (!rsvp_id) {
         return Promise.resolve();
     }
-    return dao.getRsvpList(rsvp_id).then(list => {
+    return rsvpDao.getRsvpList(rsvp_id).then(list => {
         if (!list) {
             return;
         }
@@ -83,13 +91,13 @@ const closeScheduleConfirmation = (chat_id: number, rsvp_id?: number): Promise<v
                 chat_id,
                 message_id: confirmation.message_id
             }).catch(() => undefined))
-            .then(() => dao.removeRsvpMessage(rsvp_id, confirmation.message_id));
+            .then(() => rsvpDao.removeRsvpMessage(rsvp_id, confirmation.message_id));
     });
 };
 
 // Re-render every message attached to an RSVP list against the current rotation.
 const renderRsvpMessages = (list: RsvpList): Promise<unknown> => {
-    return dao.getRollcallPlayerUsernames(list.chat_id).then(rotation => {
+    return rollcallPlayerDao.getRollcallPlayerUsernames(list.chat_id).then(rotation => {
         const { groups } = resolve(rotation, list.entries);
         return Promise.all(list.messages.map(ref =>
             bot.editMessageText(renderMessage(ref.base_text, groups), {
@@ -122,13 +130,13 @@ const handleRsvpCallback = (query: TelegramBot.CallbackQuery): void => {
     const chat_id: number = message.chat.id;
     const message_id: number = message.message_id;
 
-    dao.getRsvpListByMessage(chat_id, message_id)
+    rsvpDao.getRsvpListByMessage(chat_id, message_id)
         .then(list => {
             if (!list) {
                 return bot.answerCallbackQuery(query.id, { text: 'This RSVP has expired.' });
             }
 
-            return dao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
+            return rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
                 .then(updated => updated ? renderRsvpMessages(updated) : undefined)
                 .then(() => bot.answerCallbackQuery(query.id));
         })
@@ -147,12 +155,14 @@ if (steamEnabled) {
 // GitHub Service (public repo, no auth required)
 const githubService: GitHubService = new GitHubService(bot);
 
-// Create the database schema before any service starts querying it.
+// Create the database schema before any service starts querying it, and only then
+// start polling so no message/callback handler can run against missing tables.
 ensureSchema()
     .then(() => {
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
+        return bot.startPolling();
     })
     .catch((err: Error) => {
         console.error('Failed to initialise database schema:', err);
@@ -227,7 +237,7 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
 bot.on('message', (msg: TelegramBot.Message) => {
     if (steamEnabled && msg.from && msg.chat) {
         const userId: number = msg.from.id;
-        dao.addUserChat(userId, msg.chat.id)
+        userDao.addUserChat(userId, msg.chat.id)
             .then((added: boolean) => {
                 if (added) {
                     console.log(`Associated user ${userId} with chat ${msg.chat.id} for Steam updates.`);

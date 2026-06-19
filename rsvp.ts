@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { escapeMarkdown } from './utils';
-import DAO, { Rsvp, RsvpEntry } from './dao/DAO';
+import RsvpDAO, { Rsvp, RsvpEntry } from './dao/RsvpDAO';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
@@ -130,7 +130,7 @@ const entryFromUser = (user: TelegramBot.User, rsvp: Rsvp): RsvpEntry => ({
 
 // Strip the buttons from every message attached to a list and delete it, so its now-stale
 // confirmation can no longer record responses. Used when rescheduling or cancelling.
-const retireRsvpList = (bot: TelegramBot, dao: DAO, rsvp_id: number): Promise<void> =>
+const retireRsvpList = (bot: TelegramBot, dao: RsvpDAO, rsvp_id: number): Promise<void> =>
     dao.getRsvpList(rsvp_id).then(list => {
         const strips: Promise<unknown>[] = list
             ? list.messages.map(ref => bot.editMessageReplyMarkup(

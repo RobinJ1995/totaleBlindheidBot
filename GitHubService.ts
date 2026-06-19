@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import DAO from './dao/DAO';
+import GithubDAO from './dao/GithubDAO';
 import { escapeHtml } from './utils';
 
 interface GitHubCommit {
@@ -23,7 +23,7 @@ const DEFAULT_API_BASE = 'https://api.github.com';
 
 class GitHubService {
     private bot: TelegramBot;
-    private dao: DAO;
+    private dao: GithubDAO;
     private repo: string;
     private apiBase: string;
     private intervalMs: number;
@@ -31,7 +31,7 @@ class GitHubService {
 
     constructor(bot: TelegramBot) {
         this.bot = bot;
-        this.dao = new DAO();
+        this.dao = new GithubDAO();
         this.repo = process.env.GITHUB_REPO || DEFAULT_REPO;
         // Configurable so acceptance tests can point the poller at a mock API.
         this.apiBase = (process.env.GITHUB_API_BASE_URL || DEFAULT_API_BASE).replace(/\/+$/, '');

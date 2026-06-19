@@ -13,7 +13,13 @@
 import { execSync } from 'child_process';
 import { CreateBucketCommand } from '@aws-sdk/client-s3';
 import { s3, bucket, saveJSON, save } from '../dao/S3Client';
-import DAO from '../dao/DAO';
+import UserDAO from '../dao/UserDAO';
+import ChatDAO from '../dao/ChatDAO';
+import GithubDAO from '../dao/GithubDAO';
+import GameUpdateDAO from '../dao/GameUpdateDAO';
+import ScheduleDAO from '../dao/ScheduleDAO';
+import RsvpDAO from '../dao/RsvpDAO';
+import RollcallPlayerDAO from '../dao/RollcallPlayerDAO';
 import { getPool, query, saveSteamFile, readSteamFile } from '../dao/Database';
 import { RowDataPacket } from 'mysql2/promise';
 
@@ -76,32 +82,38 @@ const runMigration = (): void => {
 };
 
 const assertMigrated = async (): Promise<void> => {
-    const dao = new DAO();
+    const userDao = new UserDAO();
+    const chatDao = new ChatDAO();
+    const githubDao = new GithubDAO();
+    const gameUpdateDao = new GameUpdateDAO();
+    const scheduleDao = new ScheduleDAO();
+    const rsvpDao = new RsvpDAO();
+    const rollcallPlayerDao = new RollcallPlayerDAO();
 
-    const all = await dao.getAllUserSettings();
+    const all = await userDao.getAllUserSettings();
     assert(all['100']?.steam_ids?.length === 2 && all['100']?.timezone === 'Europe/Dublin', 'user 100 settings migrated');
     assert(all['200']?.steam_ids?.length === 1, 'user 200 steam id migrated');
 
-    const chats = (await dao.getUserChats(100)).slice().sort((a, b) => a - b);
+    const chats = (await userDao.getUserChats(100)).slice().sort((a, b) => a - b);
     assert(JSON.stringify(chats) === JSON.stringify([-1002, -1001]), 'user_chats migrated (order-independent)');
-    assert((await dao.getChatSettings(-1001)).steam_updates === false, 'chat_settings migrated');
-    assert((await dao.getGithubNotifyChats()).includes(-1001), 'github_notify migrated into chat_settings');
-    assert((await dao.getGithubLastSha()) === 'abc123', 'github_state migrated');
+    assert((await chatDao.getChatSettings(-1001)).steam_updates === false, 'chat_settings migrated');
+    assert((await githubDao.getGithubNotifyChats()).includes(-1001), 'github_notify migrated into chat_settings');
+    assert((await githubDao.getGithubLastSha()) === 'abc123', 'github_state migrated');
 
-    const players = await dao.getRollcallPlayerUsernames(-1001);
+    const players = await rollcallPlayerDao.getRollcallPlayerUsernames(-1001);
     assert(players.includes('[Alice](tg://user?id=42)') && players.includes('@bob') && players.includes('Charlie'),
         'rollcall players migrated + reconstructed (all three forms)');
 
-    const gu = await dao.getGameUpdate(-1001, 100);
+    const gu = await gameUpdateDao.getGameUpdate(-1001, 100);
     assert(gu.message_id === 555 && gu.info.map === 'de_dust2' && gu.info.score === '5-3', 'game_update migrated + info flattened');
 
-    const scheds = await dao.getScheduledRollcalls();
+    const scheds = await scheduleDao.getScheduledRollcalls();
     assert(scheds['-1001'] && scheds['-1001'].time instanceof Date, 'schedule -1001 migrated as Date');
     assert(typeof scheds['-1001'].rsvp_id === 'number', 'schedule rsvp_id remapped to numeric list id');
     assert(scheds['-1002'] && scheds['-1002'].time instanceof Date && scheds['-1002'].rsvp_id === undefined,
         'legacy bare-ISO schedule -1002 normalised');
 
-    const list = await dao.getRsvpList(scheds['-1001'].rsvp_id!);
+    const list = await rsvpDao.getRsvpList(scheds['-1001'].rsvp_id!);
     assert(!!list && list.chat_id === -1001, 'remapped rsvp list resolves');
     assert(list!.entries['100']?.name === 'Tester' && list!.entries['100']?.rsvp === 'yes', 'rsvp entry name from telegram_user');
     assert(list!.messages.length === 1 && list!.messages[0].message_id === 7001, 'rsvp message migrated');
