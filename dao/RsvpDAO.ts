@@ -109,7 +109,10 @@ class RsvpDAO {
 
     setRsvpEntry(rsvp_id: number, entry: RsvpEntry): Promise<RsvpList | undefined> {
         return withTransaction(async conn => {
-            const [listRows] = await conn.query<RowDataPacket[]>('SELECT id FROM rsvp_list WHERE id = :id', { id: rsvp_id });
+            // Lock the list row so concurrent RSVP taps serialise on it. Without the lock,
+            // each transaction's snapshot is fixed before the other commits, and the reload
+            // below can miss the other entry — rendering a stale list over the Telegram message.
+            const [listRows] = await conn.query<RowDataPacket[]>('SELECT id FROM rsvp_list WHERE id = :id FOR UPDATE', { id: rsvp_id });
             if (listRows.length === 0) {
                 return undefined;
             }
