@@ -1,13 +1,12 @@
 """Shared helpers for the acceptance step implementations.
 
 Everything that talks to the mock Telegram server, the Steam control server or
-the S3 (RustFS) backend lives here so the step files stay declarative.
+the MariaDB backend lives here so the step files stay declarative.
 """
 import os
 import time
 from typing import Any, Dict, List, Optional
 
-import boto3
 import pymysql
 import requests
 
@@ -15,12 +14,6 @@ TELEGRAM_MOCK_URL: str = os.environ.get("TELEGRAM_MOCK_URL", "http://telegram-mo
 STEAM_CONTROL_URL: str = os.environ.get("STEAM_CONTROL_URL", "http://bot:9100")
 GITHUB_MOCK_URL: str = os.environ.get("GITHUB_MOCK_URL", "http://github-mock:8082")
 BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_API_TOKEN", "test-token")
-
-S3_ENDPOINT: str = os.environ.get("S3_ENDPOINT", "http://rustfs:9000")
-S3_BUCKET: str = os.environ.get("S3_BUCKET", "totaleblindheidbot")
-S3_ACCESS_KEY: str = os.environ.get("S3_ACCESS_KEY", "rustfsadmin")
-S3_SECRET_KEY: str = os.environ.get("S3_SECRET_KEY", "rustfsadmin")
-S3_REGION: str = os.environ.get("S3_REGION", "us-east-1")
 
 MARIADB_HOST: str = os.environ.get("MARIADB_HOST", "mariadb")
 MARIADB_PORT: int = int(os.environ.get("MARIADB_PORT", "3306"))
@@ -39,46 +32,6 @@ _APP_TABLES: List[str] = [
 # How long to wait for the bot to poll an update and produce a reply.
 REPLY_TIMEOUT: float = float(os.environ.get("REPLY_TIMEOUT", "15"))
 POLL_INTERVAL: float = 0.25
-
-
-def s3_client() -> Any:
-    return boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT,
-        aws_access_key_id=S3_ACCESS_KEY,
-        aws_secret_access_key=S3_SECRET_KEY,
-        region_name=S3_REGION,
-    )
-
-
-def ensure_bucket(timeout: int = 90) -> None:
-    """Create the bucket, retrying until RustFS is accepting connections."""
-    deadline: float = time.time() + timeout
-    last_err: Optional[Exception] = None
-    while time.time() < deadline:
-        client = s3_client()
-        try:
-            client.create_bucket(Bucket=S3_BUCKET)
-            return
-        except client.exceptions.BucketAlreadyOwnedByYou:
-            return
-        except Exception as exc:  # noqa: BLE001
-            message: str = str(exc).lower()
-            if "exists" in message or "owned" in message:
-                return
-            last_err = exc
-            time.sleep(2)
-    raise RuntimeError(f"Could not create bucket {S3_BUCKET!r}: {last_err}")
-
-
-def clear_bucket() -> None:
-    """Empty the bucket so local re-runs start from a clean steam-user state."""
-    client = s3_client()
-    paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=S3_BUCKET):
-        keys: List[Dict[str, str]] = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
-        if keys:
-            client.delete_objects(Bucket=S3_BUCKET, Delete={"Objects": keys})
 
 
 # ---------------------------------------------------------------------------

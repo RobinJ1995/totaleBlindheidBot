@@ -90,7 +90,7 @@ export const readSteamFile = async (filename: string): Promise<Buffer | undefine
         { filename }
     );
     if (rows.length === 0) {
-        // Mirror S3Client.readFile: steam-user treats ENOENT as "no saved session".
+        // steam-user treats an ENOENT-coded error as "no saved session".
         const error: any = new Error(`File not found: ${filename}`);
         error.code = 'ENOENT';
         throw error;

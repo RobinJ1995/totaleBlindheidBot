@@ -1,18 +1,6 @@
 name: tbb-acceptance
 
 services:
-  rustfs:
-    image: rustfs/rustfs:latest
-    # Run as root with an ephemeral in-container data dir to avoid the image's
-    # uid-10001 volume-permission requirements; state is thrown away each run.
-    user: "0:0"
-    environment:
-      RUSTFS_VOLUMES: /data
-      RUSTFS_ADDRESS: 0.0.0.0:9000
-      RUSTFS_CONSOLE_ENABLE: "false"
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
-
   mariadb:
     image: mariadb:11
     # Ephemeral in-container data dir; state is thrown away each run.
@@ -53,13 +41,8 @@ services:
     environment:
       TELEGRAM_BOT_API_TOKEN: test-token
       TELEGRAM_API_BASE_URL: http://telegram-mock:8081
-      S3_ENDPOINT: http://rustfs:9000
-      S3_BUCKET: totaleblindheidbot
-      S3_ACCESS_KEY: rustfsadmin
-      S3_SECRET_KEY: rustfsadmin
-      S3_REGION: us-east-1
-      # Application data lives in MariaDB; steam-user session blobs stay on S3.
-      STEAM_STORAGE_BACKEND: s3
+      # Application data and the steam-user session both live in MariaDB.
+      STEAM_STORAGE_BACKEND: database
       MARIADB_HOST: mariadb
       MARIADB_PORT: "3306"
       MARIADB_USER: root
@@ -80,8 +63,6 @@ services:
         condition: service_healthy
       github-mock:
         condition: service_healthy
-      rustfs:
-        condition: service_started
       mariadb:
         condition: service_healthy
     healthcheck:
@@ -98,11 +79,6 @@ services:
       TELEGRAM_MOCK_URL: http://telegram-mock:8081
       STEAM_CONTROL_URL: http://bot:9100
       GITHUB_MOCK_URL: http://github-mock:8082
-      S3_ENDPOINT: http://rustfs:9000
-      S3_BUCKET: totaleblindheidbot
-      S3_ACCESS_KEY: rustfsadmin
-      S3_SECRET_KEY: rustfsadmin
-      S3_REGION: us-east-1
       MARIADB_HOST: mariadb
       MARIADB_PORT: "3306"
       MARIADB_USER: root
@@ -115,7 +91,5 @@ services:
         condition: service_healthy
       bot:
         condition: service_healthy
-      rustfs:
-        condition: service_started
       mariadb:
         condition: service_healthy
