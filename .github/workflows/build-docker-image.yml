@@ -37,4 +37,4 @@ jobs:
       - name: Trigger deployment
         if: ${{ success() }}
         run: |
-          curl -sS --fail -X PUT -H "Authorization: Bearer ${{ secrets.KUBECONTROL_TOKEN }}" https://kuber0.robinj.be/deployment/telegram-bots/totale-blindheid
+          curl -sS --fail -X PUT -H "Authorization: Bearer ${{ secrets.KUBECONTROL_TOKEN }}" https://kuber1.robinj.be/deployment/telegram-bots/totale-blindheid
