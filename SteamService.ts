@@ -8,7 +8,6 @@ import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer } f
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO';
 import { escapeMarkdown } from './utils';
 import { parseMention } from './rsvp';
-import { save, readFile } from './dao/S3Client';
 import { saveSteamFile, readSteamFile } from './dao/Database';
 
 // A finished match with no further score progress is recorded once it has been idle
@@ -21,11 +20,6 @@ const MATCH_SWEEP_MS = Number(process.env.MATCH_SWEEP_MS) || 60 * 1000;
 // How far a freshly reported round-total may dip below the running match total before we
 // treat it as a brand new match rather than out-of-order update noise.
 const RESET_TOLERANCE = 2;
-
-interface SteamOptions {
-    dataDirectory?: string;
-    [key: string]: any;
-}
 
 interface GameUpdateInfo {
     gameId?: string | number;
@@ -78,23 +72,9 @@ class SteamService {
 
         // Where the steam-user library persists its own session/sentry files.
         const backend = (process.env.STEAM_STORAGE_BACKEND || 'filesystem').toLowerCase();
-        const steamOptions: SteamOptions = { dataDirectory: 'data' };
-        if (backend === 's3') {
-            console.log(`Using S3 storage for Steam data in bucket: ${process.env.S3_BUCKET}`);
-            this.client = new SteamUser(steamOptions);
-            this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
-                save(`steam-user/${filename}`, contents)
-                    .then(() => callback(null))
-                    .catch(err => callback(err));
-            });
-            this.client.storage.on('read', (filename: string, callback: (err: Error | null, content?: any) => void) => {
-                readFile(`steam-user/${filename}`)
-                    .then(contents => callback(null, contents))
-                    .catch(err => callback(err));
-            });
-        } else if (backend === 'database') {
+        if (backend === 'database') {
             console.log('Using database storage for Steam data.');
-            this.client = new SteamUser(steamOptions);
+            this.client = new SteamUser({ dataDirectory: 'data' });
             this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
                 saveSteamFile(`steam-user/${filename}`, contents)
                     .then(() => callback(null))
@@ -106,8 +86,9 @@ class SteamService {
                     .catch(err => callback(err));
             });
         } else {
-            // filesystem (default): use steam-user's built-in dataDirectory handling.
-            this.client = new SteamUser();
+            // filesystem (default): persist to a fixed directory so a mounted volume keeps the
+            // session across restarts, independent of $HOME.
+            this.client = new SteamUser({ dataDirectory: process.env.STEAM_DATA_DIRECTORY || 'data' });
         }
 
         this.userDao = new UserDAO();
@@ -248,7 +229,7 @@ class SteamService {
             const newMappings: Record<string, number> = {};
             const steamIds: string[] = [];
             for (const [tgId, data] of Object.entries<UserSettings>(settings)) {
-                const sids = data.steam_ids || (data.steam_id ? [data.steam_id] : []);
+                const sids = data.steam_ids || [];
                 for (const steamId of sids) {
                     newMappings[steamId] = Number(tgId);
                     steamIds.push(steamId);
@@ -743,7 +724,7 @@ class SteamService {
             // Check if ANY tracked steam ID for this user is playing CS2
             // We need to fetch settings first to know all steam IDs
             const settings = await this.userDao.getUserSettings(tgUserId);
-            const steamIds = settings.steam_ids || (settings.steam_id ? [settings.steam_id] : []);
+            const steamIds = settings.steam_ids || [];
             
             const isAnyPlaying = steamIds.some(sid => {
                  const user = this.client.users[sid];

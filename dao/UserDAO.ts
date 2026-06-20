@@ -3,7 +3,6 @@ import { query, withTransaction } from './Database';
 import { ensureTelegramUser } from './telegramUser';
 
 export interface UserSettings {
-    steam_id?: string;
     steam_ids?: string[];
     timezone?: string;
 }

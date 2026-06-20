@@ -11,7 +11,7 @@ out — with all external dependencies stubbed.
 |-----------------|----------------------------------------------------------------------|
 | `bot`           | The actual bot image (built from the repo root `Dockerfile`).        |
 | `telegram-mock` | Fake Telegram Bot API. The bot polls it; tests inject updates and read the bot's outgoing calls from an outbox. |
-| `rustfs`        | S3-compatible object store backing the bot's DAO.                    |
+| `mariadb`       | MariaDB backing the bot's DAO (application data) and the steam-user session (`STEAM_STORAGE_BACKEND=database`). |
 | `steam_mock`    | Drop-in fake `steam-user` (mounted over `node_modules/steam-user`) with an HTTP control channel to trigger Steam events. |
 | `github-mock`   | Fake GitHub REST API (the bot polls it via `GITHUB_API_BASE_URL`); tests push commits to drive the notification flow. |
 | `behave`        | Runs the feature suite and asserts on the bot's behaviour.           |
