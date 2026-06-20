@@ -18,10 +18,14 @@ export interface GameHistoryEntry {
     ended_at: Date;
 }
 
-// The match a (chat,user) is currently playing. Persisted so it survives session closes,
-// game relaunches mid-match, and bot restarts.
+// The match a Steam account is currently playing, surfaced in a chat. Keyed by
+// (chat,steam_id) — a match belongs to one Steam account and can't continue on another, so a
+// user's linked accounts each get their own row. user_id is carried for history attribution
+// and the end-of-game notification. Persisted so it survives session closes, game relaunches
+// mid-match, and bot restarts.
 export interface CurrentMatch {
     chat_id: number;
+    steam_id: string;
     user_id: number;
     map?: string;
     mode?: string;
@@ -107,10 +111,10 @@ class GameHistoryDAO {
         });
     }
 
-    private async _loadCurrentMatchCoPlayers(chat_id: number, user_id: number): Promise<GameHistoryCoPlayer[]> {
+    private async _loadCurrentMatchCoPlayers(chat_id: number, steam_id: string): Promise<GameHistoryCoPlayer[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT co_user_id, name FROM current_match_coplayer WHERE chat_id = :chat_id AND user_id = :user_id',
-            { chat_id, user_id }
+            'SELECT co_user_id, name FROM current_match_coplayer WHERE chat_id = :chat_id AND steam_id = :steam_id',
+            { chat_id, steam_id }
         );
         return rows.map(r => ({ tg_user_id: Number(r.co_user_id), name: r.name ?? String(r.co_user_id) }));
     }
@@ -118,6 +122,7 @@ class GameHistoryDAO {
     private _matchFromRow(row: RowDataPacket, coPlayers: GameHistoryCoPlayer[]): CurrentMatch {
         return {
             chat_id: Number(row.chat_id),
+            steam_id: String(row.steam_id),
             user_id: Number(row.user_id),
             map: row.map ?? undefined,
             mode: row.mode ?? undefined,
@@ -130,16 +135,16 @@ class GameHistoryDAO {
         };
     }
 
-    async getCurrentMatch(chat_id: number, user_id: number): Promise<CurrentMatch | null> {
+    async getCurrentMatch(chat_id: number, steam_id: string): Promise<CurrentMatch | null> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT chat_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing ' +
-            'FROM current_match WHERE chat_id = :chat_id AND user_id = :user_id',
-            { chat_id, user_id }
+            'SELECT chat_id, steam_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing ' +
+            'FROM current_match WHERE chat_id = :chat_id AND steam_id = :steam_id',
+            { chat_id, steam_id }
         );
         if (rows.length === 0) {
             return null;
         }
-        const coPlayers = await this._loadCurrentMatchCoPlayers(chat_id, user_id);
+        const coPlayers = await this._loadCurrentMatchCoPlayers(chat_id, steam_id);
         return this._matchFromRow(rows[0], coPlayers);
     }
 
@@ -147,13 +152,14 @@ class GameHistoryDAO {
         return withTransaction(async conn => {
             await ensureTelegramUser(conn, match.user_id);
             // Replace the row (cascades co-players away), then re-insert it and the co-players.
-            await conn.query('DELETE FROM current_match WHERE chat_id = :chat_id AND user_id = :user_id',
-                { chat_id: match.chat_id, user_id: match.user_id });
+            await conn.query('DELETE FROM current_match WHERE chat_id = :chat_id AND steam_id = :steam_id',
+                { chat_id: match.chat_id, steam_id: match.steam_id });
             await conn.query(
-                'INSERT INTO current_match (chat_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing) ' +
-                'VALUES (:chat_id, :user_id, :map, :mode, :max_score, :player_name, :started_at, :last_progress_at, :playing)',
+                'INSERT INTO current_match (chat_id, steam_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing) ' +
+                'VALUES (:chat_id, :steam_id, :user_id, :map, :mode, :max_score, :player_name, :started_at, :last_progress_at, :playing)',
                 {
                     chat_id: match.chat_id,
+                    steam_id: match.steam_id,
                     user_id: match.user_id,
                     map: match.map ?? null,
                     mode: match.mode ?? null,
@@ -166,18 +172,18 @@ class GameHistoryDAO {
             );
             for (const co of match.co_players) {
                 await conn.query(
-                    'INSERT INTO current_match_coplayer (chat_id, user_id, co_user_id, name) ' +
-                    'VALUES (:chat_id, :user_id, :co_user_id, :name)',
-                    { chat_id: match.chat_id, user_id: match.user_id, co_user_id: co.tg_user_id, name: co.name ?? null }
+                    'INSERT INTO current_match_coplayer (chat_id, steam_id, co_user_id, name) ' +
+                    'VALUES (:chat_id, :steam_id, :co_user_id, :name)',
+                    { chat_id: match.chat_id, steam_id: match.steam_id, co_user_id: co.tg_user_id, name: co.name ?? null }
                 );
             }
         });
     }
 
-    deleteCurrentMatch(chat_id: number, user_id: number): Promise<void> {
+    deleteCurrentMatch(chat_id: number, steam_id: string): Promise<void> {
         return query<ResultSetHeader>(
-            'DELETE FROM current_match WHERE chat_id = :chat_id AND user_id = :user_id',
-            { chat_id, user_id }
+            'DELETE FROM current_match WHERE chat_id = :chat_id AND steam_id = :steam_id',
+            { chat_id, steam_id }
         ).then(() => undefined);
     }
 
@@ -185,13 +191,13 @@ class GameHistoryDAO {
     // periodic sweep to finalise the trailing match of a play session (it has no following reset).
     async getIdleMatches(cutoff: Date): Promise<CurrentMatch[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT chat_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing ' +
+            'SELECT chat_id, steam_id, user_id, map, mode, max_score, player_name, started_at, last_progress_at, playing ' +
             'FROM current_match WHERE playing = 0 AND last_progress_at < :cutoff',
             { cutoff }
         );
         const matches: CurrentMatch[] = [];
         for (const row of rows) {
-            const coPlayers = await this._loadCurrentMatchCoPlayers(Number(row.chat_id), Number(row.user_id));
+            const coPlayers = await this._loadCurrentMatchCoPlayers(Number(row.chat_id), String(row.steam_id));
             matches.push(this._matchFromRow(row, coPlayers));
         }
         return matches;

@@ -59,6 +59,29 @@ def step_steam_playing_map_score(context: Context, steam_id: str, score: str, ma
     })
 
 
+@when('{seconds:d} seconds pass')
+def step_seconds_pass(context: Context, seconds: int) -> None:
+    time.sleep(seconds)
+
+
+# A varying "summarised as" rich_presence_string with a stable "Competitive" status: the game
+# mode must come from the stable status, not the changing summary, or the match would split.
+# "summarised as" sits before "with score" so the existing score/map step can't greedily match.
+@when('Steam reports user "{steam_id}" playing CS2 summarised as "{summary}" with score "{score}" on map "{map_name}"')
+def step_steam_playing_map_score_summary(context: Context, steam_id: str, summary: str, score: str, map_name: str) -> None:
+    _capture_steam_baseline(context)
+    helpers.steam_emit_user(steam_id, {
+        "player_name": "Gamer",
+        "gameid": 730,
+        "rich_presence_string": summary,
+        "rich_presence": [
+            {"key": "game:map", "value": map_name},
+            {"key": "status", "value": "Competitive"},
+            {"key": "game:score", "value": score},
+        ],
+    })
+
+
 @when('Steam reports user "{steam_id}" playing CS2')
 def step_steam_playing(context: Context, steam_id: str) -> None:
     _capture_steam_baseline(context)
@@ -123,6 +146,15 @@ def step_latest_steam_still_contains(context: Context, chat_id: int, expected: s
         f"Latest Steam message in chat {chat_id} no longer contains {expected!r}; "
         f"a less-detailed update overwrote it. Latest text: {latest!r}"
     )
+
+
+@then('chat {chat_id:d} has not received a Steam message containing "{expected}"')
+def step_chat_has_not_received(context: Context, chat_id: int, expected: str) -> None:
+    # Immediate check (no wait): assert nothing matching has been posted yet. Pair with a
+    # preceding wait step to give a premature message time to appear if the bug were present.
+    outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
+    bad: List[str] = [m["text"] for m in outbox if m["method"] == "sendMessage" and expected in m["text"]]
+    assert not bad, f"Expected no Steam message containing {expected!r}, but got: {bad!r}"
 
 
 @then('the Steam message in chat {chat_id:d} is edited to contain "{expected}"')

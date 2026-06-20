@@ -101,3 +101,37 @@ Feature: CS2 game history
     Then the bot replies "Your Steam user ID(s) has been set to 76561198000000940"
     When the user sends "/game_history"
     Then the bot replies "No game history yet."
+
+  Scenario: two linked Steam accounts are tracked as independent matches
+    # A match belongs to one Steam account and can't continue on another, so one account
+    # stopping finalises its own match even while the other account is still in a game.
+    Given a chat with id 2108
+    And a user with id 5950 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000950,76561198000000951"
+    Then the bot reply contains "76561198000000950"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000950" playing CS2 with score "16-14" on map "Inferno"
+    And Steam reports user "76561198000000951" playing CS2 with score "5-3" on map "Mirage"
+    And Steam reports user "76561198000000950" stopped playing
+    Then chat 2108 eventually receives a new Steam message containing "finished a game"
+    When Steam reports user "76561198000000951" stopped playing
+    And 8 seconds pass
+    When the user sends "/game_history"
+    Then the bot reply contains "16-14"
+    And the bot reply contains "5-3"
+
+  Scenario: a changing rich-presence summary does not split a match
+    Given a chat with id 2109
+    And a user with id 5960 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000960"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000960"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000960" playing CS2 summarised as "Competitive Inferno 5-3" with score "5-3" on map "Inferno"
+    And a moment passes
+    And Steam reports user "76561198000000960" playing CS2 summarised as "Competitive Inferno 8-3" with score "8-3" on map "Inferno"
+    And a moment passes
+    Then chat 2109 has not received a Steam message containing "finished a game"
+    When Steam reports user "76561198000000960" playing CS2 summarised as "Competitive Inferno 1-0" with score "1-0" on map "Inferno"
+    Then chat 2109 eventually receives a new Steam message containing "finished a game"
+    When the user sends "/game_history"
+    Then the bot reply contains "8-3"

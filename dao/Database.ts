@@ -62,11 +62,35 @@ const splitStatements = (sql: string): string[] =>
         .map(stmt => stmt.trim())
         .filter(stmt => stmt.length > 0);
 
-// Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS).
+// One-off, idempotent migration: current_match(+_coplayer) were originally keyed by
+// (chat_id,user_id) and are now keyed by (chat_id,steam_id). They hold only transient
+// in-flight match state, so when the old shape is detected (table exists without a steam_id
+// column) we drop them and let the CREATE TABLE statements below rebuild them. Runs once —
+// after the rebuild the steam_id column exists, so the guard is false on later startups.
+const migrateLegacyCurrentMatch = async (conn: PoolConnection): Promise<void> => {
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT ' +
+        "(SELECT COUNT(*) FROM information_schema.TABLES " +
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'current_match') AS tbl, " +
+        "(SELECT COUNT(*) FROM information_schema.COLUMNS " +
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'current_match' AND COLUMN_NAME = 'steam_id') AS col"
+    );
+    const tableExists = Number(rows[0]?.tbl) > 0;
+    const hasSteamId = Number(rows[0]?.col) > 0;
+    if (tableExists && !hasSteamId) {
+        console.log('Rebuilding legacy current_match tables for per-Steam-account match keying.');
+        await conn.query('DROP TABLE IF EXISTS current_match_coplayer');
+        await conn.query('DROP TABLE IF EXISTS current_match');
+    }
+};
+
+// Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
+// a guarded one-off rebuild of the transient current_match tables when their shape changed).
 export const ensureSchema = async (): Promise<void> => {
     const ddl = readFileSync(join(import.meta.dirname, 'schema.sql'), 'utf-8');
     const conn = await getPool().getConnection();
     try {
+        await migrateLegacyCurrentMatch(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }
