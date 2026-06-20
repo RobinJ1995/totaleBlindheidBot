@@ -1,14 +1,14 @@
 import SteamUser from 'steam-user';
 import SteamTotp from 'steam-totp';
 import TelegramBot from 'node-telegram-bot-api';
-import UserDAO, { UserSettings } from './dao/UserDAO';
-import ChatDAO, { ChatSettings } from './dao/ChatDAO';
-import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO';
-import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer } from './dao/GameHistoryDAO';
-import RollcallPlayerDAO from './dao/RollcallPlayerDAO';
-import { escapeMarkdown } from './utils';
-import { parseMention } from './rsvp';
-import { saveSteamFile, readSteamFile } from './dao/Database';
+import UserDAO, { UserSettings } from './dao/UserDAO.js';
+import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
+import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
+import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer } from './dao/GameHistoryDAO.js';
+import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
+import { escapeMarkdown } from './utils.js';
+import { parseMention } from './rsvp.js';
+import { saveSteamFile, readSteamFile } from './dao/Database.js';
 
 // A finished match with no further score progress is recorded once it has been idle
 // (CS2 not running, score unchanged) for this long. Overridable for tests.

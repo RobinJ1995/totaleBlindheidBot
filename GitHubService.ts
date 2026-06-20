@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
-import GithubDAO from './dao/GithubDAO';
-import { escapeHtml } from './utils';
+import GithubDAO from './dao/GithubDAO.js';
+import { escapeHtml } from './utils.js';
 
 interface GitHubCommit {
     sha: string;
@@ -116,7 +116,7 @@ class GitHubService {
                     try {
                         await this.bot.sendMessage(chatId, text, {
                             parse_mode: 'HTML',
-                            disable_web_page_preview: true
+                            link_preview_options: { is_disabled: true }
                         });
                     } catch (err) {
                         console.error(`Failed to send GitHub notification to chat ${chatId}:`, err);

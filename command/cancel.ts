@@ -1,9 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import ScheduleDAO, { ScheduledRollcalls } from '../dao/ScheduleDAO';
-import RsvpDAO from '../dao/RsvpDAO';
-import { formatError } from '../utils';
-import { retireRsvpList } from '../rsvp';
+import { ExtendedMessage } from '../MessageRouter.js';
+import ScheduleDAO, { ScheduledRollcalls } from '../dao/ScheduleDAO.js';
+import RsvpDAO from '../dao/RsvpDAO.js';
+import { formatError } from '../utils.js';
+import { retireRsvpList } from '../rsvp.js';
 
 const scheduleDao = new ScheduleDAO();
 const rsvpDao = new RsvpDAO();

@@ -1,6 +1,6 @@
 import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { query, withTransaction } from './Database';
-import { ensureTelegramUser } from './telegramUser';
+import { query, withTransaction } from './Database.js';
+import { ensureTelegramUser } from './telegramUser.js';
 
 // RSVP lists older than this are pruned on write.
 const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;

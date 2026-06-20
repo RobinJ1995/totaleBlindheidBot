@@ -1,7 +1,7 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { checkNotEmpty } from '../utils';
-import { query, withTransaction } from './Database';
-import { ensureTelegramUser } from './telegramUser';
+import { checkNotEmpty } from '../utils.js';
+import { query, withTransaction } from './Database.js';
+import { ensureTelegramUser } from './telegramUser.js';
 
 // A rollcall roster row. A player is identified by a Telegram user id (text mention),
 // an @username, or just a display name, depending on how the admin added them.

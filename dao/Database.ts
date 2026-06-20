@@ -64,7 +64,7 @@ const splitStatements = (sql: string): string[] =>
 
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS).
 export const ensureSchema = async (): Promise<void> => {
-    const ddl = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
+    const ddl = readFileSync(join(import.meta.dirname, 'schema.sql'), 'utf-8');
     const conn = await getPool().getConnection();
     try {
         for (const statement of splitStatements(ddl)) {

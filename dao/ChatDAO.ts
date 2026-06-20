@@ -1,5 +1,5 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { query } from './Database';
+import { query } from './Database.js';
 
 export interface ChatSettings {
     steam_updates?: boolean;

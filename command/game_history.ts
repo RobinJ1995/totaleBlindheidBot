@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO';
-import { escapeMarkdown, formatError } from '../utils';
+import { ExtendedMessage } from '../MessageRouter.js';
+import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
+import { escapeMarkdown, formatError } from '../utils.js';
 
 const dao = new GameHistoryDAO();
 
