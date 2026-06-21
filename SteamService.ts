@@ -773,8 +773,11 @@ class SteamService {
                 parse_mode: 'Markdown'
             });
 
-            // Update DAO with new text but keep old info
-            await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, newText, lastUpdate.info);
+            // Update DAO with the red text, but drop the now-stale detail. A closed session
+            // has no live map/score left to protect, so the next launch — often a bare
+            // "playing" update before rich presence arrives — must not be suppressed by the
+            // less-detailed-update guard in publishUpdate().
+            await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, newText, {});
 
         } catch (err: any) {
             if (err.message && err.message.includes('message is not modified')) {
