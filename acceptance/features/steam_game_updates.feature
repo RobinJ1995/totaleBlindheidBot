@@ -25,6 +25,20 @@ Feature: Steam game-presence updates
     And Steam reports user "76561198000000030" playing CS2 with no details
     Then the latest Steam message in chat 2003 still contains "Score:"
 
+  Scenario: a bare relaunch after a closed session goes back to green
+    Given a chat with id 2004
+    And a user with id 5904 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000040"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000040"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000040" playing CS2 with score "16-14" on map "Inferno"
+    Then chat 2004 receives a Steam message containing "Score:"
+    When Steam reports user "76561198000000040" stopped playing
+    Then the Steam message in chat 2004 is edited to contain "🔴"
+    When a moment passes
+    And Steam reports user "76561198000000040" playing CS2 with no details
+    Then the latest Steam message in chat 2004 still contains "🟢"
+
   Scenario: a chat that disabled updates receives nothing
     Given a chat with id 2002
     And a user with id 5902 and first name "Tester"
