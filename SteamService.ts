@@ -12,7 +12,7 @@ import { saveSteamFile, readSteamFile } from './dao/Database.js';
 
 // A finished match with no further score progress is recorded once it has been idle
 // (CS2 not running, score unchanged) for this long. Overridable for tests.
-const MATCH_IDLE_MS = Number(process.env.MATCH_IDLE_MS) || 30 * 60 * 1000;
+const MATCH_IDLE_MS = Number(process.env.MATCH_IDLE_MS) || 10 * 60 * 1000;
 
 // How often the idle-match sweep runs. Overridable for tests.
 const MATCH_SWEEP_MS = Number(process.env.MATCH_SWEEP_MS) || 60 * 1000;
