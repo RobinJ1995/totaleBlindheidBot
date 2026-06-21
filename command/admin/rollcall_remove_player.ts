@@ -1,13 +1,13 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../../MessageRouter';
-import { formatError } from '../../utils';
-import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO';
+import TelegramBot, { MessageEntity } from 'node-telegram-bot-api';
+import { ExtendedMessage } from '../../MessageRouter.js';
+import { formatError } from '../../utils.js';
+import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
 
 const dao = new RollcallPlayerDAO();
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const args: string[] = msg.command?.argumentTokens || [];
-    const mentions: TelegramBot.MessageEntity[] = (msg.entities || []).filter(entity => entity?.type === 'mention' || entity?.type === 'text_mention');
+    const mentions: MessageEntity[] = (msg.entities || []).filter(entity => entity?.type === 'mention' || entity?.type === 'text_mention');
 
     if (args.length === 0) {
         msg.reply('Who would you like to remove?');

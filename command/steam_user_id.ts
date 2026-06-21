@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import UserDAO from '../dao/UserDAO';
-import { formatError } from '../utils';
+import { ExtendedMessage } from '../MessageRouter.js';
+import UserDAO from '../dao/UserDAO.js';
+import { formatError } from '../utils.js';
 
 const dao = new UserDAO();
 

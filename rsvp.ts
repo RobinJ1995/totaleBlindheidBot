@@ -1,6 +1,6 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { escapeMarkdown } from './utils';
-import RsvpDAO, { Rsvp, RsvpEntry } from './dao/RsvpDAO';
+import TelegramBot, { InlineKeyboardMarkup, User } from 'node-telegram-bot-api';
+import { escapeMarkdown } from './utils.js';
+import RsvpDAO, { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
@@ -17,7 +17,7 @@ const RSVP_EMOJI: Record<Rsvp, string> = {
 
 // Build the inline keyboard for a message. The callback data is the same regardless
 // of the keyboard kind; only the visible labels differ.
-const keyboard = (kind: RsvpKeyboardKind): TelegramBot.InlineKeyboardMarkup => ({
+const keyboard = (kind: RsvpKeyboardKind): InlineKeyboardMarkup => ({
     inline_keyboard: [
         (['yes', 'maybe', 'no'] as Rsvp[]).map(value => ({
             text: LABELS[kind][value],
@@ -121,7 +121,7 @@ const renderMessage = (baseText: string, groups: Record<Rsvp, string[]>): string
 
 // Build an RSVP entry from a Telegram user (used when seeding the initiator and when
 // recording a button tap).
-const entryFromUser = (user: TelegramBot.User, rsvp: Rsvp): RsvpEntry => ({
+const entryFromUser = (user: User, rsvp: Rsvp): RsvpEntry => ({
     user_id: user.id,
     name: user.first_name || user.username || 'someone',
     username: user.username,

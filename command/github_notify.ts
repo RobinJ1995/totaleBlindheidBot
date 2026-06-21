@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import GithubDAO from '../dao/GithubDAO';
-import { formatError } from '../utils';
+import { ExtendedMessage } from '../MessageRouter.js';
+import GithubDAO from '../dao/GithubDAO.js';
+import { formatError } from '../utils.js';
 
 const dao = new GithubDAO();
 

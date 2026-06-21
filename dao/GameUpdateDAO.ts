@@ -1,6 +1,6 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { query, withTransaction } from './Database';
-import { ensureTelegramUser } from './telegramUser';
+import { query, withTransaction } from './Database.js';
+import { ensureTelegramUser } from './telegramUser.js';
 
 export interface GameUpdate {
     message_id: number;

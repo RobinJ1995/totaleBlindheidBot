@@ -1,12 +1,12 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import { parseTime } from '../timeUtils';
-import UserDAO from '../dao/UserDAO';
-import ScheduleDAO from '../dao/ScheduleDAO';
-import RollcallPlayerDAO from '../dao/RollcallPlayerDAO';
-import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO';
-import { formatError, escapeMarkdown } from '../utils';
-import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp';
+import TelegramBot, { Message } from 'node-telegram-bot-api';
+import { ExtendedMessage } from '../MessageRouter.js';
+import { parseTime } from '../timeUtils.js';
+import UserDAO from '../dao/UserDAO.js';
+import ScheduleDAO from '../dao/ScheduleDAO.js';
+import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
+import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
+import { formatError, escapeMarkdown } from '../utils.js';
+import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp.js';
 
 const userDao = new UserDAO();
 const scheduleDao = new ScheduleDAO();
@@ -76,10 +76,10 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                     const { groups } = resolve(rotation, entries);
 
                     return bot.sendMessage(chat_id, renderMessage(baseText, groups), {
-                        reply_to_message_id: msg.message_id,
+                        reply_parameters: { message_id: msg.message_id },
                         parse_mode: 'Markdown',
                         reply_markup: keyboard('schedule')
-                    }).then((sent: TelegramBot.Message) => {
+                    }).then((sent: Message) => {
                         return rsvpDao.createRsvpList({
                             chat_id,
                             entries,

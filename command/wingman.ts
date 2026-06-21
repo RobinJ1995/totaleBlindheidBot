@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import { pickRandom, escapeMarkdown } from '../utils';
-import RollcallPlayerDAO from '../dao/RollcallPlayerDAO';
+import { ExtendedMessage } from '../MessageRouter.js';
+import { pickRandom, escapeMarkdown } from '../utils.js';
+import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 
 const dao = new RollcallPlayerDAO();
 

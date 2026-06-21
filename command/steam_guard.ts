@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { ExtendedMessage } from '../MessageRouter';
-import SteamService from '../SteamService';
+import { ExtendedMessage } from '../MessageRouter.js';
+import SteamService from '../SteamService.js';
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const adminId: string | undefined = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;

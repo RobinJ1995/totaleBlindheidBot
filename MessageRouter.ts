@@ -1,5 +1,5 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { formatError } from './utils';
+import TelegramBot, { Message } from 'node-telegram-bot-api';
+import { formatError } from './utils.js';
 
 export interface CommandContext {
     name: string;
@@ -7,8 +7,8 @@ export interface CommandContext {
     argumentTokens: string[];
 }
 
-export interface ExtendedMessage extends TelegramBot.Message {
-    reply: (text: string) => Promise<TelegramBot.Message>;
+export interface ExtendedMessage extends Message {
+    reply: (text: string) => Promise<Message>;
     command: CommandContext;
 }
 
@@ -37,7 +37,7 @@ class MessageRouter {
         });
     }
 
-    handle(msg: TelegramBot.Message): void {
+    handle(msg: Message): void {
         if (!msg.text || !msg.text.startsWith('/')) return;
 
         const parts: string[] = msg.text.split(/\s+/);
@@ -51,7 +51,7 @@ class MessageRouter {
         const extendedMsg = msg as ExtendedMessage;
 
         extendedMsg.reply = (text: string) => this._bot.sendMessage(msg.chat.id, text, {
-            reply_to_message_id: msg.message_id,
+            reply_parameters: { message_id: msg.message_id },
             parse_mode: 'Markdown'
         });
 

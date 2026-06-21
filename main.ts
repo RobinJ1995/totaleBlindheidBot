@@ -1,35 +1,38 @@
 import consoleStamp from 'console-stamp';
-consoleStamp(console);
+// Under NodeNext module resolution the stale `@types/console-stamp` (`export =` of a
+// bare function) is no longer surfaced as a callable default import, so cast to the
+// function it actually is at runtime.
+(consoleStamp as unknown as (console: Console, options?: object) => void)(console);
 
-import TelegramBot from 'node-telegram-bot-api';
-import ScheduleDAO from './dao/ScheduleDAO';
-import RsvpDAO from './dao/RsvpDAO';
-import RollcallPlayerDAO from './dao/RollcallPlayerDAO';
-import UserDAO from './dao/UserDAO';
-import SteamService from './SteamService';
-import GitHubService from './GitHubService';
-import { executeRollcall } from './command/rollcall';
-import MessageRouter, { ExtendedMessage } from './MessageRouter';
-import { escapeMarkdown } from './utils';
-import { Rsvp, RsvpList } from './dao/RsvpDAO';
-import { ensureSchema } from './dao/Database';
-import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp';
+import TelegramBot, { CallbackQuery, Message } from 'node-telegram-bot-api';
+import ScheduleDAO from './dao/ScheduleDAO.js';
+import RsvpDAO from './dao/RsvpDAO.js';
+import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
+import UserDAO from './dao/UserDAO.js';
+import SteamService from './SteamService.js';
+import GitHubService from './GitHubService.js';
+import { executeRollcall } from './command/rollcall.js';
+import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
+import { escapeMarkdown } from './utils.js';
+import { Rsvp, RsvpList } from './dao/RsvpDAO.js';
+import { ensureSchema } from './dao/Database.js';
+import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp.js';
 
 // Command Handlers
-import hiHandler from './command/hi';
-import rollcallHandler from './command/rollcall';
-import scheduleHandler from './command/schedule';
-import cancelHandler from './command/cancel';
-import timezoneHandler from './command/timezone';
-import wingmanHandler from './command/wingman';
-import steamUserIdHandler from './command/steam_user_id';
-import steamUpdatesHandler from './command/steam_updates';
-import steamGuardHandler from './command/steam_guard';
-import gameHistoryHandler from './command/game_history';
-import githubNotifyHandler from './command/github_notify';
-import rollcallAddPlayerHandler from './command/admin/rollcall_add_player';
-import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player';
-import rollcallGetPlayersHandler from './command/admin/rollcall_get_players';
+import hiHandler from './command/hi.js';
+import rollcallHandler from './command/rollcall.js';
+import scheduleHandler from './command/schedule.js';
+import cancelHandler from './command/cancel.js';
+import timezoneHandler from './command/timezone.js';
+import wingmanHandler from './command/wingman.js';
+import steamUserIdHandler from './command/steam_user_id.js';
+import steamUpdatesHandler from './command/steam_updates.js';
+import steamGuardHandler from './command/steam_guard.js';
+import gameHistoryHandler from './command/game_history.js';
+import githubNotifyHandler from './command/github_notify.js';
+import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
+import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
+import rollcallGetPlayersHandler from './command/admin/rollcall_get_players.js';
 
 if (!process.env.LOG_DEBUG) {
     (console as any).debug = () => {};
@@ -116,9 +119,9 @@ const renderRsvpMessages = (list: RsvpList): Promise<unknown> => {
     });
 };
 
-const handleRsvpCallback = (query: TelegramBot.CallbackQuery): void => {
+const handleRsvpCallback = (query: CallbackQuery): void => {
     const data: string | undefined = query.data;
-    const message: TelegramBot.Message | undefined = query.message;
+    const message: Message | undefined = query.message;
     if (!data || !data.startsWith('rsvp:') || !message) {
         return;
     }
@@ -238,7 +241,7 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
     helpText: 'Get all players in the rollcall.'
 });
 
-bot.on('message', (msg: TelegramBot.Message) => {
+bot.on('message', (msg: Message) => {
     if (steamEnabled && msg.from && msg.chat) {
         const userId: number = msg.from.id;
         userDao.addUserChat(userId, msg.chat.id)
@@ -253,7 +256,7 @@ bot.on('message', (msg: TelegramBot.Message) => {
     router.handle(msg);
 });
 
-bot.on('callback_query', (query: TelegramBot.CallbackQuery) => {
+bot.on('callback_query', (query: CallbackQuery) => {
     handleRsvpCallback(query);
 });
 
