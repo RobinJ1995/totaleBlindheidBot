@@ -28,7 +28,9 @@ def step_steam_playing_map(context: Context, steam_id: str, map_name: str) -> No
     _capture_steam_baseline(context)
     helpers.steam_emit_user(steam_id, {
         "player_name": "Gamer",
-        "gameid": 730,
+        # The real steam-user library reports gameid as a string ("730"), so the mock
+        # must too — a numeric 730 would not exercise the type-sensitive diff logic.
+        "gameid": "730",
         "rich_presence": [
             {"key": "game:map", "value": map_name},
             {"key": "status", "value": "Competitive"},
@@ -48,7 +50,7 @@ def step_steam_playing_map_score(context: Context, steam_id: str, score: str, ma
     _capture_steam_baseline(context)
     helpers.steam_emit_user(steam_id, {
         "player_name": "Gamer",
-        "gameid": 730,
+        "gameid": "730",
         "rich_presence": [
             {"key": "game:map", "value": map_name},
             {"key": "status", "value": "Competitive"},
@@ -60,7 +62,15 @@ def step_steam_playing_map_score(context: Context, steam_id: str, score: str, ma
 @when('Steam reports user "{steam_id}" playing CS2')
 def step_steam_playing(context: Context, steam_id: str) -> None:
     _capture_steam_baseline(context)
-    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": 730})
+    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": "730"})
+
+
+@when('Steam reports user "{steam_id}" playing CS2 with no details')
+def step_steam_playing_no_details(context: Context, steam_id: str) -> None:
+    # A bare "playing CS2" presence with no map/status/score. This must not be allowed to
+    # overwrite a more-detailed message that is already on screen for the same session.
+    _capture_steam_baseline(context)
+    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": "730"})
 
 
 @when('Steam reports user "{steam_id}" stopped playing')
@@ -95,6 +105,24 @@ def step_no_steam_message(context: Context, chat_id: int) -> None:
     new: List[Dict[str, Any]] = helpers.expect_no_new_message(chat_id, baseline)
     sends: List[str] = [m["text"] for m in new if m["method"] == "sendMessage"]
     assert not sends, f"Expected no Steam message, but got: {sends!r}"
+
+
+@then('the latest Steam message in chat {chat_id:d} still contains "{expected}"')
+def step_latest_steam_still_contains(context: Context, chat_id: int, expected: str) -> None:
+    # The most recent thing the user sees in the chat (whether the original sendMessage or a
+    # later editMessageText) must still carry the detailed info. If a less-detailed update was
+    # wrongly allowed to overwrite it, the latest outbox entry would be the downgraded text.
+    time.sleep(2)
+    outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
+    msgs: List[Dict[str, Any]] = [
+        m for m in outbox if m["method"] in ("sendMessage", "editMessageText")
+    ]
+    assert msgs, f"No Steam messages reached chat {chat_id}"
+    latest: str = msgs[-1]["text"]
+    assert expected in latest, (
+        f"Latest Steam message in chat {chat_id} no longer contains {expected!r}; "
+        f"a less-detailed update overwrote it. Latest text: {latest!r}"
+    )
 
 
 @then('the Steam message in chat {chat_id:d} is edited to contain "{expected}"')

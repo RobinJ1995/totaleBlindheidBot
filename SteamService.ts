@@ -396,7 +396,11 @@ class SteamService {
                 // Check if the new update is less detailed than the previous one.
                 // We should NOT replace a more detailed message with a less detailed one
                 // UNLESS the map or game mode/status or game itself has changed.
-                const gameChanged = info.gameId !== oldInfo.gameId;
+                // Compare as strings: the live gameId comes straight from steam-user (a
+                // string like "730"), while the stored one is reconstructed from the DB. A
+                // raw !== would always report a change on a type mismatch, disabling the
+                // less-detailed-update guard below.
+                const gameChanged = String(info.gameId ?? '') !== String(oldInfo.gameId ?? '');
                 const mapChanged = info.map && info.map !== oldInfo.map;
                 const meaningfulStatusChanged = info.status && info.status !== oldInfo.status && !this.isGenericStatus(info.status);
                 
