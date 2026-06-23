@@ -1,16 +1,10 @@
-import tzSoft from 'timezone-soft';
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import UserDAO from '../dao/UserDAO.js';
 import { formatError } from '../utils.js';
+import { normalizeTimezone } from '../timeUtils.js';
 
 const dao = new UserDAO();
-
-// Define a minimal interface for timezone-soft results since @types might not exist
-interface TimezoneResult {
-    iana: string;
-    [key: string]: any;
-}
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     const argument: string | undefined = msg.command?.argument;
@@ -23,15 +17,11 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
         return;
     }
 
-    const results: TimezoneResult[] = tzSoft(argument);
-    if (!results || results.length === 0) {
+    const normalizedTz: string | null = normalizeTimezone(argument);
+    if (!normalizedTz) {
         msg.reply(`Invalid timezone: ${argument}`);
         return;
     }
-
-    // Prefer a result where the IANA name contains our input (e.g. "Dublin" -> "Europe/Dublin")
-    const bestMatch: TimezoneResult = results.find(r => r.iana.toLowerCase().includes(argument.toLowerCase())) || results[0];
-    const normalizedTz: string = bestMatch.iana;
 
     dao.setUserTimezone(user_id, normalizedTz)
         .then(() => msg.reply(`Your timezone has been set to ${normalizedTz}`))
