@@ -58,3 +58,6 @@ def before_scenario(context: Context, scenario: Scenario) -> None:
     context.chat_id = 1001
     context.user = {"id": 5001, "first_name": "Tester", "username": "tester"}
     context.last_reply = None
+    # Message id captured by the "the RSVP message is remembered" step, so later button
+    # taps can target a specific message even after newer messages arrive.
+    context.rsvp_message_id = None

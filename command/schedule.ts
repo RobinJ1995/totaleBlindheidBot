@@ -72,8 +72,11 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                         entries[msg.from.id] = entryFromUser(msg.from, 'yes');
                     }
 
-                    const baseText: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
-                    const { groups } = resolve(rotation, entries);
+                    const { groups, mentions } = resolve(rotation, entries);
+                    // Like a rollcall, the schedule tags the whole rotation up front. The
+                    // mention line is baked in here so it records who was pinged when scheduled.
+                    const heading: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
+                    const baseText: string = mentions.length ? `${heading}\n${mentions.join(' ')}` : heading;
 
                     return bot.sendMessage(chat_id, renderMessage(baseText, groups), {
                         reply_parameters: { message_id: msg.message_id },

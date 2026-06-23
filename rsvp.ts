@@ -6,7 +6,7 @@ export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
 const LABELS: Record<RsvpKeyboardKind, Record<Rsvp, string>> = {
     schedule: { yes: "I'm in", maybe: 'Maybe', no: 'No' },
-    rollcall: { yes: 'Joining', maybe: 'Maybe later', no: 'No' }
+    rollcall: { yes: 'Joining', maybe: 'Maybe/Later', no: 'No' }
 };
 
 const RSVP_EMOJI: Record<Rsvp, string> = {
@@ -51,21 +51,35 @@ const parseMention = (mention: string): ParsedMention => {
 // (zero-width space breaks the @mention), matching command/admin/rollcall_get_players.ts.
 const displayName = (name: string): string => escapeMarkdown(name).replace('@', '@​');
 
+// Build a Markdown-safe pingable mention for the tag line. A rotation entry is stored
+// either as a `[name](tg://user?id=ID)` text-mention link or a plain `@username`. The line
+// is baked into a `parse_mode: 'Markdown'` message, so escape the visible text — otherwise a
+// name with a Markdown metacharacter (e.g. `Foo_Bar`) makes Telegram reject the message.
+const mentionMarkdown = (mention: string): string => {
+    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+    if (match) {
+        return `[${escapeMarkdown(match[1])}](tg://user?id=${match[2]})`;
+    }
+    return escapeMarkdown(mention);
+};
+
 interface ResolvedPerson {
-    rsvp: Rsvp;
+    // Undefined until the person makes a selection: players are uncategorised by default.
+    rsvp?: Rsvp;
     name: string;
     // The original rotation mention string, if this person is a rotation player.
     mention?: string;
 }
 
 export interface RsvpGroups {
-    groups: Record<Rsvp, string[]>; // display names per rsvp value
+    groups: Record<Rsvp, string[]>; // display names per rsvp value (only those who chose)
     mentions: string[];             // rotation mention strings whose rsvp != 'no'
 }
 
 // Combine the live rotation roster with the explicit entries on the RSVP list.
-// Rotation players default to 'maybe'; explicit entries (incl. the seeded initiator)
-// override, and non-rotation tappers are appended as extra people.
+// Players are uncategorised until they tap a button; explicit entries (incl. the seeded
+// initiator) place them into yes/maybe/no, and non-rotation tappers are appended as extra
+// people. Every rotation player is still tagged in the mention line unless they opted out.
 const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGroups => {
     const people: ResolvedPerson[] = [];
     const byId: Map<number, ResolvedPerson> = new Map();
@@ -73,7 +87,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGr
 
     rotation.forEach(mention => {
         const parsed = parseMention(mention);
-        const person: ResolvedPerson = { rsvp: 'maybe', name: parsed.display, mention };
+        const person: ResolvedPerson = { name: parsed.display, mention };
         people.push(person);
         if (parsed.id !== undefined) {
             byId.set(parsed.id, person);
@@ -98,9 +112,13 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGr
     const groups: Record<Rsvp, string[]> = { yes: [], maybe: [], no: [] };
     const mentions: string[] = [];
     people.forEach(person => {
-        groups[person.rsvp].push(displayName(person.name));
+        // Only people who have actually made a selection appear in the lists.
+        if (person.rsvp) {
+            groups[person.rsvp].push(displayName(person.name));
+        }
+        // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
-            mentions.push(person.mention);
+            mentions.push(mentionMarkdown(person.mention));
         }
     });
 
