@@ -64,6 +64,23 @@ def step_seconds_pass(context: Context, seconds: int) -> None:
     time.sleep(seconds)
 
 
+# Same as the score+map step but with an explicit Steam display name, so a test can assert that
+# distinct players are named in a grouped end-of-game announcement. "named" sits before "playing"
+# so the plainer step can't match this sentence.
+@when('Steam reports user "{steam_id}" named "{name}" playing CS2 with score "{score}" on map "{map_name}"')
+def step_steam_named_playing_map_score(context: Context, steam_id: str, name: str, score: str, map_name: str) -> None:
+    _capture_steam_baseline(context)
+    helpers.steam_emit_user(steam_id, {
+        "player_name": name,
+        "gameid": "730",
+        "rich_presence": [
+            {"key": "game:map", "value": map_name},
+            {"key": "status", "value": "Competitive"},
+            {"key": "game:score", "value": score},
+        ],
+    })
+
+
 # A varying "summarised as" rich_presence_string with a stable "Competitive" status: the game
 # mode must come from the stable status, not the changing summary, or the match would split.
 # "summarised as" sits before "with score" so the existing score/map step can't greedily match.
