@@ -279,9 +279,11 @@ class SteamService {
 
             const chats = await this.userDao.getUserChats(tgUserId);
             for (const chatId of chats) {
-                // The match (if any) is not over yet — a relaunch may continue it. Just mark
-                // it idle so the periodic sweep can finalise it after the idle window.
-                await this.markMatchNotPlaying(chatId, tgUserId);
+                // Mark THIS account's match idle — a match can't continue on another account,
+                // so a sibling account staying in CS2 is irrelevant. A relaunch on this same
+                // account will resume it; otherwise the sweep finalises it after the idle window.
+                await this.markMatchNotPlaying(chatId, steamId);
+                // The live message is per-user, so it only closes once no account is playing.
                 await this.maybeCloseSession(chatId, tgUserId);
             }
             return;
@@ -304,14 +306,20 @@ class SteamService {
             mode = rp['game:mode'] || rp['mode'];
         }
 
+        // The raw status value (e.g. "Competitive"), before the verbose summary overrides it.
+        const rawStatus: string | undefined = status;
+
         if (user.rich_presence_string) {
             // If we have a rich_presence_string, it's usually the most user-friendly summary
             status = user.rich_presence_string;
         }
 
-        // The game mode often isn't its own key; fall back to the status string.
+        // The game mode often isn't its own key; fall back to the raw status rich-presence
+        // value (e.g. "Competitive"), captured BEFORE rich_presence_string overrides status
+        // for display. Using the volatile summary here would make the mode change mid-match
+        // and spuriously split one match into many.
         if (!mode) {
-            mode = status;
+            mode = rawStatus;
         }
 
         // Keep the raw "16-14" before it's turned into emoji digits for display, so we can
@@ -336,7 +344,7 @@ class SteamService {
             // Track match progress / boundaries regardless of the chat's live-update setting;
             // history is a separate pull (/game_history) and the end-of-game notification is
             // gated by steam_updates inside finalizeMatch.
-            await this.updateMatchState(chatId, tgUserId, { map, mode, rawScore, playerName });
+            await this.updateMatchState(chatId, steamId, tgUserId, { map, mode, rawScore, playerName });
 
             const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
@@ -523,24 +531,25 @@ class SteamService {
         return { map, mode, total: this.parseRawScore(score)?.total };
     }
 
-    // Run fn with exclusive access to a (chat,user)'s match buffer, chaining onto any in-flight
-    // operation for the same key so concurrent presence updates are applied in series.
-    private withMatchLock<T>(chatId: number, tgUserId: number, fn: () => Promise<T>): Promise<T> {
-        const key = `${chatId}_${tgUserId}`;
+    // Run fn with exclusive access to a (chat,Steam account)'s match buffer, chaining onto any
+    // in-flight operation for the same key so concurrent presence updates are applied in series.
+    private withMatchLock<T>(chatId: number, steamId: string, fn: () => Promise<T>): Promise<T> {
+        const key = `${chatId}_${steamId}`;
         const prev = this.matchLocks[key] || Promise.resolve();
         const run = prev.then(fn, fn);
         this.matchLocks[key] = run.then(() => undefined, () => undefined);
         return run;
     }
 
-    // Update the persisted "current match" buffer for a (chat, user) from a presence tick,
-    // detecting match boundaries (score reset / map change / mode change) and accumulating
-    // co-players. Finalises the previous match when a boundary is crossed.
-    private updateMatchState(chatId: number, tgUserId: number, info: { map?: string; mode?: string; rawScore?: string; playerName?: string }): Promise<void> {
-      return this.withMatchLock(chatId, tgUserId, async () => {
+    // Update the persisted "current match" buffer for a (chat, Steam account) from a presence
+    // tick, detecting match boundaries (score reset / map change / mode change) and accumulating
+    // co-players. Finalises the previous match when a boundary is crossed. Keyed by Steam
+    // account so a user's linked accounts are tracked as independent matches.
+    private updateMatchState(chatId: number, steamId: string, tgUserId: number, info: { map?: string; mode?: string; rawScore?: string; playerName?: string }): Promise<void> {
+      return this.withMatchLock(chatId, steamId, async () => {
         try {
             const { map, mode, rawScore, playerName } = info;
-            const cur = await this.gameHistoryDao.getCurrentMatch(chatId, tgUserId);
+            const cur = await this.gameHistoryDao.getCurrentMatch(chatId, steamId);
             const newParsed = this.parseRawScore(rawScore);
 
             if (cur) {
@@ -560,6 +569,7 @@ class SteamService {
                     const incoming = await this.collectCoPlayers(chatId, tgUserId, matchMap, matchMode, this.parseRawScore(max_score)?.total);
                     await this.gameHistoryDao.setCurrentMatch({
                         chat_id: chatId,
+                        steam_id: steamId,
                         user_id: tgUserId,
                         map: matchMap,
                         mode: matchMode,
@@ -581,6 +591,7 @@ class SteamService {
             const now = new Date();
             await this.gameHistoryDao.setCurrentMatch({
                 chat_id: chatId,
+                steam_id: steamId,
                 user_id: tgUserId,
                 map,
                 mode,
@@ -592,7 +603,7 @@ class SteamService {
                 playing: true
             });
         } catch (err) {
-            console.error(`Error updating match state for user ${tgUserId} in chat ${chatId}:`, err);
+            console.error(`Error updating match state for user ${tgUserId} (Steam ID ${steamId}) in chat ${chatId}:`, err);
         }
       });
     }
@@ -647,18 +658,18 @@ class SteamService {
         return fallback || String(otherTgId);
     }
 
-    // The user stopped playing CS2: don't finalise yet (a relaunch may continue the match),
-    // just mark it idle so the periodic sweep can finalise it after the idle window.
-    private markMatchNotPlaying(chatId: number, tgUserId: number): Promise<void> {
-        return this.withMatchLock(chatId, tgUserId, async () => {
+    // A Steam account stopped playing CS2: don't finalise yet (a relaunch on the same account
+    // may continue the match), just mark it idle so the sweep can finalise it after the window.
+    private markMatchNotPlaying(chatId: number, steamId: string): Promise<void> {
+        return this.withMatchLock(chatId, steamId, async () => {
             try {
-                const cur = await this.gameHistoryDao.getCurrentMatch(chatId, tgUserId);
+                const cur = await this.gameHistoryDao.getCurrentMatch(chatId, steamId);
                 if (cur && cur.playing) {
                     cur.playing = false;
                     await this.gameHistoryDao.setCurrentMatch(cur);
                 }
             } catch (err) {
-                console.error(`Error marking match not playing for user ${tgUserId} in chat ${chatId}:`, err);
+                console.error(`Error marking match not playing for Steam ID ${steamId} in chat ${chatId}:`, err);
             }
         });
     }
@@ -690,7 +701,7 @@ class SteamService {
             console.error(`Failed to finalise match for user ${tgUserId} in chat ${chatId}:`, err);
         } finally {
             // Clear the buffer either way so we never record the same match twice.
-            await this.gameHistoryDao.deleteCurrentMatch(chatId, tgUserId).catch(() => {});
+            await this.gameHistoryDao.deleteCurrentMatch(chatId, match.steam_id).catch(() => {});
         }
     }
 
@@ -709,11 +720,11 @@ class SteamService {
             const cutoff = new Date(Date.now() - MATCH_IDLE_MS);
             const idle = await this.gameHistoryDao.getIdleMatches(cutoff);
             for (const match of idle) {
-                await this.withMatchLock(match.chat_id, match.user_id, async () => {
+                await this.withMatchLock(match.chat_id, match.steam_id, async () => {
                     // Re-read under the lock so we don't race a concurrent presence update.
-                    const cur = await this.gameHistoryDao.getCurrentMatch(match.chat_id, match.user_id);
+                    const cur = await this.gameHistoryDao.getCurrentMatch(match.chat_id, match.steam_id);
                     if (cur && !cur.playing && (Date.now() - new Date(cur.last_progress_at).getTime()) > MATCH_IDLE_MS) {
-                        console.log(`Match for user ${match.user_id} in chat ${match.chat_id} is idle; finalising.`);
+                        console.log(`Match for Steam ID ${match.steam_id} in chat ${match.chat_id} is idle; finalising.`);
                         await this.finalizeMatch(cur);
                     }
                 });
@@ -723,20 +734,21 @@ class SteamService {
         }
     }
 
+    // Is ANY of the user's mapped Steam accounts currently playing CS2? A user may register
+    // several Steam IDs, so a non-CS2 update from one doesn't mean they've stopped playing.
+    async isAnyAccountPlayingCS2(tgUserId: number): Promise<boolean> {
+        const settings = await this.userDao.getUserSettings(tgUserId);
+        const steamIds = settings.steam_ids || [];
+        return steamIds.some(sid => {
+            const user = this.client.users[sid];
+            // Check if playing CS2 (AppID 730)
+            return user && user.gameid == this.appIdCS2;
+        });
+    }
+
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
         try {
-            // Check if ANY tracked steam ID for this user is playing CS2
-            // We need to fetch settings first to know all steam IDs
-            const settings = await this.userDao.getUserSettings(tgUserId);
-            const steamIds = settings.steam_ids || [];
-            
-            const isAnyPlaying = steamIds.some(sid => {
-                 const user = this.client.users[sid];
-                 // Check if playing CS2 (AppID 730)
-                 return user && user.gameid == this.appIdCS2;
-            });
-    
-            if (isAnyPlaying) {
+            if (await this.isAnyAccountPlayingCS2(tgUserId)) {
                  if (process.env.LOG_DEBUG) {
                      console.debug(`User ${tgUserId} has an active session on one of their accounts. Not closing.`);
                  }
