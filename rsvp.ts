@@ -51,6 +51,18 @@ const parseMention = (mention: string): ParsedMention => {
 // (zero-width space breaks the @mention), matching command/admin/rollcall_get_players.ts.
 const displayName = (name: string): string => escapeMarkdown(name).replace('@', '@​');
 
+// Build a Markdown-safe pingable mention for the tag line. A rotation entry is stored
+// either as a `[name](tg://user?id=ID)` text-mention link or a plain `@username`. The line
+// is baked into a `parse_mode: 'Markdown'` message, so escape the visible text — otherwise a
+// name with a Markdown metacharacter (e.g. `Foo_Bar`) makes Telegram reject the message.
+const mentionMarkdown = (mention: string): string => {
+    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+    if (match) {
+        return `[${escapeMarkdown(match[1])}](tg://user?id=${match[2]})`;
+    }
+    return escapeMarkdown(mention);
+};
+
 interface ResolvedPerson {
     // Undefined until the person makes a selection: players are uncategorised by default.
     rsvp?: Rsvp;
@@ -106,7 +118,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGr
         }
         // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
-            mentions.push(person.mention);
+            mentions.push(mentionMarkdown(person.mention));
         }
     });
 

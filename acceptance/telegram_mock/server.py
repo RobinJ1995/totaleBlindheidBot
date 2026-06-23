@@ -33,15 +33,20 @@ _next_update_id: int = 1
 _outbox: List[Dict[str, Any]] = []
 _next_message_id: int = 1000
 
+# Ordered record of every answerCallbackQuery the bot made, so behave can assert on
+# the feedback shown for a button tap (e.g. an expired RSVP).
+_callback_answers: List[Dict[str, Any]] = []
+
 
 def _reset() -> None:
     # NOTE: _next_update_id is deliberately NOT reset. The bot's long-poll
     # offset increases monotonically for the life of its process, so update_ids
     # must keep climbing across scenario resets — otherwise post-reset updates
     # fall below the bot's offset and getUpdates never delivers them.
-    global _updates, _outbox
+    global _updates, _outbox, _callback_answers
     _updates = []
     _outbox = []
+    _callback_answers = []
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +87,7 @@ def bot_api(token: str, method: str) -> Response:
             _outbox.append({
                 "method": "sendMessage",
                 "chat_id": str(chat_id) if chat_id is not None else None,
+                "message_id": message_id,
                 "text": text,
                 "params": params,
             })
@@ -115,6 +121,14 @@ def bot_api(token: str, method: str) -> Response:
                 "text": text,
             },
         })
+
+    if method == "answerCallbackQuery":
+        with _lock:
+            _callback_answers.append({
+                "callback_query_id": params.get("callback_query_id"),
+                "text": params.get("text"),
+            })
+        return jsonify({"ok": True, "result": True})
 
     if method == "getMe":
         return jsonify({
@@ -152,7 +166,7 @@ def inject() -> Response:
     global _next_update_id
     body = request.get_json(force=True) or {}
     with _lock:
-        if "message" in body or "edited_message" in body:
+        if any(key in body for key in ("message", "edited_message", "callback_query")):
             update = dict(body)
         else:
             update = {"message": body}
@@ -172,6 +186,12 @@ def outbox() -> Response:
         else:
             result = list(_outbox)
     return jsonify({"ok": True, "outbox": result})
+
+
+@app.route("/test/callback-answers", methods=["GET"])
+def callback_answers() -> Response:
+    with _lock:
+        return jsonify({"ok": True, "answers": list(_callback_answers)})
 
 
 @app.route("/test/reset", methods=["POST"])

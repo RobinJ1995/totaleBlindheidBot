@@ -3,6 +3,7 @@
 Everything that talks to the mock Telegram server, the Steam control server or
 the MariaDB backend lives here so the step files stay declarative.
 """
+import json
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -132,6 +133,72 @@ def inject_message(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def inject_callback(
+    data: str, chat_id: int, user: Dict[str, Any], message_id: int
+) -> Dict[str, Any]:
+    """Queue a callback_query update, simulating a user tapping an inline button."""
+    update: Dict[str, Any] = {
+        "callback_query": {
+            "id": str(int(time.time() * 1000) % 1000000),
+            "from": {
+                "id": int(user["id"]),
+                "is_bot": False,
+                "first_name": user.get("first_name", "Tester"),
+                "username": user.get("username", "tester"),
+            },
+            "message": {
+                "message_id": int(message_id),
+                "date": int(time.time()),
+                "chat": {"id": int(chat_id), "type": "group"},
+            },
+            "data": data,
+        }
+    }
+    resp = requests.post(f"{TELEGRAM_MOCK_URL}/test/inject", json=update, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def reply_markup(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the inline keyboard markup of a recorded outbox message, parsed to a dict.
+
+    node-telegram-bot-api may send reply_markup either as a JSON string (form-encoded)
+    or as a nested object (JSON body); handle both.
+    """
+    markup: Any = message.get("params", {}).get("reply_markup")
+    if isinstance(markup, str):
+        return json.loads(markup)
+    return markup or {}
+
+
+def button_labels(message: Dict[str, Any]) -> List[str]:
+    markup: Dict[str, Any] = reply_markup(message)
+    return [
+        button.get("text")
+        for row in markup.get("inline_keyboard", [])
+        for button in row
+    ]
+
+
+def get_callback_answers() -> List[Dict[str, Any]]:
+    resp = requests.get(f"{TELEGRAM_MOCK_URL}/test/callback-answers", timeout=5)
+    resp.raise_for_status()
+    return resp.json()["answers"]
+
+
+def wait_for_callback_answer(
+    baseline_count: int, timeout: float = REPLY_TIMEOUT
+) -> List[Dict[str, Any]]:
+    """Wait until a new answerCallbackQuery is recorded; return the new tail."""
+    deadline: float = time.time() + timeout
+    while time.time() < deadline:
+        answers: List[Dict[str, Any]] = get_callback_answers()
+        if len(answers) > baseline_count:
+            return answers[baseline_count:]
+        time.sleep(POLL_INTERVAL)
+    return get_callback_answers()[baseline_count:]
 
 
 def get_outbox(chat_id: Optional[int] = None) -> List[Dict[str, Any]]:
