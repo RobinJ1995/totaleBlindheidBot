@@ -38,18 +38,19 @@ Feature: timezone command
     Examples: offset formats
       | user_id | input    | expected |
       | 5520    | UTC      | UTC      |
-      | 5521    | UTC+2    | UTC+2    |
-      | 5522    | utc+2    | UTC+2    |
-      | 5523    | GMT+2    | UTC+2    |
-      | 5524    | +02:00   | UTC+2    |
-      | 5525    | UTC-5    | UTC-5    |
-      | 5526    | UTC+02:00| UTC+2    |
+      | 5521    | UTC+2    | +02:00   |
+      | 5522    | utc+2    | +02:00   |
+      | 5523    | GMT+2    | +02:00   |
+      | 5524    | +02:00   | +02:00   |
+      | 5525    | UTC-5    | -05:00   |
+      | 5526    | UTC+02:00| +02:00   |
+      | 5527    | UTC+5:30 | +05:30   |
 
-    Examples: abbreviations
-      | user_id | input | expected         |
-      | 5530    | CET   | Europe/Madrid    |
-      | 5531    | EST   | America/New_York |
+    Examples: unambiguous abbreviations
+      | user_id | input | expected            |
+      | 5530    | CET   | Europe/Madrid       |
       | 5532    | PST   | America/Los_Angeles |
+      | 5533    | JST   | Asia/Tokyo          |
 
   Scenario Outline: rejecting invalid timezone "<input>"
     Given a chat with id 1500
@@ -66,6 +67,6 @@ Feature: timezone command
     Given a chat with id 1500
     And a user with id 5550 and first name "Tester"
     When the user sends "/timezone UTC+2"
-    Then the bot replies "Your timezone has been set to UTC+2"
+    Then the bot replies "Your timezone has been set to +02:00"
     When the user sends "/timezone"
-    Then the bot replies "Your current timezone is UTC+2"
+    Then the bot replies "Your current timezone is +02:00"

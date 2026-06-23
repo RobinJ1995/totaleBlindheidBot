@@ -14,13 +14,30 @@ interface TimezoneResult {
 const isValidZone = (zone: string): boolean => DateTime.now().setZone(zone).isValid;
 
 /**
+ * Standard (non-DST) UTC offset of a zone, in minutes. Used to decide whether an
+ * abbreviation is ambiguous: two zones are "the same" only if their standard
+ * offset matches, so DST differences (e.g. Europe/Madrid vs Africa/Algiers) do
+ * not count as ambiguity, while genuine differences (India vs Ireland for "IST")
+ * do.
+ */
+const standardOffset = (zone: string): number => {
+    for (const month of [1, 4, 7, 10]) {
+        const dt: DateTime = DateTime.fromObject({ year: 2025, month, day: 15 }, { zone });
+        if (dt.isValid && !dt.isInDST) return dt.offset;
+    }
+    return DateTime.fromObject({ year: 2025, month: 1, day: 15 }, { zone }).offset;
+};
+
+/**
  * Normalises a user-supplied timezone string into a canonical, Luxon-valid zone.
  *
  * Handles three families of input:
  * - Offsets ("UTC", "UTC+2", "GMT+2", "+02:00", "utc-5", "UTC+5:30") which are
- *   normalised to an intuitive "UTC±H[:MM]" form. These are parsed here rather
- *   than via timezone-soft, which maps them to confusing/incorrect IANA names
- *   (e.g. "UTC+2" -> "Etc/GMT-2", "GMT+2" -> "Etc/GMT+2" which is actually UTC-2).
+ *   normalised to an intuitive ISO "±HH:MM" form. This form is accepted by both
+ *   Luxon and JS Intl/toLocaleString (the scheduling path uses the latter),
+ *   unlike "UTC+2"; offsets are parsed here rather than via timezone-soft, which
+ *   maps them to confusing/incorrect IANA names (e.g. "UTC+2" -> "Etc/GMT-2",
+ *   "GMT+2" -> "Etc/GMT+2" which is actually UTC-2).
  * - IANA names and city names ("Europe/Madrid", "europe/madrid", "Brussels"),
  *   resolved via timezone-soft and validated against Luxon.
  * - Abbreviations ("CET", "EST", "PST"), resolved via timezone-soft.
@@ -52,9 +69,9 @@ const normalizeTimezone = (input: string): string | null => {
             return 'UTC';
         }
 
-        const candidate: string = minutes > 0
-            ? `UTC${sign}${hours}:${String(minutes).padStart(2, '0')}`
-            : `UTC${sign}${hours}`;
+        // ISO "±HH:MM" form: accepted by both Luxon and JS Intl/toLocaleString.
+        const candidate: string =
+            `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
         return isValidZone(candidate) ? candidate : null;
     }
@@ -79,7 +96,13 @@ const normalizeTimezone = (input: string): string | null => {
     });
     if (bySegment) return bySegment.iana;
 
-    // (c) first valid candidate (covers abbreviations like "CET").
+    // (c) fall back to a bare abbreviation (e.g. "CET"). Reject it when it is
+    // genuinely ambiguous, i.e. its candidate zones span more than one standard
+    // UTC offset (e.g. "IST" -> India/Ireland/Israel, "EST" -> US/Australia).
+    const distinctOffsets: Set<number> = new Set(valid.map(r => standardOffset(r.iana)));
+    if (distinctOffsets.size > 1) {
+        return null;
+    }
     return valid[0].iana;
 };
 
