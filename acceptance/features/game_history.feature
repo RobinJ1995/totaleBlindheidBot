@@ -146,9 +146,26 @@ Feature: CS2 game history
     When user 5971 sends "/steam_user_id 76561198000000971"
     Then the bot reply contains "76561198000000971"
     When Steam mappings are refreshed
-    And Steam reports user "76561198000000970" named "Alpha" playing CS2 with score "13-7" on map "Vertigo"
+    And Steam reports user "76561198000000970" playing CS2 as "Alpha" with score "13-7" on map "Vertigo"
     And Steam reports user "76561198000000970" stopped playing
-    And Steam reports user "76561198000000971" named "Bravo" playing CS2 with score "13-7" on map "Vertigo"
+    And Steam reports user "76561198000000971" playing CS2 as "Bravo" with score "13-7" on map "Vertigo"
     And Steam reports user "76561198000000971" stopped playing
     Then chat 2110 eventually receives a new Steam message containing "won a game"
     And the Steam message in chat 2110 is edited to contain "Alpha and Bravo"
+
+  Scenario: the same player's repeated match gets its own announcement
+    # Two distinct matches that happen to share map, mode, result and score must not be merged into
+    # one message just because they look alike — each real match is announced separately.
+    Given a chat with id 2111
+    And a user with id 5980 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000980"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000980"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000980" playing CS2 with score "13-7" on map "Vertigo"
+    And Steam reports user "76561198000000980" stopped playing
+    And 8 seconds pass
+    Then chat 2111 eventually receives a new Steam message containing "won a game"
+    When Steam reports user "76561198000000980" playing CS2 with score "13-7" on map "Vertigo"
+    And Steam reports user "76561198000000980" stopped playing
+    And 8 seconds pass
+    Then chat 2111 has received 2 Steam messages containing "won a game"

@@ -65,9 +65,10 @@ def step_seconds_pass(context: Context, seconds: int) -> None:
 
 
 # Same as the score+map step but with an explicit Steam display name, so a test can assert that
-# distinct players are named in a grouped end-of-game announcement. "named" sits before "playing"
-# so the plainer step can't match this sentence.
-@when('Steam reports user "{steam_id}" named "{name}" playing CS2 with score "{score}" on map "{map_name}"')
+# distinct players are named in a grouped end-of-game announcement. The name sits BETWEEN
+# "playing CS2" and "with score" (like the "summarised as" step) so the plainer score/map step's
+# tail isn't a substring of this sentence — otherwise behave reports an ambiguous step.
+@when('Steam reports user "{steam_id}" playing CS2 as "{name}" with score "{score}" on map "{map_name}"')
 def step_steam_named_playing_map_score(context: Context, steam_id: str, name: str, score: str, map_name: str) -> None:
     _capture_steam_baseline(context)
     helpers.steam_emit_user(steam_id, {
@@ -172,6 +173,23 @@ def step_chat_has_not_received(context: Context, chat_id: int, expected: str) ->
     outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
     bad: List[str] = [m["text"] for m in outbox if m["method"] == "sendMessage" and expected in m["text"]]
     assert not bad, f"Expected no Steam message containing {expected!r}, but got: {bad!r}"
+
+
+@then('chat {chat_id:d} has received {count:d} Steam messages containing "{expected}"')
+def step_chat_received_count(context: Context, chat_id: int, count: int, expected: str) -> None:
+    # Count fresh sendMessage calls (not edits) matching the text. Used to prove distinct matches
+    # get distinct announcements rather than one being edited into another.
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    found: int = 0
+    while time.time() < deadline:
+        outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
+        found = len([m for m in outbox if m["method"] == "sendMessage" and expected in m["text"]])
+        if found >= count:
+            break
+        time.sleep(helpers.POLL_INTERVAL)
+    assert found == count, (
+        f"Expected {count} Steam messages containing {expected!r} in chat {chat_id}, found {found}"
+    )
 
 
 @then('the Steam message in chat {chat_id:d} is edited to contain "{expected}"')

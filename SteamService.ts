@@ -4,7 +4,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
 import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
-import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer } from './dao/GameHistoryDAO.js';
+import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer, SiblingMatch } from './dao/GameHistoryDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { escapeMarkdown } from './utils.js';
 import { parseMention } from './rsvp.js';
@@ -712,7 +712,7 @@ class SteamService {
                     // Serialise announcing per chat so two players finalising the same match
                     // concurrently can't each create a separate message.
                     await this.withLock(`eog_${chatId}`, () =>
-                        this.announceFinishedMatch(chatId, historyId, match));
+                        this.announceFinishedMatch(chatId, historyId, match, playerName));
                 }
             }
         } catch (err) {
@@ -753,53 +753,78 @@ class SteamService {
     // Announce a finished match as a single per-match message that names every participating
     // player. Players in the same chat finish the same match at different (often widely spaced)
     // times, so the first finaliser posts the message and each later one edits it to add names.
-    // Same-match siblings are the recently-finalised game_history rows in this chat with the same
-    // map + mode, the same win/loss/tie result, and a round total within RESET_TOLERANCE.
-    private async announceFinishedMatch(chatId: number, historyId: number, match: CurrentMatch): Promise<void> {
+    //
+    // Same-match candidates are the recently-finalised game_history rows in this chat with the same
+    // map + mode, the same win/loss/tie result, and a round total within RESET_TOLERANCE. Signature
+    // alone can't distinguish "another player in the same match" from "the same player in a *later*
+    // match on the same map", so we only join an existing announcement that this player does not
+    // already OWN a row in — a player is in any given match instance exactly once, so an existing
+    // group already owned by them is a different match and must get its own message.
+    private async announceFinishedMatch(chatId: number, historyId: number, match: CurrentMatch, playerName: string): Promise<void> {
         const result = this.matchResult(match.max_score);
         if (!result) return;
         const total = this.parseRawScore(match.max_score)?.total;
 
         const since = new Date(Date.now() - EOG_GROUP_WINDOW_MS);
         const candidates = await this.gameHistoryDao.getRecentSiblingMatches(chatId, match.map, match.mode, since);
-        const siblings = candidates.filter(c => {
+        const sameSig = candidates.filter(c => {
+            if (c.id === historyId) return false;
             if (this.matchResult(c.score) !== result) return false;
             const t = this.parseRawScore(c.score)?.total;
             if (total != null && t != null && Math.abs(total - t) > RESET_TOLERANCE) return false;
             return true;
         });
 
-        // Build the participant set: each sibling's owner (display name resolved and stored at
-        // finalise) plus its co-players, deduped by user id.
-        const namesByUser = new Map<number, string>();
-        for (const sib of siblings) {
-            if (!namesByUser.has(sib.user_id)) {
-                namesByUser.set(sib.user_id, sib.player_name || String(sib.user_id));
+        // Group the existing announcements (rows sharing a message_id) and pick the most recent one
+        // this player doesn't already own a row in.
+        const groups = new Map<number, { ownerIds: Set<number>; rows: SiblingMatch[]; maxId: number }>();
+        for (const row of sameSig) {
+            if (row.message_id == null) continue;
+            let g = groups.get(row.message_id);
+            if (!g) {
+                g = { ownerIds: new Set<number>(), rows: [], maxId: 0 };
+                groups.set(row.message_id, g);
             }
-            for (const co of sib.co_players) {
-                if (!namesByUser.has(co.tg_user_id)) {
-                    namesByUser.set(co.tg_user_id, co.name);
-                }
+            g.ownerIds.add(row.user_id);
+            g.rows.push(row);
+            g.maxId = Math.max(g.maxId, row.id);
+        }
+        let target: { messageId: number; rows: SiblingMatch[]; maxId: number } | null = null;
+        for (const [messageId, g] of groups) {
+            if (g.ownerIds.has(match.user_id)) continue; // a previous match of this player
+            if (!target || g.maxId > target.maxId) target = { messageId, rows: g.rows, maxId: g.maxId };
+        }
+
+        // Participants: this player (+ their co-players) unioned with the chosen group's rows. For a
+        // fresh announcement only this player's match contributes — never the earlier match's rows.
+        const namesByUser = new Map<number, string>();
+        namesByUser.set(match.user_id, playerName || String(match.user_id));
+        for (const co of match.co_players || []) {
+            if (!namesByUser.has(co.tg_user_id)) namesByUser.set(co.tg_user_id, co.name);
+        }
+        for (const row of target?.rows || []) {
+            if (!namesByUser.has(row.user_id)) namesByUser.set(row.user_id, row.player_name || String(row.user_id));
+            for (const co of row.co_players) {
+                if (!namesByUser.has(co.tg_user_id)) namesByUser.set(co.tg_user_id, co.name);
             }
         }
         const names = Array.from(namesByUser.values());
         const text = this.endOfGameText(names, result, match.map, match.mode, match.max_score);
 
-        const existingMessageId = siblings.map(s => s.message_id).find(id => id != null) ?? null;
-        if (existingMessageId != null) {
+        if (target) {
             try {
                 await this.bot.editMessageText(text, {
                     chat_id: chatId,
-                    message_id: existingMessageId,
+                    message_id: target.messageId,
                     parse_mode: 'Markdown'
                 });
             } catch (err: any) {
                 if (!(err.message && err.message.includes('message is not modified'))) {
-                    console.error(`Failed to edit end-of-game message ${existingMessageId} in chat ${chatId}:`, err);
+                    console.error(`Failed to edit end-of-game message ${target.messageId} in chat ${chatId}:`, err);
                 }
             }
             // Carry the id onto our own row so any later sibling lookup finds it.
-            await this.gameHistoryDao.setGameHistoryMessageId(historyId, existingMessageId);
+            await this.gameHistoryDao.setGameHistoryMessageId(historyId, target.messageId);
             return;
         }
 
