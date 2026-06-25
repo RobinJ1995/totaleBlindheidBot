@@ -151,7 +151,10 @@ Feature: CS2 game history
     And Steam reports user "76561198000000971" playing CS2 as "Bravo" with score "13-7" on map "Vertigo"
     And Steam reports user "76561198000000971" stopped playing
     Then chat 2110 eventually receives a new Steam message containing "won a game"
-    And the Steam message in chat 2110 is edited to contain "Alpha and Bravo"
+    # The second finaliser edits the first's message to add their name (order is irrelevant), so a
+    # single announcement ends up naming both — proving one message per match, not one per player.
+    And the Steam message in chat 2110 is edited to contain "Alpha"
+    And the Steam message in chat 2110 is edited to contain "Bravo"
 
   Scenario: the same player's repeated match gets its own announcement
     # Two distinct matches that happen to share map, mode, result and score must not be merged into
