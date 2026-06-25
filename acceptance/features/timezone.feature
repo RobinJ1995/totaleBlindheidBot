@@ -46,11 +46,13 @@ Feature: timezone command
       | 5526    | UTC+02:00| +02:00   |
       | 5527    | UTC+5:30 | +05:30   |
 
-    Examples: unambiguous abbreviations
+    Examples: abbreviations (ambiguous ones resolve to the first match)
       | user_id | input | expected            |
       | 5530    | CET   | Europe/Madrid       |
+      | 5531    | EST   | America/New_York    |
       | 5532    | PST   | America/Los_Angeles |
       | 5533    | JST   | Asia/Tokyo          |
+      | 5534    | IST   | Asia/Kolkata        |
 
   Scenario Outline: rejecting invalid timezone "<input>"
     Given a chat with id 1500

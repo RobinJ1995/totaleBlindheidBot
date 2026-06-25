@@ -14,21 +14,6 @@ interface TimezoneResult {
 const isValidZone = (zone: string): boolean => DateTime.now().setZone(zone).isValid;
 
 /**
- * Standard (non-DST) UTC offset of a zone, in minutes. Used to decide whether an
- * abbreviation is ambiguous: two zones are "the same" only if their standard
- * offset matches, so DST differences (e.g. Europe/Madrid vs Africa/Algiers) do
- * not count as ambiguity, while genuine differences (India vs Ireland for "IST")
- * do.
- */
-const standardOffset = (zone: string): number => {
-    for (const month of [1, 4, 7, 10]) {
-        const dt: DateTime = DateTime.fromObject({ year: 2025, month, day: 15 }, { zone });
-        if (dt.isValid && !dt.isInDST) return dt.offset;
-    }
-    return DateTime.fromObject({ year: 2025, month: 1, day: 15 }, { zone }).offset;
-};
-
-/**
  * Normalises a user-supplied timezone string into a canonical, Luxon-valid zone.
  *
  * Handles three families of input:
@@ -45,7 +30,7 @@ const standardOffset = (zone: string): number => {
  * @param {string} input Raw user input.
  * @returns {string|null} Canonical zone string, or null when unrecognised.
  */
-const normalizeTimezone = (input: string): string | null => {
+const normaliseTimezone = (input: string): string | null => {
     const trimmed: string = input.trim();
     if (!trimmed) return null;
 
@@ -96,13 +81,9 @@ const normalizeTimezone = (input: string): string | null => {
     });
     if (bySegment) return bySegment.iana;
 
-    // (c) fall back to a bare abbreviation (e.g. "CET"). Reject it when it is
-    // genuinely ambiguous, i.e. its candidate zones span more than one standard
-    // UTC offset (e.g. "IST" -> India/Ireland/Israel, "EST" -> US/Australia).
-    const distinctOffsets: Set<number> = new Set(valid.map(r => standardOffset(r.iana)));
-    if (distinctOffsets.size > 1) {
-        return null;
-    }
+    // (c) first valid candidate. Covers abbreviations like "CET"; for ambiguous
+    // ones (e.g. "IST", "EST") we accept timezone-soft's first match rather than
+    // trying to disambiguate.
     return valid[0].iana;
 };
 
@@ -169,4 +150,4 @@ const parseTime = (input: string, now: Date = new Date(), timezone: string = 'UT
     return finalDate.toJSDate();
 };
 
-export { parseTime, normalizeTimezone };
+export { parseTime, normaliseTimezone };
