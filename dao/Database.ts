@@ -84,13 +84,44 @@ const migrateLegacyCurrentMatch = async (conn: PoolConnection): Promise<void> =>
     }
 };
 
+// One-off, idempotent migration: add the columns that back grouped end-of-game announcements
+// (game_history.player_name and .message_id) to databases created before they existed. CREATE
+// TABLE IF NOT EXISTS won't alter an existing table, so add each column when it's missing.
+// Portable across MariaDB/MySQL (no ADD COLUMN IF NOT EXISTS).
+const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Promise<void> => {
+    const columnExists = async (column: string): Promise<boolean> => {
+        const [rows] = await conn.query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+            ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column',
+            { table: 'game_history', column }
+        );
+        return Number(rows[0]?.col) > 0;
+    };
+    const [tblRows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS tbl FROM information_schema.TABLES ' +
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_history'"
+    );
+    if (Number(tblRows[0]?.tbl) === 0) {
+        return;
+    }
+    if (!(await columnExists('player_name'))) {
+        console.log('Adding game_history.player_name for grouped end-of-game announcements.');
+        await conn.query('ALTER TABLE game_history ADD COLUMN player_name VARCHAR(255) NULL');
+    }
+    if (!(await columnExists('message_id'))) {
+        console.log('Adding game_history.message_id for grouped end-of-game announcements.');
+        await conn.query('ALTER TABLE game_history ADD COLUMN message_id BIGINT NULL');
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
-// a guarded one-off rebuild of the transient current_match tables when their shape changed).
+// guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
     const ddl = readFileSync(join(import.meta.dirname, 'schema.sql'), 'utf-8');
     const conn = await getPool().getConnection();
     try {
         await migrateLegacyCurrentMatch(conn);
+        await migrateGameHistoryAnnouncementColumns(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

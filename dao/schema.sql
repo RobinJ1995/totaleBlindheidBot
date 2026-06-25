@@ -170,18 +170,24 @@ CREATE TABLE IF NOT EXISTS current_match_coplayer (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- A finished match. score is the raw "16-14" (player-opponent); win/loss/tie is derived
--- from it. One row per finished match per (chat,user).
+-- from it. One row per finished match per (chat,user). player_name is the owner's display name
+-- resolved at match end (so a grouped announcement can name every player without re-resolving).
+-- message_id is the Telegram id of the single per-match end-of-game announcement shared by every
+-- player of the same match (set on the first finaliser's row, then copied onto each later one).
 CREATE TABLE IF NOT EXISTS game_history (
-    id         BIGINT       NOT NULL AUTO_INCREMENT,
-    chat_id    BIGINT       NOT NULL,
-    user_id    BIGINT       NOT NULL,
-    mode       VARCHAR(255) NULL,
-    map        VARCHAR(64)  NULL,
-    score      VARCHAR(64)  NULL,
-    started_at DATETIME(3)  NULL,
-    ended_at   DATETIME(3)  NOT NULL,
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    chat_id     BIGINT       NOT NULL,
+    user_id     BIGINT       NOT NULL,
+    player_name VARCHAR(255) NULL,
+    mode        VARCHAR(255) NULL,
+    map         VARCHAR(64)  NULL,
+    score       VARCHAR(64)  NULL,
+    message_id  BIGINT       NULL,
+    started_at  DATETIME(3)  NULL,
+    ended_at    DATETIME(3)  NOT NULL,
     PRIMARY KEY (id),
     KEY idx_game_history_chat_user (chat_id, user_id),
+    KEY idx_game_history_grouping (chat_id, ended_at),
     CONSTRAINT fk_game_history_user FOREIGN KEY (user_id)
         REFERENCES telegram_user (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
