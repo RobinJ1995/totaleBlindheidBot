@@ -728,25 +728,24 @@ class SteamService {
         const parsed = this.parseRawScore(score);
         if (!parsed) {
             return null;
-        }
-        if (parsed.a > parsed.b) {
+        } else if (parsed.a > parsed.b) {
             return 'win';
-        }
-        if (parsed.a < parsed.b) {
+        } else if (parsed.a < parsed.b) {
             return 'loss';
+        } else {
+            return 'tie';
         }
-        return 'tie';
     }
 
     // Join names into "A", "A and B", or "A, B and C". Order is irrelevant.
     private formatNameList(names: string[]): string {
         if (names.length === 0) {
             return 'Someone';
-        }
-        if (names.length === 1) {
+        } else if (names.length === 1) {
             return names[0];
+        } else {
+            return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
         }
-        return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
     }
 
     private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string): string {
