@@ -726,16 +726,26 @@ class SteamService {
     // win/loss/tie classification of a raw "16-14" score (player-opponent), or null if unparseable.
     private matchResult(score?: string): 'win' | 'loss' | 'tie' | null {
         const parsed = this.parseRawScore(score);
-        if (!parsed) return null;
-        if (parsed.a > parsed.b) return 'win';
-        if (parsed.a < parsed.b) return 'loss';
+        if (!parsed) {
+            return null;
+        }
+        if (parsed.a > parsed.b) {
+            return 'win';
+        }
+        if (parsed.a < parsed.b) {
+            return 'loss';
+        }
         return 'tie';
     }
 
     // Join names into "A", "A and B", or "A, B and C". Order is irrelevant.
     private formatNameList(names: string[]): string {
-        if (names.length === 0) return 'Someone';
-        if (names.length === 1) return names[0];
+        if (names.length === 0) {
+            return 'Someone';
+        }
+        if (names.length === 1) {
+            return names[0];
+        }
         return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
     }
 
@@ -744,9 +754,15 @@ class SteamService {
         const verb = result === 'win' ? 'won' : result === 'loss' ? 'lost' : 'tied';
         const nameList = this.formatNameList(names.map(n => escapeMarkdown(n)));
         let text = `${emoji} *${nameList}* ${verb} a game`;
-        if (map) text += ` on ${escapeMarkdown(map)}`;
-        if (mode) text += ` (${escapeMarkdown(mode)})`;
-        if (score) text += `: ${this.formatScore(score)}`;
+        if (map) {
+            text += ` on ${escapeMarkdown(map)}`;
+        }
+        if (mode) {
+            text += ` (${escapeMarkdown(mode)})`;
+        }
+        if (score) {
+            text += `: ${this.formatScore(score)}`;
+        }
         return text;
     }
 
@@ -762,16 +778,24 @@ class SteamService {
     // group already owned by them is a different match and must get its own message.
     private async announceFinishedMatch(chatId: number, historyId: number, match: CurrentMatch, playerName: string): Promise<void> {
         const result = this.matchResult(match.max_score);
-        if (!result) return;
+        if (!result) {
+            return;
+        }
         const total = this.parseRawScore(match.max_score)?.total;
 
         const since = new Date(Date.now() - EOG_GROUP_WINDOW_MS);
         const candidates = await this.gameHistoryDao.getRecentSiblingMatches(chatId, match.map, match.mode, since);
         const sameSig = candidates.filter(c => {
-            if (c.id === historyId) return false;
-            if (this.matchResult(c.score) !== result) return false;
+            if (c.id === historyId) {
+                return false;
+            }
+            if (this.matchResult(c.score) !== result) {
+                return false;
+            }
             const t = this.parseRawScore(c.score)?.total;
-            if (total != null && t != null && Math.abs(total - t) > RESET_TOLERANCE) return false;
+            if (total != null && t != null && Math.abs(total - t) > RESET_TOLERANCE) {
+                return false;
+            }
             return true;
         });
 
@@ -779,7 +803,9 @@ class SteamService {
         // this player doesn't already own a row in.
         const groups = new Map<number, { ownerIds: Set<number>; rows: SiblingMatch[]; maxId: number }>();
         for (const row of sameSig) {
-            if (row.message_id == null) continue;
+            if (row.message_id == null) {
+                continue;
+            }
             let g = groups.get(row.message_id);
             if (!g) {
                 g = { ownerIds: new Set<number>(), rows: [], maxId: 0 };
@@ -791,8 +817,12 @@ class SteamService {
         }
         let target: { messageId: number; rows: SiblingMatch[]; maxId: number } | null = null;
         for (const [messageId, g] of groups) {
-            if (g.ownerIds.has(match.user_id)) continue; // a previous match of this player
-            if (!target || g.maxId > target.maxId) target = { messageId, rows: g.rows, maxId: g.maxId };
+            if (g.ownerIds.has(match.user_id)) {
+                continue; // a previous match of this player
+            }
+            if (!target || g.maxId > target.maxId) {
+                target = { messageId, rows: g.rows, maxId: g.maxId };
+            }
         }
 
         // Participants: this player (+ their co-players) unioned with the chosen group's rows. For a
@@ -800,12 +830,18 @@ class SteamService {
         const namesByUser = new Map<number, string>();
         namesByUser.set(match.user_id, playerName || String(match.user_id));
         for (const co of match.co_players || []) {
-            if (!namesByUser.has(co.tg_user_id)) namesByUser.set(co.tg_user_id, co.name);
+            if (!namesByUser.has(co.tg_user_id)) {
+                namesByUser.set(co.tg_user_id, co.name);
+            }
         }
         for (const row of target?.rows || []) {
-            if (!namesByUser.has(row.user_id)) namesByUser.set(row.user_id, row.player_name || String(row.user_id));
+            if (!namesByUser.has(row.user_id)) {
+                namesByUser.set(row.user_id, row.player_name || String(row.user_id));
+            }
             for (const co of row.co_players) {
-                if (!namesByUser.has(co.tg_user_id)) namesByUser.set(co.tg_user_id, co.name);
+                if (!namesByUser.has(co.tg_user_id)) {
+                    namesByUser.set(co.tg_user_id, co.name);
+                }
             }
         }
         const names = Array.from(namesByUser.values());

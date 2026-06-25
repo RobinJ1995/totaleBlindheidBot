@@ -101,7 +101,9 @@ const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Prom
         'SELECT COUNT(*) AS tbl FROM information_schema.TABLES ' +
         " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_history'"
     );
-    if (Number(tblRows[0]?.tbl) === 0) return;
+    if (Number(tblRows[0]?.tbl) === 0) {
+        return;
+    }
     if (!(await columnExists('player_name'))) {
         console.log('Adding game_history.player_name for grouped end-of-game announcements.');
         await conn.query('ALTER TABLE game_history ADD COLUMN player_name VARCHAR(255) NULL');
