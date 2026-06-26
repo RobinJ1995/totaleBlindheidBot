@@ -30,3 +30,18 @@ Feature: schedule command
     And a user with id 5405 and first name "Tester"
     When the user sends "/schedule 3 hours"
     Then the bot reply starts with "Rollcall scheduled for"
+
+  Scenario Outline: the scheduled time is rendered in the user's timezone
+    Given a chat with id <chat_id>
+    And a user with id <user_id> and first name "Tester"
+    When the user sends "/timezone <tz_input>"
+    Then the bot replies "Your timezone has been set to <stored>"
+    When the user sends "/schedule 3 hours"
+    Then the bot reply contains "Rollcall scheduled for"
+    And the bot reply contains "<zone_label>"
+
+    Examples:
+      | chat_id | user_id | tz_input | stored | zone_label |
+      | 4010    | 5410    | UTC+2    | +02:00 | GMT+2      |
+      | 4011    | 5411    | UTC-5    | -05:00 | GMT-5      |
+      | 4012    | 5412    | UTC      | UTC    | UTC        |

@@ -1,5 +1,91 @@
 import * as chrono from 'chrono-node';
 import { DateTime } from 'luxon';
+import tzSoft from 'timezone-soft';
+
+// Minimal shape of a timezone-soft result; @types aren't published for it.
+interface TimezoneResult {
+    iana: string;
+    [key: string]: any;
+}
+
+/**
+ * Returns true if Luxon can actually use `zone` for scheduling.
+ */
+const isValidZone = (zone: string): boolean => DateTime.now().setZone(zone).isValid;
+
+/**
+ * Normalises a user-supplied timezone string into a canonical, Luxon-valid zone.
+ *
+ * Handles three families of input:
+ * - Offsets ("UTC", "UTC+2", "GMT+2", "+02:00", "utc-5", "UTC+5:30") which are
+ *   normalised to an intuitive ISO "±HH:MM" form. This form is accepted by both
+ *   Luxon and JS Intl/toLocaleString (the scheduling path uses the latter),
+ *   unlike "UTC+2"; offsets are parsed here rather than via timezone-soft, which
+ *   maps them to confusing/incorrect IANA names (e.g. "UTC+2" -> "Etc/GMT-2",
+ *   "GMT+2" -> "Etc/GMT+2" which is actually UTC-2).
+ * - IANA names and city names ("Europe/Madrid", "europe/madrid", "Brussels"),
+ *   resolved via timezone-soft and validated against Luxon.
+ * - Abbreviations ("CET", "EST", "PST"), resolved via timezone-soft.
+ *
+ * @param {string} input Raw user input.
+ * @returns {string|null} Canonical zone string, or null when unrecognised.
+ */
+const normaliseTimezone = (input: string): string | null => {
+    const trimmed: string = input.trim();
+    if (!trimmed) return null;
+
+    // Offset forms: optional UTC/GMT prefix, optional sign, hours, optional minutes.
+    const offsetMatch: RegExpMatchArray | null = trimmed.match(
+        /^(?:utc|gmt)?\s*(?:([+-])\s*(\d{1,2})(?::?(\d{2}))?)?$/i
+    );
+    if (offsetMatch) {
+        const [, sign, hoursStr, minutesStr] = offsetMatch;
+
+        // Bare "UTC"/"GMT" (no sign/offset) -> UTC.
+        if (!sign) {
+            return 'UTC';
+        }
+
+        const hours: number = parseInt(hoursStr, 10);
+        const minutes: number = minutesStr ? parseInt(minutesStr, 10) : 0;
+
+        // "+0"/"UTC+00:00" and friends are just UTC.
+        if (hours === 0 && minutes === 0) {
+            return 'UTC';
+        }
+
+        // ISO "±HH:MM" form: accepted by both Luxon and JS Intl/toLocaleString.
+        const candidate: string =
+            `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+        return isValidZone(candidate) ? candidate : null;
+    }
+
+    // Named / IANA / abbreviation forms.
+    const results: TimezoneResult[] = tzSoft(trimmed);
+    const valid: TimezoneResult[] = (results || []).filter(r => r.iana && isValidZone(r.iana));
+    if (valid.length === 0) {
+        return null;
+    }
+
+    const lowerInput: string = trimmed.toLowerCase();
+
+    // (a) exact case-insensitive IANA match (e.g. "europe/madrid").
+    const exact: TimezoneResult | undefined = valid.find(r => r.iana.toLowerCase() === lowerInput);
+    if (exact) return exact.iana;
+
+    // (b) IANA whose last path segment matches the input city (e.g. "Brussels" -> "Europe/Brussels").
+    const bySegment: TimezoneResult | undefined = valid.find(r => {
+        const segment: string = r.iana.split('/').pop()!.toLowerCase().replace(/_/g, ' ');
+        return segment === lowerInput.replace(/_/g, ' ');
+    });
+    if (bySegment) return bySegment.iana;
+
+    // (c) first valid candidate. Covers abbreviations like "CET"; for ambiguous
+    // ones (e.g. "IST", "EST") we accept timezone-soft's first match rather than
+    // trying to disambiguate.
+    return valid[0].iana;
+};
 
 /**
  * Parses a time string into a Date object.
@@ -64,4 +150,4 @@ const parseTime = (input: string, now: Date = new Date(), timezone: string = 'UT
     return finalDate.toJSDate();
 };
 
-export { parseTime };
+export { parseTime, normaliseTimezone };
