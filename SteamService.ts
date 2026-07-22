@@ -612,75 +612,81 @@ class SteamService {
         }
         const { closed } = segmentStream(events, new Date(), DERIVATION_CONFIG);
         for (const segment of closed) {
-            await this.finalizeSegment(steamId, segment);
+            try {
+                await this.finalizeSegment(steamId, segment);
+            } catch (err) {
+                // Stop at the first failed segment: a later segment's cursor advance would skip
+                // past this one and its match would never be recorded. Left unfinalised, it is
+                // retried on the next derivation (every event and every sweep tick).
+                console.error(`Failed to finalise match for Steam ID ${steamId}; will retry:`, err);
+                break;
+            }
         }
     }
 
     // Record a finished match segment to history for each of the owner's chats (advancing the
     // stream cursor in the same transaction, which is what makes finalisation exactly-once) and
-    // post/extend the end-of-game announcement where the chat allows it.
+    // post/extend the end-of-game announcement where the chat allows it. Throws if the match
+    // could not be recorded (so the caller stops and the segment is retried later); announcement
+    // failures are contained per chat since by then the cursor has already advanced.
     private async finalizeSegment(steamId: string, segment: MatchSegment): Promise<void> {
         const tgUserId = segment.user_id;
-        try {
-            const entries: { chatId: number; entry: GameHistoryEntry }[] = [];
+        const entries: { chatId: number; entry: GameHistoryEntry }[] = [];
 
             if (segment.max_score) {
-                const coPlayers = await this.findSegmentCoPlayers(steamId, segment);
-                const chats = await this.userDao.getUserChats(tgUserId);
-                for (const chatId of chats) {
-                    // Resolve and store the owner's display name now so a later-finalising player
-                    // of the same match can render it into the shared announcement without having
-                    // to re-resolve it. Co-players must share the chat.
-                    const playerName = (await this.getTelegramDisplayName(chatId, tgUserId)) || segment.player_name || String(tgUserId);
-                    const chatCoPlayers: GameHistoryCoPlayer[] = [];
-                    for (const co of coPlayers) {
-                        const coChats = await this.userDao.getUserChats(co.user_id);
-                        if (!coChats.includes(chatId)) continue;
-                        const name = await this.resolveCoPlayerName(chatId, co.user_id, co.player_name);
-                        chatCoPlayers.push({ tg_user_id: co.user_id, name });
+            const coPlayers = await this.findSegmentCoPlayers(steamId, segment);
+            const chats = await this.userDao.getUserChats(tgUserId);
+            for (const chatId of chats) {
+                // Resolve and store the owner's display name now so a later-finalising player
+                // of the same match can render it into the shared announcement without having
+                // to re-resolve it. Co-players must share the chat.
+                const playerName = (await this.getTelegramDisplayName(chatId, tgUserId)) || segment.player_name || String(tgUserId);
+                const chatCoPlayers: GameHistoryCoPlayer[] = [];
+                for (const co of coPlayers) {
+                    const coChats = await this.userDao.getUserChats(co.user_id);
+                    if (!coChats.includes(chatId)) continue;
+                    const name = await this.resolveCoPlayerName(chatId, co.user_id, co.player_name);
+                    chatCoPlayers.push({ tg_user_id: co.user_id, name });
+                }
+                entries.push({
+                    chatId,
+                    entry: {
+                        chat_id: chatId,
+                        user_id: tgUserId,
+                        player_name: playerName,
+                        mode: segment.mode,
+                        map: segment.map,
+                        score: segment.max_score,
+                        co_players: chatCoPlayers,
+                        started_at: segment.started_at,
+                        ended_at: new Date()
                     }
-                    entries.push({
-                        chatId,
-                        entry: {
-                            chat_id: chatId,
-                            user_id: tgUserId,
-                            player_name: playerName,
-                            mode: segment.mode,
-                            map: segment.map,
-                            score: segment.max_score,
-                            co_players: chatCoPlayers,
-                            started_at: segment.started_at,
-                            ended_at: new Date()
-                        }
-                    });
-                }
+                });
             }
+        }
 
-            const historyIds = await withTransaction(async conn => {
-                const ids: number[] = [];
-                for (const { entry } of entries) {
-                    ids.push(await this.gameHistoryDao.addGameHistoryEntry(entry, conn));
-                }
-                await this.presenceEventDao.advanceCursor(conn, steamId, segment.lastEventId);
-                return ids;
-            });
-
-            for (let i = 0; i < entries.length; i++) {
-                const { chatId, entry } = entries[i];
-                try {
-                    const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
-                    if (chatSettings.steam_updates !== false) {
-                        // Serialise announcing per chat so two players finalising the same match
-                        // concurrently can't each create a separate message.
-                        await this.withLock(`eog_${chatId}`, () =>
-                            this.announceFinishedMatch(chatId, historyIds[i], entry));
-                    }
-                } catch (err) {
-                    console.error(`Failed to announce finished match in chat ${chatId}:`, err);
-                }
+        const historyIds = await withTransaction(async conn => {
+            const ids: number[] = [];
+            for (const { entry } of entries) {
+                ids.push(await this.gameHistoryDao.addGameHistoryEntry(entry, conn));
             }
-        } catch (err) {
-            console.error(`Failed to finalise match for user ${tgUserId} (Steam ID ${steamId}):`, err);
+            await this.presenceEventDao.advanceCursor(conn, steamId, segment.lastEventId);
+            return ids;
+        });
+
+        for (let i = 0; i < entries.length; i++) {
+            const { chatId, entry } = entries[i];
+            try {
+                const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
+                if (chatSettings.steam_updates !== false) {
+                    // Serialise announcing per chat so two players finalising the same match
+                    // concurrently can't each create a separate message.
+                    await this.withLock(`eog_${chatId}`, () =>
+                        this.announceFinishedMatch(chatId, historyIds[i], entry));
+                }
+            } catch (err) {
+                console.error(`Failed to announce finished match in chat ${chatId}:`, err);
+            }
         }
     }
 
