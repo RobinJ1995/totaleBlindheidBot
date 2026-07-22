@@ -106,7 +106,7 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
     const rows: [string, string][] = [];
     const decisive = total.wins + total.losses + total.ties;
 
-    rows.push(['Competitive games', `${total.games} (${total.wins}W-${total.losses}L-${total.ties}T)`]);
+    rows.push(['Competitive games', `${total.games} (${total.wins} won, ${total.losses} lost, ${total.ties} tied)`]);
     if (decisive > 0) {
         rows.push(['Win rate', percent(total.wins, decisive)]);
     }
