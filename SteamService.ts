@@ -43,10 +43,15 @@ const PRESENCE_EVENT_TTL_MS = Number(process.env.PRESENCE_EVENT_TTL_MS) || 7 * 2
 // How often, at most, the presence-event TTL prune runs (piggybacked on the sweep timer).
 const PRESENCE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
+// How old another account's last observation may be and still count as its "state" for
+// co-player matching (the live-presence check this replaces was at most minutes stale).
+const CO_PLAYER_STALE_MS = 15 * 60 * 1000;
+
 const DERIVATION_CONFIG: DerivationConfig = {
     resetTolerance: RESET_TOLERANCE,
     matchIdleMs: MATCH_IDLE_MS,
-    resetConfirmMs: MATCH_RESET_CONFIRM_MS
+    resetConfirmMs: MATCH_RESET_CONFIRM_MS,
+    coPlayerStaleMs: CO_PLAYER_STALE_MS
 };
 
 interface GameUpdateInfo {
@@ -212,7 +217,10 @@ class SteamService {
         });
 
         this.client.on('user', (sid: any, user: any) => {
-            this.handleUserUpdate(sid.getSteamID64(), user);
+            // Not awaited (steam-user's emitter is synchronous); catch here so a transient
+            // failure (e.g. a DB blip) can't become an unhandled rejection and kill the process.
+            this.handleUserUpdate(sid.getSteamID64(), user)
+                .catch(err => console.error(`Error handling Steam user update for ${sid.getSteamID64()}:`, err));
         });
 
         // Periodically update mappings in case new users register
@@ -611,9 +619,11 @@ class SteamService {
             return;
         }
         const { closed } = segmentStream(events, new Date(), DERIVATION_CONFIG);
+        let expectedCursor = cursor;
         for (const segment of closed) {
             try {
-                await this.finalizeSegment(steamId, segment);
+                await this.finalizeSegment(steamId, segment, expectedCursor);
+                expectedCursor = segment.lastEventId;
             } catch (err) {
                 // Stop at the first failed segment: a later segment's cursor advance would skip
                 // past this one and its match would never be recorded. Left unfinalised, it is
@@ -624,16 +634,19 @@ class SteamService {
         }
     }
 
-    // Record a finished match segment to history for each of the owner's chats (advancing the
-    // stream cursor in the same transaction, which is what makes finalisation exactly-once) and
-    // post/extend the end-of-game announcement where the chat allows it. Throws if the match
-    // could not be recorded (so the caller stops and the segment is retried later); announcement
-    // failures are contained per chat since by then the cursor has already advanced.
-    private async finalizeSegment(steamId: string, segment: MatchSegment): Promise<void> {
+    // Record a finished match segment to history for each of the owner's chats, advancing the
+    // stream cursor (compare-and-swap from expectedCursor) in the same transaction — a match is
+    // therefore *recorded* exactly once, even against a concurrent finaliser. The Telegram
+    // announcement afterwards is at-most-once per finaliser: a crash between the commit and the
+    // send loses it, which is accepted (the alternative, announcing before committing, could
+    // announce a match that was never recorded). Throws if the match could not be recorded (so
+    // the caller stops and the segment is retried later); announcement failures are contained
+    // per chat since by then the cursor has already advanced.
+    private async finalizeSegment(steamId: string, segment: MatchSegment, expectedCursor: number): Promise<void> {
         const tgUserId = segment.user_id;
         const entries: { chatId: number; entry: GameHistoryEntry }[] = [];
 
-            if (segment.max_score) {
+        if (segment.max_score) {
             const coPlayers = await this.findSegmentCoPlayers(steamId, segment);
             const chats = await this.userDao.getUserChats(tgUserId);
             for (const chatId of chats) {
@@ -670,7 +683,7 @@ class SteamService {
             for (const { entry } of entries) {
                 ids.push(await this.gameHistoryDao.addGameHistoryEntry(entry, conn));
             }
-            await this.presenceEventDao.advanceCursor(conn, steamId, segment.lastEventId);
+            await this.presenceEventDao.advanceCursor(conn, steamId, expectedCursor, segment.lastEventId);
             return ids;
         });
 

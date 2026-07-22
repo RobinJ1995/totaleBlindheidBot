@@ -4,8 +4,11 @@
 // presence (started/stopped playing, map/mode change, score change). This module turns such a
 // stream back into matches: it segments the events at match boundaries, decides which segments
 // are finished, and reconstructs co-players by comparing streams. It is deliberately free of
-// I/O and clocks — `now` is a parameter — so the boundary rules are unit-testable and a stream
-// can be re-derived at any time with identical results.
+// I/O and clocks — `now` is a parameter — so the boundary rules are unit-testable: derivation
+// is a pure function of (events, now). Note that `now` is a real input: a reset that is
+// confirmed by time (rather than by a later event) resolves differently before and after the
+// confirmation window, so incremental live derivation and a later batch replay can disagree
+// about a dip whose refutation arrived only after the window had already confirmed it.
 
 export interface PresenceEvent {
     id: number;
@@ -29,6 +32,11 @@ export interface DerivationConfig {
     // returns to the old range within this window (or before any further scored event) is folded
     // away as a flake instead of splitting the match.
     resetConfirmMs: number;
+    // How old another account's last observation may be and still count as its "state" for
+    // co-player matching. The live implementation this replaces compared current presence, which
+    // could not be days stale; without a bound, an account whose stop transition was missed
+    // (e.g. bot downtime) would look in-game until its events are pruned.
+    coPlayerStaleMs: number;
 }
 
 // One reconstructed match: a run of events between boundaries, projected to the fields the
@@ -161,7 +169,10 @@ export const segmentStream = (events: PresenceEvent[], now: Date, config: Deriva
                         pending = null;
                         toProcess = ev;
                     }
-                } else if (mapChanged(pending.map, ev.map) || modeChanged(pending.mode, ev.mode)) {
+                } else if (mapChanged(pending.map ?? seg.map, ev.map) || modeChanged(pending.mode ?? seg.mode, ev.mode)) {
+                    // Compared against the pending segment's map/mode, falling back to the outer
+                    // segment's when the dip event didn't carry the field — a conflicting
+                    // observation must open a boundary either way, not get folded away.
                     // The nascent segment itself hit a hard boundary: that settles the reset too.
                     closed.push(seg);
                     seg = pending;
@@ -255,6 +266,7 @@ export const findCoPlayers = (
             }
             const o = stream[idx];
             if (o.created_at.getTime() > e.created_at.getTime()) continue; // no state yet
+            if (e.created_at.getTime() - o.created_at.getTime() > config.coPlayerStaleMs) continue; // stale
             if (o.user_id === segment.user_id) continue;                   // same user, other account
             if (!o.playing) continue;
             if (mapChanged(runMap, o.map)) continue;

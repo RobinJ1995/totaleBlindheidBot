@@ -92,15 +92,35 @@ class PresenceEventDAO {
         return rows.length ? Number(rows[0].finalized_event_id) : 0;
     }
 
-    // Advance the cursor past a finalised segment. Runs on the caller's transaction so it
-    // commits (or rolls back) together with the game_history insert — that atomicity is what
-    // guarantees a match is announced exactly once.
-    async advanceCursor(conn: PoolConnection, steam_id: string, eventId: number): Promise<void> {
-        await conn.query(
-            'INSERT INTO match_stream_cursor (steam_id, finalized_event_id) VALUES (:steam_id, :eventId) ' +
-            'ON DUPLICATE KEY UPDATE finalized_event_id = GREATEST(finalized_event_id, VALUES(finalized_event_id))',
-            { steam_id, eventId }
+    // Advance the cursor past a finalised segment, compare-and-swap style: the write only
+    // succeeds if the cursor still holds the value the derivation started from. Runs on the
+    // caller's transaction so it commits (or rolls back) together with the game_history
+    // inserts — that atomicity is what guarantees a match is recorded exactly once, and the
+    // CAS makes a concurrent finaliser (e.g. an overlapping deploy running a second bot
+    // instance against the same database) fail loudly instead of double-recording.
+    async advanceCursor(conn: PoolConnection, steam_id: string, expectedEventId: number, eventId: number): Promise<void> {
+        if (expectedEventId === 0) {
+            try {
+                await conn.query(
+                    'INSERT INTO match_stream_cursor (steam_id, finalized_event_id) VALUES (:steam_id, :eventId)',
+                    { steam_id, eventId }
+                );
+            } catch (err: any) {
+                if (err && err.code === 'ER_DUP_ENTRY') {
+                    throw new Error(`Cursor for stream ${steam_id} was created by a concurrent finaliser`);
+                }
+                throw err;
+            }
+            return;
+        }
+        const [res] = await conn.query<ResultSetHeader>(
+            'UPDATE match_stream_cursor SET finalized_event_id = :eventId ' +
+            'WHERE steam_id = :steam_id AND finalized_event_id = :expectedEventId',
+            { steam_id, eventId, expectedEventId }
         );
+        if (res.affectedRows === 0) {
+            throw new Error(`Cursor for stream ${steam_id} moved past ${expectedEventId} under a concurrent finaliser`);
+        }
     }
 
     // Streams with events past their cursor — the sweep's candidates for idle finalisation
@@ -115,13 +135,22 @@ class PresenceEventDAO {
         return rows.map(r => String(r.steam_id));
     }
 
-    // Drop old, already-finalised events. Never touches events past a stream's cursor, so a
-    // long-idle unfinalised tail survives any TTL.
+    // Drop old, already-finalised events. Never touches events past a live stream's cursor, so
+    // a long-idle unfinalised tail survives the TTL as long as the stream shows any life. Dead
+    // streams — no event at all since the cutoff, e.g. an account unregistered while its last
+    // observation was still "playing", which can never finalise — are dropped wholesale so they
+    // don't occupy the sweep and the log forever.
     async prune(cutoff: Date): Promise<void> {
         await query<ResultSetHeader>(
             'DELETE e FROM presence_event e ' +
             'LEFT JOIN match_stream_cursor c ON c.steam_id = e.steam_id ' +
             'WHERE e.created_at < :cutoff AND e.id <= COALESCE(c.finalized_event_id, 0)',
+            { cutoff }
+        );
+        await query<ResultSetHeader>(
+            'DELETE e FROM presence_event e ' +
+            'JOIN (SELECT steam_id FROM presence_event GROUP BY steam_id HAVING MAX(created_at) < :cutoff) dead ' +
+            '  ON dead.steam_id = e.steam_id',
             { cutoff }
         );
     }

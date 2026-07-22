@@ -158,9 +158,11 @@ CREATE TABLE IF NOT EXISTS presence_event (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- How far each stream has been finalised: events at or before finalized_event_id have been
--- folded into game_history (and announced). Derivation only replays events past the cursor,
--- and the cursor advances in the same transaction as the history insert, which is what makes
--- finalisation idempotent — re-deriving a stream can never announce the same match twice.
+-- folded into game_history. Derivation only replays events past the cursor, and the cursor
+-- advances (compare-and-swap) in the same transaction as the history insert, which is what
+-- makes finalisation idempotent — re-deriving a stream can never record the same match twice,
+-- even from a concurrent finaliser. The announcement itself is sent after that commit, so it
+-- is at-most-once per finalisation rather than exactly-once.
 CREATE TABLE IF NOT EXISTS match_stream_cursor (
     steam_id           VARCHAR(32) NOT NULL,
     finalized_event_id BIGINT      NOT NULL,
