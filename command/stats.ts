@@ -1,12 +1,15 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
-import { escapeMarkdown, formatError } from '../utils.js';
+import { formatError } from '../utils.js';
 import { GameResult, parseScore, scoreResult } from './game_history.js';
 
 const dao = new GameHistoryDAO();
 
-const TOP_N = 3;
+// The mode string comes from Steam rich presence (or its raw status fallback), so Premier can
+// surface as "premier" or "Premier - Competitive" depending on client/localisation.
+const isCompetitive = (mode?: string): boolean =>
+    !!mode && /competitive|premier/i.test(mode);
 
 interface Tally {
     games: number;
@@ -24,22 +27,8 @@ const addResult = (tally: Tally, result: GameResult | null): void => {
     else if (result === 'tie') tally.ties += 1;
 };
 
-const tallyInto = <K>(map: Map<K, Tally>, key: K, result: GameResult | null): Tally => {
-    let tally = map.get(key);
-    if (!tally) {
-        tally = emptyTally();
-        map.set(key, tally);
-    }
-    addResult(tally, result);
-    return tally;
-};
-
 const percent = (part: number, whole: number): string =>
     whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
-
-const record = (t: Tally): string => `${t.wins}W-${t.losses}L-${t.ties}T`;
-
-const nGames = (n: number): string => n === 1 ? '1 game' : `${n} games`;
 
 const formatDuration = (ms: number): string => {
     const minutes = Math.round(ms / 60000);
@@ -49,33 +38,46 @@ const formatDuration = (ms: number): string => {
     return `${h}h ${m}m`;
 };
 
-// Render a name without pinging the user (zero-width space breaks the @mention).
-const safeName = (name: string): string => escapeMarkdown(name).replace('@', '@​');
+// The map with the highest `metric(tally)` share of its games, ties broken by games played.
+const pickMap = (byMap: Map<string, Tally>, metric: (t: Tally) => number): [string, Tally] | null => {
+    let best: [string, Tally] | null = null;
+    for (const [map, t] of byMap.entries()) {
+        if (t.games === 0) continue;
+        if (!best
+            || metric(t) / t.games > metric(best[1]) / best[1].games
+            || (metric(t) / t.games === metric(best[1]) / best[1].games && t.games > best[1].games)) {
+            best = [map, t];
+        }
+    }
+    return best && metric(best[1]) > 0 ? best : null;
+};
 
-const topEntries = <K>(map: Map<K, Tally>): [K, Tally][] =>
-    [...map.entries()].sort((a, b) => b[1].games - a[1].games).slice(0, TOP_N);
+export const renderStats = (entries: GameHistoryEntry[]): string | null => {
+    const competitive = entries.filter(e => isCompetitive(e.mode));
+    if (competitive.length === 0) return null;
 
-export const renderStats = (entries: GameHistoryEntry[]): string => {
     const total = emptyTally();
     const byMap = new Map<string, Tally>();
-    const byMode = new Map<string, Tally>();
-    const byTeammate = new Map<string, Tally>();
     let roundsWon = 0;
     let roundsLost = 0;
     let playtimeMs = 0;
-    let timedGames = 0;
     let longestWinStreak = 0;
+    let longestLossStreak = 0;
     let winStreak = 0;
+    let lossStreak = 0;
     let currentRun: { result: GameResult, length: number } | null = null;
 
     // Entries come back chronologically (oldest first), which the streaks rely on.
-    for (const entry of entries) {
+    for (const entry of competitive) {
         const result = scoreResult(entry.score);
         addResult(total, result);
-        if (entry.map) tallyInto(byMap, entry.map, result);
-        if (entry.mode) tallyInto(byMode, entry.mode, result);
-        for (const co of entry.co_players) {
-            tallyInto(byTeammate, co.name, result);
+        if (entry.map) {
+            let tally = byMap.get(entry.map);
+            if (!tally) {
+                tally = emptyTally();
+                byMap.set(entry.map, tally);
+            }
+            addResult(tally, result);
         }
 
         const parsed = parseScore(entry.score);
@@ -86,12 +88,13 @@ export const renderStats = (entries: GameHistoryEntry[]): string => {
 
         if (entry.started_at && entry.ended_at > entry.started_at) {
             playtimeMs += entry.ended_at.getTime() - entry.started_at.getTime();
-            timedGames += 1;
         }
 
         if (result) {
             winStreak = result === 'win' ? winStreak + 1 : 0;
+            lossStreak = result === 'loss' ? lossStreak + 1 : 0;
             longestWinStreak = Math.max(longestWinStreak, winStreak);
+            longestLossStreak = Math.max(longestLossStreak, lossStreak);
             if (currentRun && currentRun.result === result) {
                 currentRun.length += 1;
             } else {
@@ -100,57 +103,60 @@ export const renderStats = (entries: GameHistoryEntry[]): string => {
         }
     }
 
-    const lines: string[] = [];
+    const rows: [string, string][] = [];
     const decisive = total.wins + total.losses + total.ties;
 
-    lines.push(`🎮 *Games:* ${total.games} (${record(total)})`);
+    rows.push(['Competitive games', `${total.games} (${total.wins}W-${total.losses}L-${total.ties}T)`]);
     if (decisive > 0) {
-        lines.push(`🏆 *Win rate:* ${percent(total.wins, decisive)}`);
+        rows.push(['Win rate', percent(total.wins, decisive)]);
     }
     if (roundsWon + roundsLost > 0) {
-        lines.push(`🔫 *Rounds:* ${roundsWon}-${roundsLost} (${percent(roundsWon, roundsWon + roundsLost)})`);
+        rows.push(['Rounds', `${roundsWon}-${roundsLost} (${percent(roundsWon, roundsWon + roundsLost)})`]);
     }
-    if (longestWinStreak > 1) {
-        lines.push(`🔥 *Longest win streak:* ${longestWinStreak}`);
+    if (longestWinStreak > 0) {
+        rows.push(['Longest win streak', String(longestWinStreak)]);
     }
-    if (currentRun && currentRun.length > 1) {
-        const label = { win: 'wins', loss: 'losses', tie: 'ties' }[currentRun.result];
-        lines.push(`📈 *Current streak:* ${currentRun.length} ${label}`);
+    if (longestLossStreak > 0) {
+        rows.push(['Longest loss streak', String(longestLossStreak)]);
+    }
+    if (currentRun) {
+        const label = { win: 'win', loss: 'loss', tie: 'tie' }[currentRun.result];
+        rows.push(['Current streak', `${currentRun.length} ${label}${currentRun.length === 1 ? '' : currentRun.result === 'loss' ? 'es' : 's'}`]);
     }
     if (playtimeMs > 0) {
-        lines.push(`⏱ *Playtime:* ${formatDuration(playtimeMs)} over ${nGames(timedGames)} ` +
-            `(avg ${formatDuration(playtimeMs / timedGames)})`);
+        rows.push(['Playtime', formatDuration(playtimeMs)]);
     }
 
-    const mapLines = topEntries(byMap)
-        .map(([map, t]) => `  ${escapeMarkdown(map)}: ${nGames(t.games)}, ${record(t)}`);
-    if (mapLines.length > 0) {
-        lines.push('🗺 *Maps:*', ...mapLines);
+    let favourite: [string, Tally] | null = null;
+    for (const [map, t] of byMap.entries()) {
+        if (!favourite || t.games > favourite[1].games) {
+            favourite = [map, t];
+        }
+    }
+    if (favourite) {
+        rows.push(['Favourite map', `${favourite[0]} (${favourite[1].games} games)`]);
+    }
+    const bestMap = pickMap(byMap, t => t.wins);
+    if (bestMap) {
+        rows.push(['Best map', `${bestMap[0]} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
+    }
+    const worstMap = pickMap(byMap, t => t.losses);
+    if (worstMap) {
+        rows.push(['Worst map', `${worstMap[0]} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
     }
 
-    const modeLines = topEntries(byMode)
-        .map(([mode, t]) => `  ${escapeMarkdown(mode)}: ${nGames(t.games)}, ${record(t)}`);
-    if (modeLines.length > 0) {
-        lines.push('🕹 *Modes:*', ...modeLines);
-    }
-
-    const teammateLines = topEntries(byTeammate)
-        .map(([name, t]) => `  ${safeName(name)}: ${nGames(t.games)} together, ${record(t)}`);
-    if (teammateLines.length > 0) {
-        lines.push('👥 *Teammates:*', ...teammateLines);
-    }
-
-    return lines.join('\n');
+    // Telegram has no real table markup; a monospace block with padded columns is the
+    // conventional equivalent. No markdown escaping inside the code block.
+    const labelWidth = Math.max(...rows.map(([label]) => label.length));
+    const table = rows.map(([label, value]) => `${label.padEnd(labelWidth)}  ${value}`).join('\n');
+    return '```\n' + table + '\n```';
 };
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     dao.getGameHistory(msg.chat.id, msg.from!.id)
         .then((entries: GameHistoryEntry[]) => {
-            if (entries.length === 0) {
-                msg.reply('No game history yet.');
-                return;
-            }
-            msg.reply(renderStats(entries));
+            const text = renderStats(entries);
+            msg.reply(text ?? 'No competitive games in your history yet.');
         })
         .catch((err: Error) => msg.reply(formatError(err)));
 };
