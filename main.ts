@@ -212,7 +212,7 @@ if (steamEnabled) {
         helpText: 'Show your CS2 game history for this chat.'
     });
     router.route('stats', statsHandler, {
-        helpText: 'Show your CS2 stats for this chat: win rate, streaks, maps, teammates.'
+        helpText: 'Show your competitive CS2 stats for this chat: win rate, streaks, maps.'
     });
 }
 
