@@ -4,11 +4,16 @@ import TelegramBot from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
 import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
-import GameHistoryDAO, { CurrentMatch, GameHistoryEntry, GameHistoryCoPlayer, SiblingMatch } from './dao/GameHistoryDAO.js';
+import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SiblingMatch } from './dao/GameHistoryDAO.js';
+import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { escapeMarkdown } from './utils.js';
 import { parseMention } from './rsvp.js';
-import { saveSteamFile, readSteamFile } from './dao/Database.js';
+import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
+import {
+    segmentStream, findCoPlayers, parseRawScore as parseRawScoreFn,
+    DerivationConfig, MatchSegment, PresenceEvent
+} from './matchDerivation.js';
 
 // A finished match with no further score progress is recorded once it has been idle
 // (CS2 not running, score unchanged) for this long. Overridable for tests.
@@ -25,6 +30,24 @@ const EOG_GROUP_WINDOW_MS = Number(process.env.EOG_GROUP_WINDOW_MS) || 2 * 60 * 
 // How far a freshly reported round-total may dip below the running match total before we
 // treat it as a brand new match rather than out-of-order update noise.
 const RESET_TOLERANCE = 2;
+
+// How long an uncontradicted score reset must stand before the old match is finalised. A dip
+// that returns to the old range within this window is folded away as presence noise instead of
+// splitting the match. Overridable for tests.
+const MATCH_RESET_CONFIRM_MS = Number(process.env.MATCH_RESET_CONFIRM_MS) || 30 * 1000;
+
+// How long raw presence events are kept after they've been finalised into history. The log is
+// what makes retrospective (re-)derivation possible, so keep a forensically useful window.
+const PRESENCE_EVENT_TTL_MS = Number(process.env.PRESENCE_EVENT_TTL_MS) || 7 * 24 * 60 * 60 * 1000;
+
+// How often, at most, the presence-event TTL prune runs (piggybacked on the sweep timer).
+const PRESENCE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+
+const DERIVATION_CONFIG: DerivationConfig = {
+    resetTolerance: RESET_TOLERANCE,
+    matchIdleMs: MATCH_IDLE_MS,
+    resetConfirmMs: MATCH_RESET_CONFIRM_MS
+};
 
 interface GameUpdateInfo {
     gameId?: string | number;
@@ -55,14 +78,16 @@ class SteamService {
     private chatDao: ChatDAO;
     private gameUpdateDao: GameUpdateDAO;
     private gameHistoryDao: GameHistoryDAO;
+    private presenceEventDao: PresenceEventDAO;
     private rollcallPlayerDao: RollcallPlayerDAO;
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
     private telegramNameCache: Record<string, { name: string; fetchedAt: number }> = {};
-    // Serialises read-modify-write of a (chat,user)'s match buffer so rapidly-arriving
-    // presence updates can't race (a score reset finalising before a continuation persists).
+    // Serialises append+derive+finalise per Steam account (and announcement editing per chat)
+    // so rapidly-arriving presence updates and the sweep can't race each other.
     private matchLocks: Record<string, Promise<unknown>> = {};
+    private lastPresencePruneAt: number = 0;
     private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
@@ -100,6 +125,7 @@ class SteamService {
         this.chatDao = new ChatDAO();
         this.gameUpdateDao = new GameUpdateDAO();
         this.gameHistoryDao = new GameHistoryDAO();
+        this.presenceEventDao = new PresenceEventDAO();
         this.rollcallPlayerDao = new RollcallPlayerDAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
@@ -282,12 +308,14 @@ class SteamService {
                 console.debug(`User ${playerName} (${steamId}) is not playing anything, ignoring.`);
             }
 
+            // Record that THIS account stopped playing — a match can't continue on another
+            // account, so a sibling account staying in CS2 is irrelevant. This is never a match
+            // boundary by itself (a relaunch on the same account resumes the match); the sweep
+            // finalises the match once it has been idle past the window.
+            await this.recordPresence(steamId, tgUserId, { playing: false });
+
             const chats = await this.userDao.getUserChats(tgUserId);
             for (const chatId of chats) {
-                // Mark THIS account's match idle — a match can't continue on another account,
-                // so a sibling account staying in CS2 is irrelevant. A relaunch on this same
-                // account will resume it; otherwise the sweep finalises it after the idle window.
-                await this.markMatchNotPlaying(chatId, steamId);
                 // The live message is per-user, so it only closes once no account is playing.
                 await this.maybeCloseSession(chatId, tgUserId);
             }
@@ -341,16 +369,16 @@ class SteamService {
 
         const info: GameUpdateInfo = { gameId, map, status, score };
 
+        // Record the presence transition and derive match progress / boundaries from the stream,
+        // regardless of any chat's live-update setting; history is a separate pull
+        // (/game_history) and the end-of-game notification is gated per chat at finalisation.
+        await this.recordPresence(steamId, tgUserId, { playing: true, map, mode, rawScore, playerName });
+
         const chats = await this.userDao.getUserChats(tgUserId);
         if (chats.length === 0) {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
         }
         for (const chatId of chats) {
-            // Track match progress / boundaries regardless of the chat's live-update setting;
-            // history is a separate pull (/game_history) and the end-of-game notification is
-            // gated by steam_updates inside finalizeMatch.
-            await this.updateMatchState(chatId, steamId, tgUserId, { map, mode, rawScore, playerName });
-
             const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
             if (chatSettings.steam_updates === false) {
                 console.debug(`Steam updates are disabled for chat ${chatId}. Skipping update for user ${tgUserId}.`);
@@ -499,12 +527,7 @@ class SteamService {
 
     // Parse a raw "16-14" (or "16:14") score into its parts and round total.
     parseRawScore(score?: string): { a: number; b: number; total: number } | null {
-        if (!score) return null;
-        const m = score.replace(/[\[\]]/g, '').trim().match(/^(\d+)\s*[-:]\s*(\d+)$/);
-        if (!m) return null;
-        const a = parseInt(m[1], 10);
-        const b = parseInt(m[2], 10);
-        return { a, b, total: a + b };
+        return parseRawScoreFn(score);
     }
 
     // 🏆/☠️/🤝 from a raw score (first part = player, second = opponents).
@@ -516,26 +539,6 @@ class SteamService {
         return '🤝';
     }
 
-    // Pull map / mode / round-total out of a steam-user presence object (used when looking at
-    // other tracked players to decide who is in the same match).
-    private extractMapModeTotal(user: any): { map?: string; mode?: string; total?: number } {
-        let map: string | undefined, status: string | undefined, score: string | undefined, mode: string | undefined;
-        const rp = user?.rich_presence;
-        if (Array.isArray(rp)) {
-            map = rp.find((i: SteamRichPresenceItem) => i.key === 'game:map' || i.key === 'map')?.value;
-            status = rp.find((i: SteamRichPresenceItem) => i.key === 'status')?.value;
-            score = rp.find((i: SteamRichPresenceItem) => i.key === 'game:score' || i.key === 'score')?.value;
-            mode = rp.find((i: SteamRichPresenceItem) => i.key === 'game:mode' || i.key === 'mode')?.value;
-        } else if (rp && typeof rp === 'object') {
-            map = rp['game:map'] || rp['map'];
-            status = rp['status'];
-            score = rp['game:score'] || rp['score'];
-            mode = rp['game:mode'] || rp['mode'];
-        }
-        if (!mode) mode = status;
-        return { map, mode, total: this.parseRawScore(score)?.total };
-    }
-
     // Run fn with exclusive access to a named lock, chaining onto any in-flight operation for the
     // same key so concurrent callers are serialised.
     private withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -545,109 +548,156 @@ class SteamService {
         return run;
     }
 
-    // Run fn with exclusive access to a (chat,Steam account)'s match buffer, chaining onto any
-    // in-flight operation for the same key so concurrent presence updates are applied in series.
-    private withMatchLock<T>(chatId: number, steamId: string, fn: () => Promise<T>): Promise<T> {
-        return this.withLock(`${chatId}_${steamId}`, fn);
+    // Run fn with exclusive access to a Steam account's event stream, chaining onto any in-flight
+    // operation for the same account so presence updates and the sweep are applied in series.
+    private withStreamLock<T>(steamId: string, fn: () => Promise<T>): Promise<T> {
+        return this.withLock(`stream_${steamId}`, fn);
     }
 
-    // Update the persisted "current match" buffer for a (chat, Steam account) from a presence
-    // tick, detecting match boundaries (score reset / map change / mode change) and accumulating
-    // co-players. Finalises the previous match when a boundary is crossed. Keyed by Steam
-    // account so a user's linked accounts are tracked as independent matches.
-    private updateMatchState(chatId: number, steamId: string, tgUserId: number, info: { map?: string; mode?: string; rawScore?: string; playerName?: string }): Promise<void> {
-      return this.withMatchLock(chatId, steamId, async () => {
-        try {
-            const { map, mode, rawScore, playerName } = info;
-            const cur = await this.gameHistoryDao.getCurrentMatch(chatId, steamId);
-            const newParsed = this.parseRawScore(rawScore);
+    // Record a presence transition for a Steam account and re-derive its match state from the
+    // stream. Only transitions are stored: a snapshot identical to the stream's last event
+    // (same playing flag, map, mode and score) is dropped, so pure re-broadcasts — including
+    // updates carrying nothing but the game id — never grow the log.
+    private recordPresence(
+        steamId: string,
+        tgUserId: number,
+        snapshot: { playing: boolean; map?: string; mode?: string; rawScore?: string; playerName?: string }
+    ): Promise<void> {
+        return this.withStreamLock(steamId, async () => {
+            try {
+                const last = await this.presenceEventDao.getLastEvent(steamId);
 
-            if (cur) {
-                const mapChanged = !!(map && cur.map && map.toLowerCase() !== cur.map.toLowerCase());
-                const modeChanged = !!(mode && cur.mode && mode !== cur.mode);
-                const curParsed = this.parseRawScore(cur.max_score);
-                const scoreReset = !!(newParsed && curParsed && newParsed.total < curParsed.total - RESET_TOLERANCE);
-
-                if (!mapChanged && !modeChanged && !scoreReset) {
-                    // Continuation of the same match (incl. a relaunch resuming it).
-                    let max_score = cur.max_score;
-                    if (newParsed && (!curParsed || newParsed.total > curParsed.total)) {
-                        max_score = rawScore;
+                if (!snapshot.playing) {
+                    // Only a playing→stopped transition is worth recording; for an account with
+                    // no (playing) history, "still not in CS2" is not an event.
+                    if (!last || !last.playing) {
+                        return;
                     }
-                    const matchMap = cur.map || map;
-                    const matchMode = cur.mode || mode;
-                    const incoming = await this.collectCoPlayers(chatId, tgUserId, matchMap, matchMode, this.parseRawScore(max_score)?.total);
-                    await this.gameHistoryDao.setCurrentMatch({
-                        chat_id: chatId,
-                        steam_id: steamId,
-                        user_id: tgUserId,
-                        map: matchMap,
-                        mode: matchMode,
-                        max_score,
-                        player_name: playerName || cur.player_name,
-                        co_players: this.mergeCoPlayers(cur.co_players, incoming),
-                        started_at: cur.started_at,
-                        last_progress_at: new Date(),
-                        playing: true
-                    });
-                    return;
+                } else if (
+                    last && last.playing &&
+                    (last.map ?? null) === (snapshot.map ?? null) &&
+                    (last.mode ?? null) === (snapshot.mode ?? null) &&
+                    (last.raw_score ?? null) === (snapshot.rawScore ?? null)
+                ) {
+                    return; // no transition
                 }
 
-                // Boundary: the previous match is finished. Record it, then start fresh.
-                await this.finalizeMatch(cur);
+                await this.presenceEventDao.appendEvent({
+                    steam_id: steamId,
+                    user_id: tgUserId,
+                    playing: snapshot.playing,
+                    map: snapshot.map,
+                    mode: snapshot.mode,
+                    raw_score: snapshot.rawScore,
+                    score_total: this.parseRawScore(snapshot.rawScore)?.total ?? null,
+                    player_name: snapshot.playerName,
+                    created_at: new Date()
+                });
+
+                await this.deriveAndFinalize(steamId);
+            } catch (err) {
+                console.error(`Error recording presence for Steam ID ${steamId} (user ${tgUserId}):`, err);
+            }
+        });
+    }
+
+    // Replay the stream's unfinalised events and finalise every segment the derivation considers
+    // finished. Must run under the stream's lock. Idempotent: only closed segments have side
+    // effects, closing is monotone in (events, time), and finalisation advances the cursor.
+    private async deriveAndFinalize(steamId: string): Promise<void> {
+        const cursor = await this.presenceEventDao.getCursor(steamId);
+        const events = await this.presenceEventDao.getEventsAfter(steamId, cursor);
+        if (events.length === 0) {
+            return;
+        }
+        const { closed } = segmentStream(events, new Date(), DERIVATION_CONFIG);
+        for (const segment of closed) {
+            await this.finalizeSegment(steamId, segment);
+        }
+    }
+
+    // Record a finished match segment to history for each of the owner's chats (advancing the
+    // stream cursor in the same transaction, which is what makes finalisation exactly-once) and
+    // post/extend the end-of-game announcement where the chat allows it.
+    private async finalizeSegment(steamId: string, segment: MatchSegment): Promise<void> {
+        const tgUserId = segment.user_id;
+        try {
+            const entries: { chatId: number; entry: GameHistoryEntry }[] = [];
+
+            if (segment.max_score) {
+                const coPlayers = await this.findSegmentCoPlayers(steamId, segment);
+                const chats = await this.userDao.getUserChats(tgUserId);
+                for (const chatId of chats) {
+                    // Resolve and store the owner's display name now so a later-finalising player
+                    // of the same match can render it into the shared announcement without having
+                    // to re-resolve it. Co-players must share the chat.
+                    const playerName = (await this.getTelegramDisplayName(chatId, tgUserId)) || segment.player_name || String(tgUserId);
+                    const chatCoPlayers: GameHistoryCoPlayer[] = [];
+                    for (const co of coPlayers) {
+                        const coChats = await this.userDao.getUserChats(co.user_id);
+                        if (!coChats.includes(chatId)) continue;
+                        const name = await this.resolveCoPlayerName(chatId, co.user_id, co.player_name);
+                        chatCoPlayers.push({ tg_user_id: co.user_id, name });
+                    }
+                    entries.push({
+                        chatId,
+                        entry: {
+                            chat_id: chatId,
+                            user_id: tgUserId,
+                            player_name: playerName,
+                            mode: segment.mode,
+                            map: segment.map,
+                            score: segment.max_score,
+                            co_players: chatCoPlayers,
+                            started_at: segment.started_at,
+                            ended_at: new Date()
+                        }
+                    });
+                }
             }
 
-            const coPlayers = await this.collectCoPlayers(chatId, tgUserId, map, mode, newParsed?.total);
-            const now = new Date();
-            await this.gameHistoryDao.setCurrentMatch({
-                chat_id: chatId,
-                steam_id: steamId,
-                user_id: tgUserId,
-                map,
-                mode,
-                max_score: rawScore,
-                player_name: playerName,
-                co_players: coPlayers,
-                started_at: now,
-                last_progress_at: now,
-                playing: true
+            const historyIds = await withTransaction(async conn => {
+                const ids: number[] = [];
+                for (const { entry } of entries) {
+                    ids.push(await this.gameHistoryDao.addGameHistoryEntry(entry, conn));
+                }
+                await this.presenceEventDao.advanceCursor(conn, steamId, segment.lastEventId);
+                return ids;
             });
+
+            for (let i = 0; i < entries.length; i++) {
+                const { chatId, entry } = entries[i];
+                try {
+                    const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
+                    if (chatSettings.steam_updates !== false) {
+                        // Serialise announcing per chat so two players finalising the same match
+                        // concurrently can't each create a separate message.
+                        await this.withLock(`eog_${chatId}`, () =>
+                            this.announceFinishedMatch(chatId, historyIds[i], entry));
+                    }
+                } catch (err) {
+                    console.error(`Failed to announce finished match in chat ${chatId}:`, err);
+                }
+            }
         } catch (err) {
-            console.error(`Error updating match state for user ${tgUserId} (Steam ID ${steamId}) in chat ${chatId}:`, err);
+            console.error(`Failed to finalise match for user ${tgUserId} (Steam ID ${steamId}):`, err);
         }
-      });
     }
 
-    // Other tracked users currently in the same match: playing CS2, same map + mode, scores
-    // not diverging too far, and sharing this chat. Returns them as resolved co-player names.
-    private async collectCoPlayers(chatId: number, tgUserId: number, map?: string, mode?: string, total?: number): Promise<GameHistoryCoPlayer[]> {
-        const result: GameHistoryCoPlayer[] = [];
-        const seen = new Set<number>();
-        for (const [otherSteamId, otherTgId] of Object.entries(this.steamToTelegram)) {
-            if (otherTgId === tgUserId || seen.has(otherTgId)) continue;
-            const otherUser = this.client.users[otherSteamId];
-            if (!otherUser || otherUser.gameid != this.appIdCS2) continue;
-
-            const other = this.extractMapModeTotal(otherUser);
-            if (map && other.map && map.toLowerCase() !== other.map.toLowerCase()) continue;
-            if (mode && other.mode && mode !== other.mode) continue;
-            if (total != null && other.total != null && Math.abs(total - other.total) > RESET_TOLERANCE) continue;
-
-            const otherChats = await this.userDao.getUserChats(otherTgId);
-            if (!otherChats.includes(chatId)) continue;
-
-            const name = await this.resolveCoPlayerName(chatId, otherTgId, otherUser.player_name);
-            result.push({ tg_user_id: otherTgId, name });
-            seen.add(otherTgId);
+    // Reconstruct the segment's co-players from the other tracked accounts' event streams (see
+    // findCoPlayers): their state at the segment's observation points must have been in CS2 on a
+    // compatible map/mode with a score in range.
+    private async findSegmentCoPlayers(steamId: string, segment: MatchSegment): Promise<{ user_id: number; player_name?: string }[]> {
+        const otherStreams = new Map<string, PresenceEvent[]>();
+        const trackedIds = await this.presenceEventDao.getTrackedSteamIds();
+        for (const otherId of trackedIds) {
+            if (otherId === steamId) continue;
+            const stream = await this.presenceEventDao.getStreamAround(otherId, segment.started_at, segment.last_event_at);
+            if (stream.length > 0) {
+                otherStreams.set(otherId, stream);
+            }
         }
-        return result;
-    }
-
-    private mergeCoPlayers(existing: GameHistoryCoPlayer[], incoming: GameHistoryCoPlayer[]): GameHistoryCoPlayer[] {
-        const byId = new Map<number, GameHistoryCoPlayer>();
-        for (const p of existing || []) byId.set(p.tg_user_id, p);
-        for (const p of incoming || []) byId.set(p.tg_user_id, p);
-        return Array.from(byId.values());
+        return findCoPlayers(segment, otherStreams, DERIVATION_CONFIG);
     }
 
     // Resolve a co-player's display name: Telegram name → rollcall mention → Steam name → id.
@@ -666,61 +716,6 @@ class SteamService {
             console.debug(`Could not match co-player ${otherTgId} against rollcall:`, err);
         }
         return fallback || String(otherTgId);
-    }
-
-    // A Steam account stopped playing CS2: don't finalise yet (a relaunch on the same account
-    // may continue the match), just mark it idle so the sweep can finalise it after the window.
-    private markMatchNotPlaying(chatId: number, steamId: string): Promise<void> {
-        return this.withMatchLock(chatId, steamId, async () => {
-            try {
-                const cur = await this.gameHistoryDao.getCurrentMatch(chatId, steamId);
-                if (cur && cur.playing) {
-                    cur.playing = false;
-                    await this.gameHistoryDao.setCurrentMatch(cur);
-                }
-            } catch (err) {
-                console.error(`Error marking match not playing for Steam ID ${steamId} in chat ${chatId}:`, err);
-            }
-        });
-    }
-
-    // Record a finished match to history and (if the chat allows) post an end-of-game message.
-    private async finalizeMatch(match: CurrentMatch): Promise<void> {
-        const chatId = match.chat_id;
-        const tgUserId = match.user_id;
-        try {
-            if (match.max_score) {
-                // Resolve and store the owner's display name now so a later-finalising player of
-                // the same match can render this name into the shared announcement without having
-                // to re-resolve it.
-                const playerName = (await this.getTelegramDisplayName(chatId, tgUserId)) || match.player_name || String(tgUserId);
-                const entry: GameHistoryEntry = {
-                    chat_id: chatId,
-                    user_id: tgUserId,
-                    player_name: playerName,
-                    mode: match.mode,
-                    map: match.map,
-                    score: match.max_score,
-                    co_players: match.co_players || [],
-                    started_at: match.started_at,
-                    ended_at: new Date()
-                };
-                const historyId = await this.gameHistoryDao.addGameHistoryEntry(entry);
-
-                const chatSettings: ChatSettings = await this.chatDao.getChatSettings(chatId);
-                if (chatSettings.steam_updates !== false) {
-                    // Serialise announcing per chat so two players finalising the same match
-                    // concurrently can't each create a separate message.
-                    await this.withLock(`eog_${chatId}`, () =>
-                        this.announceFinishedMatch(chatId, historyId, match, playerName));
-                }
-            }
-        } catch (err) {
-            console.error(`Failed to finalise match for user ${tgUserId} in chat ${chatId}:`, err);
-        } finally {
-            // Clear the buffer either way so we never record the same match twice.
-            await this.gameHistoryDao.deleteCurrentMatch(chatId, match.steam_id).catch(() => {});
-        }
     }
 
     // win/loss/tie classification of a raw "16-14" score (player-opponent), or null if unparseable.
@@ -775,12 +770,13 @@ class SteamService {
     // match on the same map", so we only join an existing announcement that this player does not
     // already OWN a row in — a player is in any given match instance exactly once, so an existing
     // group already owned by them is a different match and must get its own message.
-    private async announceFinishedMatch(chatId: number, historyId: number, match: CurrentMatch, playerName: string): Promise<void> {
-        const result = this.matchResult(match.max_score);
+    private async announceFinishedMatch(chatId: number, historyId: number, match: GameHistoryEntry): Promise<void> {
+        const playerName = match.player_name || String(match.user_id);
+        const result = this.matchResult(match.score);
         if (!result) {
             return;
         }
-        const total = this.parseRawScore(match.max_score)?.total;
+        const total = this.parseRawScore(match.score)?.total;
 
         const since = new Date(Date.now() - EOG_GROUP_WINDOW_MS);
         const candidates = await this.gameHistoryDao.getRecentSiblingMatches(chatId, match.map, match.mode, since);
@@ -844,7 +840,7 @@ class SteamService {
             }
         }
         const names = Array.from(namesByUser.values());
-        const text = this.endOfGameText(names, result, match.map, match.mode, match.max_score);
+        const text = this.endOfGameText(names, result, match.map, match.mode, match.score);
 
         if (target) {
             try {
@@ -869,20 +865,21 @@ class SteamService {
         }
     }
 
-    // Finalise matches that have gone idle (CS2 not running, no score progress) past the window.
+    // Time-driven pass over every stream with unfinalised events: finalises trailing matches
+    // that have gone idle past the window and score resets whose confirmation window has passed
+    // (both need time, not events, to resolve). Re-deriving under the stream lock means a resume
+    // event that arrived a moment ago is always seen before a match is finalised. Also hosts the
+    // throttled TTL prune of old, already-finalised events.
     private async sweepIdleMatches(): Promise<void> {
         try {
-            const cutoff = new Date(Date.now() - MATCH_IDLE_MS);
-            const idle = await this.gameHistoryDao.getIdleMatches(cutoff);
-            for (const match of idle) {
-                await this.withMatchLock(match.chat_id, match.steam_id, async () => {
-                    // Re-read under the lock so we don't race a concurrent presence update.
-                    const cur = await this.gameHistoryDao.getCurrentMatch(match.chat_id, match.steam_id);
-                    if (cur && !cur.playing && (Date.now() - new Date(cur.last_progress_at).getTime()) > MATCH_IDLE_MS) {
-                        console.log(`Match for Steam ID ${match.steam_id} in chat ${match.chat_id} is idle; finalising.`);
-                        await this.finalizeMatch(cur);
-                    }
-                });
+            const streams = await this.presenceEventDao.getStreamsWithUnfinalizedEvents();
+            for (const steamId of streams) {
+                await this.withStreamLock(steamId, () => this.deriveAndFinalize(steamId));
+            }
+
+            if (Date.now() - this.lastPresencePruneAt >= PRESENCE_PRUNE_INTERVAL_MS) {
+                this.lastPresencePruneAt = Date.now();
+                await this.presenceEventDao.prune(new Date(Date.now() - PRESENCE_EVENT_TTL_MS));
             }
         } catch (err) {
             console.error('Error during idle match sweep:', err);

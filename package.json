@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node --loader ts-node/esm main.ts",
     "build": "tsc && cp dao/schema.sql dist/dao/schema.sql",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --loader ts-node/esm --test test/*.test.ts"
   },
   "engines": {
     "node": ">=24"
