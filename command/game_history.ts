@@ -8,15 +8,30 @@ const dao = new GameHistoryDAO();
 // Keep the rendered reply comfortably under Telegram's 4096-character message cap.
 const MAX_MESSAGE_CHARS = 3900;
 
-// 🏆/☠️/🤝 from a raw "16-14" score (first part = player, second = opponents).
-const resultEmoji = (score?: string): string => {
+// Parse a raw "16-14" score into rounds (first part = player, second = opponents).
+export const parseScore = (score?: string): { us: number, them: number } | null => {
     const m = score ? score.replace(/[\[\]]/g, '').trim().match(/^(\d+)\s*[-:]\s*(\d+)$/) : null;
-    if (!m) return '•';
-    const a = parseInt(m[1], 10);
-    const b = parseInt(m[2], 10);
-    if (a > b) return '🏆';
-    if (a < b) return '☠️';
-    return '🤝';
+    if (!m) return null;
+    return { us: parseInt(m[1], 10), them: parseInt(m[2], 10) };
+};
+
+export type GameResult = 'win' | 'loss' | 'tie';
+
+export const scoreResult = (score?: string): GameResult | null => {
+    const parsed = parseScore(score);
+    if (!parsed) return null;
+    if (parsed.us > parsed.them) return 'win';
+    if (parsed.us < parsed.them) return 'loss';
+    return 'tie';
+};
+
+const resultEmoji = (score?: string): string => {
+    switch (scoreResult(score)) {
+        case 'win': return '🏆';
+        case 'loss': return '☠️';
+        case 'tie': return '🤝';
+        default: return '•';
+    }
 };
 
 // Render a name without pinging the user (zero-width space breaks the @mention).

@@ -29,6 +29,7 @@ import steamUserIdHandler from './command/steam_user_id.js';
 import steamUpdatesHandler from './command/steam_updates.js';
 import steamGuardHandler from './command/steam_guard.js';
 import gameHistoryHandler from './command/game_history.js';
+import statsHandler from './command/stats.js';
 import githubNotifyHandler from './command/github_notify.js';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
@@ -209,6 +210,9 @@ if (steamEnabled) {
     });
     router.route('game_history', gameHistoryHandler, {
         helpText: 'Show your CS2 game history for this chat.'
+    });
+    router.route('stats', statsHandler, {
+        helpText: 'Show your CS2 stats for this chat: win rate, streaks, maps, teammates.'
     });
 }
 
