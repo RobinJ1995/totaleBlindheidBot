@@ -52,26 +52,32 @@ test('a stopped match closes after the idle window, not before', () => {
         ev(0, { map: 'Inferno', score: '16-14' }),
         ev(60, { playing: false })
     ];
-    const before = segmentStream(events, at(60 + 9 * 60), config);
+    const before = segmentStream(events, at(9 * 60), config);
     assert.equal(before.closed.length, 0);
     assert.ok(before.open);
 
-    const after = segmentStream(events, at(60 + 11 * 60), config);
+    const after = segmentStream(events, at(11 * 60), config);
     assert.equal(after.closed.length, 1);
     assert.equal(after.open, null);
     assert.equal(after.closed[0].max_score, '16-14');
 });
 
-test('idle countdown runs from the stop event', () => {
+test('idle countdown runs from the last playing observation, not the stop event', () => {
     nextId = 1;
     const events = [
         ev(0, { map: 'Nuke', score: '13-7' }),
         ev(300, { playing: false })
     ];
-    // 10 minutes after the last score but only 5 after stopping: still open.
-    const r = segmentStream(events, at(600), config);
-    assert.equal(r.closed.length, 0);
-    assert.ok(r.open);
+    // 10 minutes after the last playing observation: closed, even though the stop was only
+    // 5 minutes ago — stopping is not progress (matches the old last_progress_at semantics).
+    const idle = segmentStream(events, at(600), config);
+    assert.equal(idle.closed.length, 1);
+
+    // A stream still marked playing never idle-closes, no matter how stale.
+    nextId = 1;
+    const stillPlaying = segmentStream([ev(0, { map: 'Nuke', score: '13-7' })], at(3600), config);
+    assert.equal(stillPlaying.closed.length, 0);
+    assert.ok(stillPlaying.open);
 });
 
 test('a relaunch mid-match resumes the same match', () => {

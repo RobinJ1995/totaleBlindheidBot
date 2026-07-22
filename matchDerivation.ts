@@ -41,6 +41,10 @@ export interface MatchSegment {
     player_name?: string;      // latest non-null Steam display name
     started_at: Date;
     last_event_at: Date;
+    // When the account was last seen in CS2. The idle countdown runs from here, not from the
+    // stop event — matching the old last_progress_at semantics, where stopping never counted
+    // as progress.
+    last_playing_at: Date;
     playing: boolean;          // last event's flag
     lastEventId: number;       // cursor position once this segment is finalised
     events: PresenceEvent[];
@@ -74,6 +78,7 @@ const newSegment = (e: PresenceEvent): MatchSegment => ({
     player_name: e.player_name,
     started_at: e.created_at,
     last_event_at: e.created_at,
+    last_playing_at: e.created_at,
     playing: e.playing,
     lastEventId: e.id,
     events: [e]
@@ -95,6 +100,7 @@ const absorb = (seg: MatchSegment, e: PresenceEvent, countScore: boolean = true)
     seg.user_id = e.user_id;
     seg.playing = e.playing;
     seg.last_event_at = e.created_at;
+    if (e.playing) seg.last_playing_at = e.created_at;
     seg.lastEventId = e.id;
     seg.events.push(e);
 };
@@ -195,9 +201,11 @@ export const segmentStream = (events: PresenceEvent[], now: Date, config: Deriva
         }
     }
 
-    // Idle: a stopped trailing segment with no activity for the idle window is finished.
+    // Idle: a stopped trailing segment whose account hasn't been seen in CS2 for the idle
+    // window is finished. The countdown runs from the last *playing* observation — stopping is
+    // not progress, so a stop right after the last score doesn't extend the match's life.
     let open: MatchSegment | null = seg;
-    if (open && !pending && !open.playing && now.getTime() - open.last_event_at.getTime() >= config.matchIdleMs) {
+    if (open && !pending && !open.playing && now.getTime() - open.last_playing_at.getTime() >= config.matchIdleMs) {
         closed.push(open);
         open = null;
     }
