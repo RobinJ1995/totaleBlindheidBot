@@ -24,8 +24,9 @@ export type PlayerMatch =
 
 // Match a free-text player argument against an already-fetched chat roster. Kept pure (no IO) so
 // the matching rules can be unit-tested without a database. A tapped mention wins outright; an
-// empty argument means the sender; otherwise the argument (with an optional leading @) is matched
-// case-insensitively against each player's recorded display name and stored username.
+// empty argument means the sender. A bare word is matched case-insensitively against each player's
+// display name or username; a leading @ makes it an explicit username reference, matched against
+// usernames only (so it can't be dragged into ambiguity by an unrelated player's display name).
 export const matchPlayerArgument = (
     players: ChatPlayer[],
     argument: string,
@@ -40,10 +41,13 @@ export const matchPlayerArgument = (
         return { kind: 'self' };
     }
 
-    const needle = trimmed.replace(/^@/, '').toLowerCase();
+    const usernameOnly = trimmed.startsWith('@');
+    const needle = (usernameOnly ? trimmed.slice(1) : trimmed).toLowerCase();
     const byUser = new Map<number, ChatPlayer>();
     for (const p of players) {
-        if (p.name.toLowerCase() === needle || (p.username != null && p.username.toLowerCase() === needle)) {
+        const nameHit = !usernameOnly && p.name.toLowerCase() === needle;
+        const usernameHit = p.username != null && p.username.toLowerCase() === needle;
+        if (nameHit || usernameHit) {
             byUser.set(p.user_id, p);
         }
     }
