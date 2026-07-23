@@ -1,8 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
-import { formatError } from '../utils.js';
+import { escapeMarkdown, formatError } from '../utils.js';
 import { GameResult, parseScore, scoreResult } from './game_history.js';
+import { resolvePlayerTarget } from './playerArg.js';
 
 const dao = new GameHistoryDAO();
 
@@ -153,10 +154,21 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
 };
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
-    dao.getGameHistory(msg.chat.id, msg.from!.id)
-        .then((entries: GameHistoryEntry[]) => {
-            const text = renderStats(entries);
-            msg.reply(text ?? 'No competitive games in your history yet.');
+    resolvePlayerTarget(dao, msg)
+        .then(target => {
+            if (!target) return;  // resolvePlayerTarget already replied with the reason.
+            return dao.getGameHistory(msg.chat.id, target.user_id)
+                .then((entries: GameHistoryEntry[]) => {
+                    const text = renderStats(entries);
+                    if (!text) {
+                        msg.reply(target.name
+                            ? `No competitive games for ${escapeMarkdown(target.name)} in this chat yet.`
+                            : 'No competitive games in your history yet.');
+                        return;
+                    }
+                    const header = target.name ? `Competitive stats for *${escapeMarkdown(target.name)}*\n` : '';
+                    msg.reply(header + text);
+                });
         })
         .catch((err: Error) => msg.reply(formatError(err)));
 };

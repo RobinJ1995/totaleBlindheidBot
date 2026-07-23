@@ -193,6 +193,31 @@ Feature: CS2 game history
     When the user sends "/game_history"
     Then the bot reply contains "8-3"
 
+  Scenario: game history can be requested for another named player
+    # /game_history with a player name shows that player's history, not the sender's.
+    Given a chat with id 2114
+    When user 6010 sends "/steam_user_id 76561198000001010"
+    Then the bot reply contains "76561198000001010"
+    When user 6011 sends "/steam_user_id 76561198000001011"
+    Then the bot reply contains "76561198000001011"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000001010" playing CS2 as "Alpha" with score "13-7" on map "Vertigo"
+    And Steam reports user "76561198000001010" stopped playing
+    And 8 seconds pass
+    Then chat 2114 eventually receives a new Steam message containing "won a game"
+    When user 6011 sends "/game_history Alpha"
+    Then the bot reply contains "Game history for"
+    And the bot reply contains "Alpha"
+    And the bot reply contains "13-7"
+
+  Scenario: game history for an unknown player is reported as such
+    Given a chat with id 2115
+    And a user with id 6020 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000001020"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000001020"
+    When the user sends "/game_history Nobody"
+    Then the bot reply contains "I don't have any recorded games for"
+
   Scenario: a real new match is confirmed by its next score without waiting out the window
     # The counterpart to the flaky-dip scenario: when the low score is followed by another
     # score in the same new range, that's a real new match — the old one is finalised right

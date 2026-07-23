@@ -209,10 +209,10 @@ if (steamEnabled) {
         helpText: 'Submit a Steam Guard code.'
     });
     router.route('game_history', gameHistoryHandler, {
-        helpText: 'Show your CS2 game history for this chat.'
+        helpText: 'Show CS2 game history for this chat. Add a player name or mention to see theirs.'
     });
     router.route('stats', statsHandler, {
-        helpText: 'Show your competitive CS2 stats for this chat: win rate, streaks, maps.'
+        helpText: 'Show competitive CS2 stats for this chat: win rate, streaks, maps. Add a player name or mention to see theirs.'
     });
 }
 

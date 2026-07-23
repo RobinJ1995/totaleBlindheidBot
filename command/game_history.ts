@@ -3,6 +3,7 @@ import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
 import { escapeMarkdown, formatError } from '../utils.js';
 import { parseRawScore } from '../matchDerivation.js';
+import { resolvePlayerTarget } from './playerArg.js';
 
 const dao = new GameHistoryDAO();
 
@@ -49,28 +50,37 @@ const renderLine = (entry: GameHistoryEntry): string => {
 };
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
-    dao.getGameHistory(msg.chat.id, msg.from!.id)
-        .then((entries: GameHistoryEntry[]) => {
-            if (entries.length === 0) {
-                msg.reply('No game history yet.');
-                return;
-            }
+    resolvePlayerTarget(dao, msg)
+        .then(target => {
+            if (!target) return;  // resolvePlayerTarget already replied with the reason.
+            return dao.getGameHistory(msg.chat.id, target.user_id)
+                .then((entries: GameHistoryEntry[]) => {
+                    if (entries.length === 0) {
+                        msg.reply(target.name
+                            ? `No game history for ${escapeMarkdown(target.name)} in this chat yet.`
+                            : 'No game history yet.');
+                        return;
+                    }
 
-            // Oldest → newest (newest at the bottom). Entries come back chronologically.
-            const lines = entries.map(renderLine);
+                    const header = target.name ? `Game history for *${escapeMarkdown(target.name)}*\n` : '';
 
-            // If the full list is too long, keep the most recent games that fit (drop the
-            // oldest) and note how many were omitted — newest still ends up at the bottom.
-            let kept = lines;
-            let omitted = 0;
-            while (kept.join('\n').length > MAX_MESSAGE_CHARS && kept.length > 1) {
-                kept = kept.slice(1);
-                omitted += 1;
-            }
+                    // Oldest → newest (newest at the bottom). Entries come back chronologically.
+                    const lines = entries.map(renderLine);
 
-            const body = kept.join('\n');
-            const text = omitted > 0 ? `…${omitted} older games omitted\n${body}` : body;
-            msg.reply(text);
+                    // If the full list is too long, keep the most recent games that fit (drop the
+                    // oldest) and note how many were omitted — newest still ends up at the bottom.
+                    // The header counts against the budget so the whole reply stays under the cap.
+                    let kept = lines;
+                    let omitted = 0;
+                    while (header.length + kept.join('\n').length > MAX_MESSAGE_CHARS && kept.length > 1) {
+                        kept = kept.slice(1);
+                        omitted += 1;
+                    }
+
+                    const body = kept.join('\n');
+                    const text = omitted > 0 ? `…${omitted} older games omitted\n${body}` : body;
+                    msg.reply(header + text);
+                });
         })
         .catch((err: Error) => msg.reply(formatError(err)));
 };
