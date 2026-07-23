@@ -2,17 +2,17 @@ import TelegramBot from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
 import { escapeMarkdown, formatError } from '../utils.js';
+import { parseRawScore } from '../matchDerivation.js';
 
 const dao = new GameHistoryDAO();
 
 // Keep the rendered reply comfortably under Telegram's 4096-character message cap.
 const MAX_MESSAGE_CHARS = 3900;
 
-// Parse a raw "16-14" score into rounds (first part = player, second = opponents).
+// A raw "16-14" score as rounds (first part = player, second = opponents).
 export const parseScore = (score?: string): { us: number, them: number } | null => {
-    const m = score ? score.replace(/[\[\]]/g, '').trim().match(/^(\d+)\s*[-:]\s*(\d+)$/) : null;
-    if (!m) return null;
-    return { us: parseInt(m[1], 10), them: parseInt(m[2], 10) };
+    const parsed = parseRawScore(score);
+    return parsed ? { us: parsed.a, them: parsed.b } : null;
 };
 
 export type GameResult = 'win' | 'loss' | 'tie';
