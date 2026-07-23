@@ -672,7 +672,10 @@ class SteamService {
                         score: segment.max_score,
                         co_players: chatCoPlayers,
                         started_at: segment.started_at,
-                        ended_at: new Date()
+                        // The last in-game observation, not finalisation time: idle-finalised
+                        // matches would otherwise carry the idle window + sweep delay into
+                        // ended_at (and inflate /stats playtime by it).
+                        ended_at: segment.last_playing_at
                     }
                 });
             }
