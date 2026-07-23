@@ -132,41 +132,41 @@ CREATE TABLE IF NOT EXISTS steam_storage (
     PRIMARY KEY (filename)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- The match a Steam account is currently playing, surfaced in a given chat. Keyed by
--- (chat,steam_id) — NOT by user — because a match belongs to one Steam account and cannot
--- continue on another; a user with several linked accounts gets one row per account, so a
--- stop on one account never disturbs another's match. user_id is carried for history
--- attribution and the end-of-game notification. One row per (chat,steam_id); replaced on
--- write. Survives session closes and bot restarts so a match can span a game relaunch. A
--- match is finished (and moved to game_history) on a score reset / map / mode change, or
--- once it has been idle (not playing, no score progress) past the idle window.
-CREATE TABLE IF NOT EXISTS current_match (
-    chat_id          BIGINT       NOT NULL,
-    steam_id         VARCHAR(32)  NOT NULL,
-    user_id          BIGINT       NOT NULL,
-    map              VARCHAR(64)  NULL,
-    mode             VARCHAR(255) NULL,
-    max_score        VARCHAR(64)  NULL,
-    player_name      VARCHAR(255) NULL,
-    started_at       DATETIME(3)  NOT NULL,
-    last_progress_at DATETIME(3)  NOT NULL,
-    playing          TINYINT(1)   NOT NULL,
-    PRIMARY KEY (chat_id, steam_id),
-    KEY idx_current_match_idle (playing, last_progress_at),
-    CONSTRAINT fk_current_match_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+-- Append-only log of a tracked Steam account's CS2 presence, one row per *transition*
+-- (started/stopped playing, map/mode change, score change; identical consecutive snapshots
+-- are deduplicated on write). This is the source of truth for match detection: matches are
+-- derived retrospectively by segmenting a stream (matchDerivation.ts) rather than by
+-- mutating a single current-state row, so one flaky tick can't irreversibly split or merge
+-- a match. Keyed per Steam account — the observed fact is account-level; chats only come in
+-- when a finished match is fanned out to game_history/announcements. user_id carries the
+-- steam→telegram mapping at observation time; no FK so the hot-path append never has to
+-- ensure a telegram_user row. Pruned past a TTL, but never past a stream's cursor.
+CREATE TABLE IF NOT EXISTS presence_event (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    steam_id    VARCHAR(32)  NOT NULL,
+    user_id     BIGINT       NOT NULL,
+    playing     TINYINT(1)   NOT NULL,
+    map         VARCHAR(64)  NULL,
+    mode        VARCHAR(255) NULL,
+    raw_score   VARCHAR(64)  NULL,
+    score_total INT          NULL,
+    player_name VARCHAR(255) NULL,
+    created_at  DATETIME(3)  NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_presence_event_stream (steam_id, id),
+    KEY idx_presence_event_prune (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Other tracked players seen in the same in-progress match. name is a point-in-time
--- snapshot; co_user_id carries no FK so a co-player needn't be ensured every tick.
-CREATE TABLE IF NOT EXISTS current_match_coplayer (
-    chat_id    BIGINT       NOT NULL,
-    steam_id   VARCHAR(32)  NOT NULL,
-    co_user_id BIGINT       NOT NULL,
-    name       VARCHAR(255) NULL,
-    PRIMARY KEY (chat_id, steam_id, co_user_id),
-    CONSTRAINT fk_cmcp_match FOREIGN KEY (chat_id, steam_id)
-        REFERENCES current_match (chat_id, steam_id) ON DELETE CASCADE
+-- How far each stream has been finalised: events at or before finalized_event_id have been
+-- folded into game_history. Derivation only replays events past the cursor, and the cursor
+-- advances (compare-and-swap) in the same transaction as the history insert, which is what
+-- makes finalisation idempotent — re-deriving a stream can never record the same match twice,
+-- even from a concurrent finaliser. The announcement itself is sent after that commit, so it
+-- is at-most-once per finalisation rather than exactly-once.
+CREATE TABLE IF NOT EXISTS match_stream_cursor (
+    steam_id           VARCHAR(32) NOT NULL,
+    finalized_event_id BIGINT      NOT NULL,
+    PRIMARY KEY (steam_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- A finished match. score is the raw "16-14" (player-opponent); win/loss/tie is derived

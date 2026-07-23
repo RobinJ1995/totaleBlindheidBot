@@ -172,3 +172,40 @@ Feature: CS2 game history
     And Steam reports user "76561198000000980" stopped playing
     And 8 seconds pass
     Then chat 2111 has received 2 Steam messages containing "won a game"
+
+  Scenario: a flaky score dip does not split a match
+    # A glitched/out-of-order presence tick briefly reporting a low score must not split one
+    # real match into two. A reset only becomes a boundary once confirmed — by a further score
+    # in the new low range or by standing uncontradicted — so a dip that returns to the old
+    # range is folded away as noise and the match stays whole.
+    Given a chat with id 2112
+    And a user with id 5990 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000990"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000990"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000990" playing CS2 with score "5-3" on map "Inferno"
+    And Steam reports user "76561198000000990" playing CS2 with score "1-0" on map "Inferno"
+    And Steam reports user "76561198000000990" playing CS2 with score "8-3" on map "Inferno"
+    And Steam reports user "76561198000000990" stopped playing
+    Then chat 2112 eventually receives a new Steam message containing "won a game"
+    When 8 seconds pass
+    Then chat 2112 has received 1 Steam messages containing "won a game"
+    When the user sends "/game_history"
+    Then the bot reply contains "8-3"
+
+  Scenario: a real new match is confirmed by its next score without waiting out the window
+    # The counterpart to the flaky-dip scenario: when the low score is followed by another
+    # score in the same new range, that's a real new match — the old one is finalised right
+    # away rather than after the confirmation window.
+    Given a chat with id 2113
+    And a user with id 5991 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000991"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000991"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000991" playing CS2 with score "14-16" on map "Mirage"
+    And a moment passes
+    And Steam reports user "76561198000000991" playing CS2 with score "1-0" on map "Mirage"
+    And Steam reports user "76561198000000991" playing CS2 with score "2-0" on map "Mirage"
+    Then chat 2113 eventually receives a new Steam message containing "lost a game"
+    When the user sends "/game_history"
+    Then the bot reply contains "14-16"

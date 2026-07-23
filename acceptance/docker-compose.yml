@@ -52,9 +52,11 @@ services:
       STEAM_PASSWORD: testpass
       STEAM_ADMIN_TELEGRAM_USER_ID: "9999"
       STEAM_CONTROL_PORT: "9100"
-      # Finalise idle matches quickly so acceptance tests don't wait minutes.
+      # Finalise idle matches (and confirm score resets) quickly so acceptance tests
+      # don't wait minutes.
       MATCH_IDLE_MS: "6000"
       MATCH_SWEEP_MS: "1000"
+      MATCH_RESET_CONFIRM_MS: "2000"
       GITHUB_API_BASE_URL: http://github-mock:8082
       GITHUB_REPO: acceptance/repo
       GITHUB_POLL_INTERVAL_MS: "1000"
