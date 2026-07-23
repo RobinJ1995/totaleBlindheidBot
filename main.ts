@@ -248,7 +248,7 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
 bot.on('message', (msg: Message) => {
     if (steamEnabled && msg.from && msg.chat) {
         const userId: number = msg.from.id;
-        userDao.addUserChat(userId, msg.chat.id)
+        userDao.addUserChat(userId, msg.chat.id, msg.from.first_name, msg.from.username)
             .then((added: boolean) => {
                 if (added) {
                     console.log(`Associated user ${userId} with chat ${msg.chat.id} for Steam updates.`);

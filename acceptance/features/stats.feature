@@ -33,6 +33,24 @@ Feature: CS2 competitive stats
     And the bot reply contains "Charlie"
     And the bot reply contains "Competitive games"
 
+  Scenario: stats can be requested by @username
+    # The username is captured from the sender's messages, so a player who only went through the
+    # Steam flow can still be looked up by @username.
+    Given a chat with id 2204
+    When user 6140 sends "/steam_user_id 76561198000001140"
+    Then the bot reply contains "76561198000001140"
+    When user 6141 sends "/steam_user_id 76561198000001141"
+    Then the bot reply contains "76561198000001141"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000001140" playing CS2 as "Delta" with score "13-7" on map "Ancient"
+    And Steam reports user "76561198000001140" stopped playing
+    And 8 seconds pass
+    Then chat 2204 eventually receives a new Steam message containing "won a game"
+    When user 6141 sends "/stats @user6140"
+    Then the bot reply contains "Competitive stats for"
+    And the bot reply contains "Delta"
+    And the bot reply contains "Competitive games"
+
   Scenario: stats for an unknown player is reported as such
     Given a chat with id 2203
     And a user with id 6130 and first name "Tester"
