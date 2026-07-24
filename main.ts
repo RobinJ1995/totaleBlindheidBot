@@ -209,10 +209,10 @@ if (steamEnabled) {
         helpText: 'Submit a Steam Guard code.'
     });
     router.route('game_history', gameHistoryHandler, {
-        helpText: 'Show your CS2 game history for this chat.'
+        helpText: 'Show CS2 game history for this chat. Add a player name or mention to see theirs.'
     });
     router.route('stats', statsHandler, {
-        helpText: 'Show your competitive CS2 stats for this chat: win rate, streaks, maps.'
+        helpText: 'Show competitive CS2 stats for this chat: win rate, streaks, maps. Add a player name or mention to see theirs.'
     });
 }
 
@@ -248,7 +248,7 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
 bot.on('message', (msg: Message) => {
     if (steamEnabled && msg.from && msg.chat) {
         const userId: number = msg.from.id;
-        userDao.addUserChat(userId, msg.chat.id)
+        userDao.addUserChat(userId, msg.chat.id, msg.from.first_name, msg.from.username)
             .then((added: boolean) => {
                 if (added) {
                     console.log(`Associated user ${userId} with chat ${msg.chat.id} for Steam updates.`);

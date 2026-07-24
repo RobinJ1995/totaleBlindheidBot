@@ -7,6 +7,15 @@ export interface GameHistoryCoPlayer {
     name: string;
 }
 
+// A player who has recorded game history in a chat, used to resolve a free-text player argument
+// for /stats and /game_history. `name` is the most recent recorded display name; `username` is
+// their stored Telegram username, when known.
+export interface ChatPlayer {
+    user_id: number;
+    name: string;
+    username?: string;
+}
+
 export interface GameHistoryEntry {
     chat_id: number;
     user_id: number;
@@ -76,6 +85,43 @@ class GameHistoryDAO {
             }
         }
         return order.map(id => byId.get(id)!);
+    }
+
+    // Distinct players with recorded game history in a chat. `name` is the player's most recent
+    // recorded display name (game_history.player_name), falling back to their stored Telegram name
+    // for rows predating that column, then to the numeric id. `username` is their stored Telegram
+    // username. Ordered by name so any "matches multiple players" prompt reads predictably.
+    async getChatPlayers(chat_id: number): Promise<ChatPlayer[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT h.user_id, h.player_name, u.name AS tg_name, u.username AS tg_username ' +
+            'FROM game_history h ' +
+            'LEFT JOIN telegram_user u ON u.user_id = h.user_id ' +
+            'WHERE h.chat_id = :chat_id ' +
+            'ORDER BY h.id ASC',
+            { chat_id }
+        );
+
+        interface Acc { user_id: number; playerName?: string; tgName?: string; username?: string; }
+        const byUser = new Map<number, Acc>();
+        for (const row of rows) {
+            const user_id = Number(row.user_id);
+            let acc = byUser.get(user_id);
+            if (!acc) {
+                acc = { user_id };
+                byUser.set(user_id, acc);
+            }
+            // Rows come back oldest first, so the last non-null value wins — the most recent name.
+            if (row.player_name) acc.playerName = row.player_name;
+            if (row.tg_name) acc.tgName = row.tg_name;
+            if (row.tg_username) acc.username = row.tg_username;
+        }
+        return [...byUser.values()]
+            .map(acc => ({
+                user_id: acc.user_id,
+                name: acc.playerName ?? acc.tgName ?? String(acc.user_id),
+                username: acc.username
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     // Insert a finished match (and its co-players); returns the new game_history id so the caller

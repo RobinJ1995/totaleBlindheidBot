@@ -75,9 +75,13 @@ class UserDAO {
         });
     }
 
-    addUserChat(user_id: number, chat_id: number): Promise<boolean> {
+    // name/username are captured opportunistically from the sender so the telegram_user row carries
+    // them (ensureTelegramUser only overwrites with non-empty values). Without this the column stays
+    // NULL for users who only ever go through the Steam flow, which would break @username lookups in
+    // /stats and /game_history.
+    addUserChat(user_id: number, chat_id: number, name?: string, username?: string): Promise<boolean> {
         return withTransaction(async conn => {
-            await ensureTelegramUser(conn, user_id);
+            await ensureTelegramUser(conn, user_id, name, username);
             const [res] = await conn.query<ResultSetHeader>(
                 'INSERT IGNORE INTO user_chat (user_id, chat_id) VALUES (:user_id, :chat_id)',
                 { user_id, chat_id }
