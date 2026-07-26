@@ -117,7 +117,7 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
     // Grouped into sections so the reply reads top-to-bottom: the headline record, then how
     // those results clustered, then per-map breakdown. Each section only appears if it has rows.
     const overview: [string, string][] = [];
-    overview.push(['Competitive games', `${total.games}  (${total.wins}W · ${total.losses}L · ${total.ties}T)`]);
+    overview.push(['Competitive games', `${total.games} (${total.wins} won, ${total.losses} lost, ${total.ties} tied)`]);
     if (decisive > 0) {
         overview.push(['Win rate', bar(total.wins, decisive)]);
     }
