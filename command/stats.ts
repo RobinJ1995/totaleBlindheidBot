@@ -31,6 +31,14 @@ const addResult = (tally: Tally, result: GameResult | null): void => {
 const percent = (part: number, whole: number): string =>
     whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
 
+// A compact 10-cell bar for a 0-100% ratio, e.g. "██████░░░░ 60%". Renders inside the
+// monospace block so the filled/empty cells line up.
+const bar = (part: number, whole: number): string => {
+    const ratio = whole === 0 ? 0 : part / whole;
+    const filled = Math.round(ratio * 10);
+    return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)} ${percent(part, whole)}`;
+};
+
 const formatDuration = (ms: number): string => {
     const minutes = Math.round(ms / 60000);
     const h = Math.floor(minutes / 60);
@@ -104,30 +112,35 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         }
     }
 
-    const rows: [string, string][] = [];
     const decisive = total.wins + total.losses + total.ties;
 
-    rows.push(['Competitive games', `${total.games} (${total.wins} won, ${total.losses} lost, ${total.ties} tied)`]);
+    // Grouped into sections so the reply reads top-to-bottom: the headline record, then how
+    // those results clustered, then per-map breakdown. Each section only appears if it has rows.
+    const overview: [string, string][] = [];
+    overview.push(['Competitive games', `${total.games} (${total.wins} won, ${total.losses} lost, ${total.ties} tied)`]);
     if (decisive > 0) {
-        rows.push(['Win rate', percent(total.wins, decisive)]);
+        overview.push(['Win rate', bar(total.wins, decisive)]);
     }
     if (roundsWon + roundsLost > 0) {
-        rows.push(['Rounds', `${roundsWon}-${roundsLost} (${percent(roundsWon, roundsWon + roundsLost)})`]);
+        overview.push(['Rounds', `${roundsWon}-${roundsLost}  (${percent(roundsWon, roundsWon + roundsLost)})`]);
     }
+    if (playtimeMs > 0) {
+        overview.push(['Playtime', formatDuration(playtimeMs)]);
+    }
+
+    const streaks: [string, string][] = [];
     if (longestWinStreak > 0) {
-        rows.push(['Longest win streak', String(longestWinStreak)]);
+        streaks.push(['Longest win streak', String(longestWinStreak)]);
     }
     if (longestLossStreak > 0) {
-        rows.push(['Longest loss streak', String(longestLossStreak)]);
+        streaks.push(['Longest loss streak', String(longestLossStreak)]);
     }
     if (currentRun) {
         const label = { win: 'win', loss: 'loss', tie: 'tie' }[currentRun.result];
-        rows.push(['Current streak', `${currentRun.length} ${label}${currentRun.length === 1 ? '' : currentRun.result === 'loss' ? 'es' : 's'}`]);
-    }
-    if (playtimeMs > 0) {
-        rows.push(['Playtime', formatDuration(playtimeMs)]);
+        streaks.push(['Current streak', `${currentRun.length} ${label}${currentRun.length === 1 ? '' : currentRun.result === 'loss' ? 'es' : 's'}`]);
     }
 
+    const maps: [string, string][] = [];
     let favourite: [string, Tally] | null = null;
     for (const [map, t] of byMap.entries()) {
         if (!favourite || t.games > favourite[1].games) {
@@ -135,22 +148,33 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         }
     }
     if (favourite) {
-        rows.push(['Favourite map', `${favourite[0]} (${favourite[1].games} games)`]);
+        maps.push(['Favourite map', `${escapeMarkdown(favourite[0])} (${favourite[1].games} games)`]);
     }
     const bestMap = pickMap(byMap, t => t.wins);
     if (bestMap) {
-        rows.push(['Best map', `${bestMap[0]} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
+        maps.push(['Best map', `${escapeMarkdown(bestMap[0])} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
     }
     const worstMap = pickMap(byMap, t => t.losses);
     if (worstMap) {
-        rows.push(['Worst map', `${worstMap[0]} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
+        maps.push(['Worst map', `${escapeMarkdown(worstMap[0])} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
     }
 
-    // Telegram has no real table markup; a monospace block with padded columns is the
-    // conventional equivalent. No markdown escaping inside the code block.
-    const labelWidth = Math.max(...rows.map(([label]) => label.length));
-    const table = rows.map(([label, value]) => `${label.padEnd(labelWidth)}  ${value}`).join('\n');
-    return '```\n' + table + '\n```';
+    const sections: [string, [string, string][]][] = [
+        ['📊 Overview', overview],
+        ['🔥 Streaks', streaks],
+        ['🗺️ Maps', maps],
+    ];
+
+    // Rendered as Markdown (not a monospace block): a bold section header followed by one
+    // "label: value" line per row. Dynamic values (map names) are escaped where they're built;
+    // the static labels here contain no Markdown-significant characters.
+    const blocks = sections
+        .filter(([, rows]) => rows.length > 0)
+        .map(([title, rows]) => {
+            const body = rows.map(([label, value]) => `${label}: ${value}`).join('\n');
+            return `*${title}*\n${body}`;
+        });
+    return blocks.join('\n\n');
 };
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
