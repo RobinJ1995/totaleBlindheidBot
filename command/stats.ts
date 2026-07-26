@@ -148,15 +148,15 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         }
     }
     if (favourite) {
-        maps.push(['Favourite map', `${favourite[0]} (${favourite[1].games} games)`]);
+        maps.push(['Favourite map', `${escapeMarkdown(favourite[0])} (${favourite[1].games} games)`]);
     }
     const bestMap = pickMap(byMap, t => t.wins);
     if (bestMap) {
-        maps.push(['Best map', `${bestMap[0]} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
+        maps.push(['Best map', `${escapeMarkdown(bestMap[0])} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
     }
     const worstMap = pickMap(byMap, t => t.losses);
     if (worstMap) {
-        maps.push(['Worst map', `${worstMap[0]} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
+        maps.push(['Worst map', `${escapeMarkdown(worstMap[0])} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
     }
 
     const sections: [string, [string, string][]][] = [
@@ -165,17 +165,16 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         ['🗺️ Maps', maps],
     ];
 
-    // Telegram has no real table markup; a monospace block with padded columns is the
-    // conventional equivalent. Labels are padded per-section so each block stays tight, and
-    // sections are separated by a blank line. No markdown escaping inside the code block.
+    // Rendered as Markdown (not a monospace block): a bold section header followed by one
+    // "label: value" line per row. Dynamic values (map names) are escaped where they're built;
+    // the static labels here contain no Markdown-significant characters.
     const blocks = sections
         .filter(([, rows]) => rows.length > 0)
         .map(([title, rows]) => {
-            const labelWidth = Math.max(...rows.map(([label]) => label.length));
-            const body = rows.map(([label, value]) => `${label.padEnd(labelWidth)}  ${value}`).join('\n');
-            return `${title}\n${body}`;
+            const body = rows.map(([label, value]) => `${label}: ${value}`).join('\n');
+            return `*${title}*\n${body}`;
         });
-    return '```\n' + blocks.join('\n\n') + '\n```';
+    return blocks.join('\n\n');
 };
 
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
