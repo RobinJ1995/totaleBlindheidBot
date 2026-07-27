@@ -17,6 +17,7 @@ export interface ChatPlayer {
 }
 
 export interface GameHistoryEntry {
+    id?: number;           // set on entries read back from the database
     chat_id: number;
     user_id: number;
     player_name?: string;  // owner's resolved display name at match end, for grouped announcements
@@ -26,6 +27,13 @@ export interface GameHistoryEntry {
     co_players: GameHistoryCoPlayer[];
     started_at?: Date;
     ended_at: Date;
+}
+
+// A finished match in the compact form the live message's session overview renders.
+export interface SessionMatch {
+    mode?: string;
+    map?: string;
+    score?: string;
 }
 
 // A recently-finished match used for grouping a per-match end-of-game announcement: the owner (with
@@ -67,6 +75,7 @@ class GameHistoryDAO {
             let entry = byId.get(id);
             if (!entry) {
                 entry = {
+                    id,
                     chat_id: Number(row.chat_id),
                     user_id: Number(row.user_id),
                     mode: row.mode ?? undefined,
@@ -85,6 +94,22 @@ class GameHistoryDAO {
             }
         }
         return order.map(id => byId.get(id)!);
+    }
+
+    // The player's matches that finished during the current play session (ended at or after
+    // `since`), oldest first — the live message's session overview.
+    async getGameHistorySince(chat_id: number, user_id: number, since: Date): Promise<SessionMatch[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT mode, map, score FROM game_history ' +
+            'WHERE chat_id = :chat_id AND user_id = :user_id AND ended_at >= :since ' +
+            'ORDER BY id ASC',
+            { chat_id, user_id, since }
+        );
+        return rows.map(row => ({
+            mode: row.mode ?? undefined,
+            map: row.map ?? undefined,
+            score: row.score ?? undefined
+        }));
     }
 
     // Distinct players with recorded game history in a chat. `name` is the player's most recent
@@ -196,6 +221,75 @@ class GameHistoryDAO {
             }
         }
         return order.map(id => byId.get(id)!);
+    }
+
+    // One page of a player's match records in a chat, newest first (no co-players — used by
+    // the /delete_match_record picker), plus the total count so the picker can paginate.
+    async getGameHistoryPage(chat_id: number, user_id: number, offset: number, limit: number): Promise<{ total: number; entries: GameHistoryEntry[] }> {
+        const countRows = await query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS total FROM game_history WHERE chat_id = :chat_id AND user_id = :user_id',
+            { chat_id, user_id }
+        );
+        const total = Number(countRows[0].total);
+        if (total === 0) {
+            return { total, entries: [] };
+        }
+        const rows = await query<RowDataPacket[]>(
+            'SELECT id, chat_id, user_id, player_name, mode, map, score, started_at, ended_at ' +
+            'FROM game_history WHERE chat_id = :chat_id AND user_id = :user_id ' +
+            'ORDER BY id DESC LIMIT :limit OFFSET :offset',
+            { chat_id, user_id, limit, offset }
+        );
+        return {
+            total,
+            entries: rows.map(row => ({
+                id: Number(row.id),
+                chat_id: Number(row.chat_id),
+                user_id: Number(row.user_id),
+                player_name: row.player_name ?? undefined,
+                mode: row.mode ?? undefined,
+                map: row.map ?? undefined,
+                score: row.score ?? undefined,
+                co_players: [],
+                started_at: row.started_at ?? undefined,
+                ended_at: row.ended_at
+            }))
+        };
+    }
+
+    // A single match record by id (no co-players — used to describe and verify a record
+    // before deleting it), or null if it doesn't exist.
+    async getGameHistoryEntryById(id: number): Promise<GameHistoryEntry | null> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT id, chat_id, user_id, player_name, mode, map, score, started_at, ended_at ' +
+            'FROM game_history WHERE id = :id',
+            { id }
+        );
+        if (rows.length === 0) {
+            return null;
+        }
+        const row = rows[0];
+        return {
+            id: Number(row.id),
+            chat_id: Number(row.chat_id),
+            user_id: Number(row.user_id),
+            player_name: row.player_name ?? undefined,
+            mode: row.mode ?? undefined,
+            map: row.map ?? undefined,
+            score: row.score ?? undefined,
+            co_players: [],
+            started_at: row.started_at ?? undefined,
+            ended_at: row.ended_at
+        };
+    }
+
+    // Delete a match record (its co-player rows cascade). Returns whether a row was deleted.
+    async deleteGameHistoryEntry(id: number): Promise<boolean> {
+        const res = await query<ResultSetHeader>(
+            'DELETE FROM game_history WHERE id = :id',
+            { id }
+        );
+        return res.affectedRows > 0;
     }
 
     setGameHistoryMessageId(id: number, message_id: number): Promise<void> {

@@ -39,6 +39,32 @@ Feature: Steam game-presence updates
     And Steam reports user "76561198000000040" playing CS2 with no details
     Then the latest Steam message in chat 2004 still contains "🟢"
 
+  Scenario: round outcomes are tracked in the live message
+    Given a chat with id 2005
+    And a user with id 5905 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000050"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000050"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000050" playing CS2 with score "1-0" on map "Inferno"
+    Then chat 2005 receives a Steam message containing "Rounds: 🎖️"
+    When a moment passes
+    And Steam reports user "76561198000000050" playing CS2 with score "1-1" on map "Inferno"
+    Then the Steam message in chat 2005 is edited to contain "Rounds: 🎖️☠️"
+
+  Scenario: a finished match is listed above the live game state for the session
+    Given a chat with id 2006
+    And a user with id 5906 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000060"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000060"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000060" playing CS2 with score "13-8" on map "Vertigo"
+    Then chat 2006 receives a Steam message containing "is playing Counter-Strike"
+    When a moment passes
+    And Steam reports user "76561198000000060" playing CS2 with score "1-0" on map "Vertigo"
+    And a moment passes
+    And Steam reports user "76561198000000060" playing CS2 with score "2-0" on map "Vertigo"
+    Then the Steam message in chat 2006 is edited to contain "🏆 Competitive: Vertigo 1️⃣3️⃣:8️⃣"
+
   Scenario: a chat that disabled updates receives nothing
     Given a chat with id 2002
     And a user with id 5902 and first name "Tester"

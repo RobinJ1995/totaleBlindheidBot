@@ -61,6 +61,10 @@ export interface MatchSegment {
 export interface StreamDerivation {
     closed: MatchSegment[];    // finished matches, oldest first
     open: MatchSegment | null; // the still-live segment, if any
+    // A provisional post-reset segment not yet confirmed as a new match (nor refuted as a
+    // flake). While it exists, the most recent observations — including the score the live
+    // message is showing — belong to it rather than to `open`.
+    pending: MatchSegment | null;
 }
 
 // Parse a raw "16-14" (or "16:14") score into its parts and round total.
@@ -221,7 +225,31 @@ export const segmentStream = (events: PresenceEvent[], now: Date, config: Deriva
         open = null;
     }
 
-    return { closed, open };
+    return { closed, open, pending };
+};
+
+export type RoundOutcome = 'win' | 'loss';
+
+// Reconstruct a segment's per-round outcomes (player's perspective) by diffing consecutive
+// observed scores: 7-4 → 8-4 is a round won, 8-4 → 8-5 a round lost. Each side's tally only
+// ever moves up within a match, so an observation below the running maxima is dip/out-of-order
+// noise and is skipped — the same max-only stance absorb() takes for the segment score. When
+// several rounds pass between observations (missed ticks, or a stream that starts mid-match)
+// the totals are still right but the order within the gap is unknown; wins are emitted first.
+export const deriveRounds = (events: PresenceEvent[]): RoundOutcome[] => {
+    const rounds: RoundOutcome[] = [];
+    let a = 0;
+    let b = 0;
+    for (const e of events) {
+        const parsed = parseRawScore(e.raw_score);
+        if (!parsed) continue;
+        if (parsed.a < a || parsed.b < b) continue;
+        for (let i = a; i < parsed.a; i++) rounds.push('win');
+        for (let i = b; i < parsed.b; i++) rounds.push('loss');
+        a = parsed.a;
+        b = parsed.b;
+    }
+    return rounds;
 };
 
 export interface CoPlayer {

@@ -31,6 +31,7 @@ import steamGuardHandler from './command/steam_guard.js';
 import gameHistoryHandler from './command/game_history.js';
 import statsHandler from './command/stats.js';
 import githubNotifyHandler from './command/github_notify.js';
+import deleteMatchRecordHandler, { handleDeleteMatchCallback, CALLBACK_PREFIX as DELETE_MATCH_CALLBACK_PREFIX } from './command/admin/delete_match_record.js';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
 import rollcallGetPlayersHandler from './command/admin/rollcall_get_players.js';
@@ -214,6 +215,9 @@ if (steamEnabled) {
     router.route('stats', statsHandler, {
         helpText: 'Show competitive CS2 stats for this chat: win rate, streaks, maps. Add a player name or mention to see theirs.'
     });
+    router.route('delete_match_record', deleteMatchRecordHandler, {
+        helpText: 'Admin only: delete a mis-recorded match from a player\'s game history.'
+    });
 }
 
 router.route('help', (bot: TelegramBot, msg: ExtendedMessage) => {
@@ -261,6 +265,10 @@ bot.on('message', (msg: Message) => {
 });
 
 bot.on('callback_query', (query: CallbackQuery) => {
+    if (query.data?.startsWith(DELETE_MATCH_CALLBACK_PREFIX)) {
+        handleDeleteMatchCallback(bot, query);
+        return;
+    }
     handleRsvpCallback(query);
 });
 
