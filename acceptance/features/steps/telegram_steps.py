@@ -168,6 +168,30 @@ def step_user_taps(context: Context, user_id: str, name: str, choice: str) -> No
     helpers.inject_callback(f"rsvp:{choice}", context.chat_id, user, message_id)
 
 
+@when('user (?P<user_id>\\d+) named "(?P<name>[^"]*)" taps the button containing "(?P<needle>[^"]*)"')
+def step_user_taps_button_containing(context: Context, user_id: str, name: str, needle: str) -> None:
+    """Tap the first inline button whose label contains `needle`, searching newest message first."""
+    outbox: List[Dict[str, Any]] = helpers.get_outbox(context.chat_id)
+    for message in reversed(outbox):
+        markup: Dict[str, Any] = helpers.reply_markup(message)
+        for row in markup.get("inline_keyboard", []):
+            for button in row:
+                if needle in (button.get("text") or ""):
+                    context.cmd_chat = context.chat_id
+                    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+                    context.cb_baseline = len(helpers.get_callback_answers())
+                    user: Dict[str, Any] = {
+                        "id": int(user_id), "first_name": name, "username": name.lower()
+                    }
+                    helpers.inject_callback(
+                        button["callback_data"], context.chat_id, user, message["message_id"]
+                    )
+                    return
+    raise AssertionError(
+        f"No inline button containing {needle!r} found in chat {context.chat_id}"
+    )
+
+
 @then('the tap is answered with "(?P<expected>[^"]*)"')
 def step_tap_answered_with(context: Context, expected: str) -> None:
     answers: List[Dict[str, Any]] = helpers.wait_for_callback_answer(context.cb_baseline)

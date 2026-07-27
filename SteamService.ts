@@ -4,15 +4,15 @@ import TelegramBot from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
 import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
-import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SiblingMatch } from './dao/GameHistoryDAO.js';
+import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, SiblingMatch } from './dao/GameHistoryDAO.js';
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { escapeMarkdown } from './utils.js';
 import { parseMention } from './rsvp.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
-    segmentStream, findCoPlayers, parseRawScore as parseRawScoreFn,
-    DerivationConfig, MatchSegment, PresenceEvent
+    segmentStream, findCoPlayers, deriveRounds, parseRawScore as parseRawScoreFn,
+    DerivationConfig, MatchSegment, PresenceEvent, RoundOutcome
 } from './matchDerivation.js';
 
 // A finished match with no further score progress is recorded once it has been idle
@@ -46,6 +46,11 @@ const PRESENCE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 // How old another account's last observation may be and still count as its "state" for
 // co-player matching (the live-presence check this replaces was at most minutes stale).
 const CO_PLAYER_STALE_MS = 15 * 60 * 1000;
+
+// The live message's session overview lists matches that ended after the message was created,
+// widened by this slack: the session's first presence event precedes the message it triggers,
+// so a match observed only around that instant would otherwise fall just outside the window.
+const SESSION_OVERVIEW_SLACK_MS = 60 * 1000;
 
 const DERIVATION_CONFIG: DerivationConfig = {
     resetTolerance: RESET_TOLERANCE,
@@ -382,6 +387,9 @@ class SteamService {
         // (/game_history) and the end-of-game notification is gated per chat at finalisation.
         await this.recordPresence(steamId, tgUserId, { playing: true, map, mode, rawScore, playerName });
 
+        // Per-round outcomes of the current match, replayed from the (just-updated) stream.
+        const rounds = await this.getLiveRounds(steamId);
+
         const chats = await this.userDao.getUserChats(tgUserId);
         if (chats.length === 0) {
             console.debug(`No chats found for user ${tgUserId} (Steam ID: ${steamId}). Cannot publish update.`);
@@ -398,10 +406,11 @@ class SteamService {
 
             // If no map/status yet, maybe it's just starting
             let text = `🟢 *${escapeMarkdown(displayName)}* is playing Counter-Strike`;
-            if (map || status || score) text += `\n`;
+            if (map || status || score || rounds.length > 0) text += `\n`;
             if (map) text += `\nMap: ${escapeMarkdown(map)}`;
             if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
             if (score) text += `\nScore: ${escapeMarkdown(score)}`;
+            if (rounds.length > 0) text += `\nRounds: ${this.formatRounds(rounds)}`;
 
             console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
@@ -429,15 +438,26 @@ class SteamService {
     async publishUpdate(chatId: number, tgUserId: number, text: string, info: GameUpdateInfo): Promise<void> {
         try {
             const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
-            
+
+            const now = new Date();
+            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
+            // The live message doubles as the session's scoreboard: matches that finished during
+            // its lifetime are listed above the current game state. A fresh message starts a
+            // fresh session, so it carries no overview.
+            if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
+                const sessionStart = new Date(new Date(lastUpdate.timestamp).getTime() - SESSION_OVERVIEW_SLACK_MS);
+                const sessionMatches = await this.gameHistoryDao.getGameHistorySince(chatId, tgUserId, sessionStart);
+                if (sessionMatches.length > 0) {
+                    text = `${sessionMatches.map(m => this.sessionOverviewLine(m)).join('\n')}\n\n${text}`;
+                }
+            }
+
             // Avoid redundant updates
             if (lastUpdate && lastUpdate.text === text) {
                 console.log(`Update for user ${tgUserId} in chat ${chatId} is redundant (text hasn't changed), skipping.`);
                 return;
             }
-
-            const now = new Date();
-            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
 
             if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
                 const oldInfo: GameUpdateInfo = lastUpdate.info || {};
@@ -536,6 +556,46 @@ class SteamService {
     // Parse a raw "16-14" (or "16:14") score into its parts and round total.
     parseRawScore(score?: string): { a: number; b: number; total: number } | null {
         return parseRawScoreFn(score);
+    }
+
+    // One session-overview line: "🏆 Competitive: Vertigo 1️⃣3️⃣:8️⃣". The score keeps the raw
+    // player-opponent order but is rendered with a colon so it can't be mistaken for the raw
+    // "13-8" form used elsewhere.
+    sessionOverviewLine(match: SessionMatch): string {
+        const parts: string[] = [this.resultEmoji(match.score)];
+        if (match.mode) parts.push(`${escapeMarkdown(match.mode)}:`);
+        if (match.map) parts.push(escapeMarkdown(match.map));
+        const parsed = this.parseRawScore(match.score);
+        if (parsed) parts.push(this.formatScore(`${parsed.a}:${parsed.b}`));
+        return parts.join(' ');
+    }
+
+    // 🎖️ per round won, ☠️ per round lost, e.g. "🎖️☠️🎖️🎖️".
+    formatRounds(rounds: RoundOutcome[]): string {
+        return rounds.map(r => r === 'win' ? '🎖️' : '☠️').join('');
+    }
+
+    // Per-round outcomes of the account's current (unfinalised) match, replayed from the
+    // stream's open segment under its lock so a concurrent append or finalisation can't be
+    // observed halfway. Returns [] (also on error) — the live message just omits the line.
+    private getLiveRounds(steamId: string): Promise<RoundOutcome[]> {
+        return this.withStreamLock(steamId, async () => {
+            try {
+                const cursor = await this.presenceEventDao.getCursor(steamId);
+                const events = await this.presenceEventDao.getEventsAfter(steamId, cursor);
+                if (events.length === 0) {
+                    return [];
+                }
+                // A pending (unconfirmed) reset holds the newest observations — including the
+                // score the live message is showing — so its rounds are the ones to render.
+                const { open, pending } = segmentStream(events, new Date(), DERIVATION_CONFIG);
+                const current = pending ?? open;
+                return current ? deriveRounds(current.events) : [];
+            } catch (err) {
+                console.error(`Error deriving live rounds for Steam ID ${steamId}:`, err);
+                return [];
+            }
+        });
     }
 
     // 🏆/☠️/🤝 from a raw score (first part = player, second = opponents).
@@ -939,12 +999,14 @@ class SteamService {
 
             let newText = lastUpdate.text;
 
-            // Check if already closed
-            if (newText.startsWith('🔴')) {
+            // Check if already closed. The 🟢/🔴 marker sits on the current-state line, which is
+            // no longer necessarily the first one (the session overview renders above it), so
+            // look anywhere in the text rather than at the start.
+            if (newText.includes('🔴')) {
                 return;
             }
 
-            if (newText.startsWith('🟢')) {
+            if (newText.includes('🟢')) {
                 newText = newText.replace('🟢', '🔴');
             } else {
                 // Legacy or unexpected format, prepend red

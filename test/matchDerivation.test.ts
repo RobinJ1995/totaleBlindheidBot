@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    segmentStream, findCoPlayers, parseRawScore,
+    segmentStream, findCoPlayers, deriveRounds, parseRawScore,
     PresenceEvent, DerivationConfig
 } from '../matchDerivation.js';
 
@@ -409,4 +409,56 @@ test('co-player: an observation older than the staleness bound does not count', 
     ];
     const cos = findCoPlayers(seg, new Map([['B', stale]]), config);
     assert.equal(cos.length, 0);
+});
+
+test('deriveRounds: consecutive score observations become per-round outcomes', () => {
+    nextId = 1;
+    const events = [
+        ev(0, { map: 'Inferno', score: '1-0' }),
+        ev(60, { map: 'Inferno', score: '1-1' }),
+        ev(120, { map: 'Inferno', score: '2-1' }),
+        ev(180, { map: 'Inferno', score: '3-1' })
+    ];
+    assert.deepEqual(deriveRounds(events), ['win', 'loss', 'win', 'win']);
+});
+
+test('deriveRounds: a gap between observations still yields the right totals, wins first', () => {
+    nextId = 1;
+    const events = [
+        ev(0, { map: 'Inferno', score: '1-0' }),
+        ev(60, { map: 'Inferno', score: '3-2' })  // two wins and two losses were missed
+    ];
+    assert.deepEqual(deriveRounds(events), ['win', 'win', 'win', 'loss', 'loss']);
+});
+
+test('deriveRounds: a stream starting mid-match backfills the opening score', () => {
+    nextId = 1;
+    assert.deepEqual(
+        deriveRounds([ev(0, { map: 'Inferno', score: '2-1' })]),
+        ['win', 'win', 'loss']
+    );
+});
+
+test('deriveRounds: a score dip is skipped as noise, not counted twice on recovery', () => {
+    nextId = 1;
+    const events = [
+        ev(0, { map: 'Inferno', score: '5-3' }),
+        ev(60, { map: 'Inferno', score: '1-0' }),  // flaky dip
+        ev(120, { map: 'Inferno', score: '6-3' })
+    ];
+    assert.deepEqual(
+        deriveRounds(events),
+        ['win', 'win', 'win', 'win', 'win', 'loss', 'loss', 'loss', 'win']
+    );
+});
+
+test('deriveRounds: unscored events (relaunches, bare presence) are ignored', () => {
+    nextId = 1;
+    const events = [
+        ev(0, { map: 'Inferno', score: '1-0' }),
+        ev(30, { playing: false }),
+        ev(60, { map: 'Inferno' }),
+        ev(90, { map: 'Inferno', score: '1-1' })
+    ];
+    assert.deepEqual(deriveRounds(events), ['win', 'loss']);
 });

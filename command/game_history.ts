@@ -26,7 +26,7 @@ export const scoreResult = (score?: string): GameResult | null => {
     return 'tie';
 };
 
-const resultEmoji = (score?: string): string => {
+export const resultEmoji = (score?: string): string => {
     switch (scoreResult(score)) {
         case 'win': return '🏆';
         case 'loss': return '☠️';
