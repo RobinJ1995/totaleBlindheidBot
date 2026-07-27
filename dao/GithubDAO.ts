@@ -26,6 +26,20 @@ class GithubDAO {
             { sha }
         ).then(() => undefined);
     }
+
+    // The ETag of the last commits response, replayed as If-None-Match so unchanged
+    // polls come back 304 — free against GitHub's primary rate limit.
+    async getGithubEtag(): Promise<string | undefined> {
+        const rows = await query<RowDataPacket[]>('SELECT etag FROM github_state WHERE id = 1');
+        return rows[0]?.etag ?? undefined;
+    }
+
+    setGithubEtag(etag: string): Promise<void> {
+        return query<ResultSetHeader>(
+            'INSERT INTO github_state (id, etag) VALUES (1, :etag) ON DUPLICATE KEY UPDATE etag = VALUES(etag)',
+            { etag }
+        ).then(() => undefined);
+    }
 }
 
 export default GithubDAO;
