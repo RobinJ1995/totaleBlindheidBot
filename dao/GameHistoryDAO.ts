@@ -223,6 +223,40 @@ class GameHistoryDAO {
         return order.map(id => byId.get(id)!);
     }
 
+    // One page of a player's match records in a chat, newest first (no co-players — used by
+    // the /delete_match_record picker), plus the total count so the picker can paginate.
+    async getGameHistoryPage(chat_id: number, user_id: number, offset: number, limit: number): Promise<{ total: number; entries: GameHistoryEntry[] }> {
+        const countRows = await query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS total FROM game_history WHERE chat_id = :chat_id AND user_id = :user_id',
+            { chat_id, user_id }
+        );
+        const total = Number(countRows[0].total);
+        if (total === 0) {
+            return { total, entries: [] };
+        }
+        const rows = await query<RowDataPacket[]>(
+            'SELECT id, chat_id, user_id, player_name, mode, map, score, started_at, ended_at ' +
+            'FROM game_history WHERE chat_id = :chat_id AND user_id = :user_id ' +
+            'ORDER BY id DESC LIMIT :limit OFFSET :offset',
+            { chat_id, user_id, limit, offset }
+        );
+        return {
+            total,
+            entries: rows.map(row => ({
+                id: Number(row.id),
+                chat_id: Number(row.chat_id),
+                user_id: Number(row.user_id),
+                player_name: row.player_name ?? undefined,
+                mode: row.mode ?? undefined,
+                map: row.map ?? undefined,
+                score: row.score ?? undefined,
+                co_players: [],
+                started_at: row.started_at ?? undefined,
+                ended_at: row.ended_at
+            }))
+        };
+    }
+
     // A single match record by id (no co-players — used to describe and verify a record
     // before deleting it), or null if it doesn't exist.
     async getGameHistoryEntryById(id: number): Promise<GameHistoryEntry | null> {
