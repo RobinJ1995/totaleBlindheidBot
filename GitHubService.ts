@@ -40,6 +40,9 @@ class GitHubService {
     private etagLoaded: boolean;
     // Epoch ms before which GitHub asked us not to come back. 0 = free to poll.
     private rateLimitedUntil: number;
+    // Drives the escalating wait GitHub asks for when a rejection carries no timing
+    // headers. Reset by any response it actually serves.
+    private consecutiveRateLimits: number;
 
     constructor(bot: TelegramBot) {
         this.bot = bot;
@@ -53,6 +56,7 @@ class GitHubService {
         this.etag = null;
         this.etagLoaded = false;
         this.rateLimitedUntil = 0;
+        this.consecutiveRateLimits = 0;
     }
 
     start(): void {
@@ -73,7 +77,7 @@ class GitHubService {
         }
     }
 
-    private async fetchCommits(): Promise<CommitsResponse | null> {
+    private async fetchCommits(useConditionalRequest: boolean): Promise<CommitsResponse | null> {
         const now = Date.now();
         if (now < this.rateLimitedUntil) {
             // Still inside the window GitHub told us to sit out. Requests made now
@@ -88,7 +92,7 @@ class GitHubService {
         if (process.env.GITHUB_TOKEN) {
             headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
         }
-        if (this.etag) {
+        if (useConditionalRequest && this.etag) {
             headers['If-None-Match'] = this.etag;
         }
 
@@ -100,6 +104,13 @@ class GitHubService {
             console.warn(warning);
         }
 
+        // Anything GitHub actually served — 200 or 304 — means we're inside the
+        // budget again, so the escalating backoff starts over.
+        if (res.ok || res.status === 304) {
+            this.rateLimitedUntil = 0;
+            this.consecutiveRateLimits = 0;
+        }
+
         // Nothing changed since the last poll. Checked before res.ok, which is false
         // for 304.
         if (res.status === 304) {
@@ -107,8 +118,13 @@ class GitHubService {
         }
 
         if (!res.ok) {
-            if (isRateLimitRejection(res.status, res.headers)) {
-                const backoffMs = rateLimitBackoffMs(res.headers, Date.now());
+            // Secondary limits can arrive with no timing headers at all, identifiable
+            // only by the message body. Reading it is free here — the error path has
+            // no other use for it.
+            const errorBody = await res.text().catch(() => '');
+            if (isRateLimitRejection(res.status, res.headers, errorBody)) {
+                this.consecutiveRateLimits += 1;
+                const backoffMs = rateLimitBackoffMs(res.headers, Date.now(), this.consecutiveRateLimits);
                 this.rateLimitedUntil = Date.now() + backoffMs;
                 console.error(
                     `GitHub API rate limit hit (${res.status}); pausing polls for ${Math.ceil(backoffMs / 1000)}s.`
@@ -118,9 +134,6 @@ class GitHubService {
             }
             return null;
         }
-
-        // A successful response means we're inside the budget again.
-        this.rateLimitedUntil = 0;
 
         const body = await res.json();
         if (!Array.isArray(body)) {
@@ -151,7 +164,13 @@ class GitHubService {
             this.etagLoaded = true;
         }
 
-        const response = await this.fetchCommits();
+        const lastSha = await this.dao.getGithubLastSha();
+
+        // A conditional request is only meaningful once a baseline exists. With no
+        // baseline a 304 tells us nothing we can act on, and — since it carries no
+        // commits — would stop us ever establishing one, silently swallowing the
+        // next push. Ask unconditionally until there is a SHA to compare against.
+        const response = await this.fetchCommits(Boolean(lastSha));
         if (!response || response.commits.length === 0) {
             return;
         }
@@ -159,7 +178,6 @@ class GitHubService {
 
         // GitHub returns newest first.
         const newestSha = commits[0].sha;
-        const lastSha = await this.dao.getGithubLastSha();
 
         // First ever run: record the baseline without announcing historical commits.
         if (!lastSha) {

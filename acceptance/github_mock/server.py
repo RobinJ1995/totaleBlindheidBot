@@ -43,9 +43,12 @@ _total_requests: int = 0
 _conditional_hits: int = 0
 
 # When set, the next _reject_requests commit requests answer with a rate-limit
-# rejection carrying this retry-after (seconds).
+# rejection carrying this retry-after (seconds). In "secondary" mode the rejection
+# carries no timing headers at all, which GitHub documents for secondary limits —
+# the client has only the message body to go on.
 _reject_requests: int = 0
 _reject_retry_after: int = 1
+_reject_secondary: bool = False
 
 
 def _etag() -> str:
@@ -60,6 +63,12 @@ def commits(owner: str, repo: str) -> Response:
 
         if _reject_requests > 0:
             _reject_requests -= 1
+            if _reject_secondary:
+                return Response(
+                    response='{"message": "You have exceeded a secondary rate limit."}',
+                    status=403,
+                    content_type="application/json",
+                )
             # Shape of a real primary rate-limit rejection: exhausted counter plus a
             # retry-after telling the client when to come back.
             return Response(
@@ -109,11 +118,12 @@ def add_commit() -> Response:
 @app.route("/test/rate-limit", methods=["POST"])
 def rate_limit() -> Response:
     """Make the next N commit requests fail the way an exceeded rate limit does."""
-    global _reject_requests, _reject_retry_after
+    global _reject_requests, _reject_retry_after, _reject_secondary
     body: Dict[str, Any] = request.get_json(force=True) or {}
     with _lock:
         _reject_requests = int(body.get("requests", 1))
         _reject_retry_after = int(body.get("retry_after", 1))
+        _reject_secondary = bool(body.get("secondary", False))
     return jsonify({"ok": True})
 
 
@@ -137,13 +147,14 @@ def reset_stats() -> Response:
 
 @app.route("/test/reset", methods=["POST"])
 def reset() -> Response:
-    global _commits, _version, _total_requests, _conditional_hits, _reject_requests
+    global _commits, _version, _total_requests, _conditional_hits, _reject_requests, _reject_secondary
     with _lock:
         _commits = _baseline()
         _version += 1
         _total_requests = 0
         _conditional_hits = 0
         _reject_requests = 0
+        _reject_secondary = False
     return jsonify({"ok": True})
 
 
