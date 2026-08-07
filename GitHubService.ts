@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import GithubDAO from './dao/GithubDAO.js';
 import { escapeHtml } from './utils.js';
+import { isRateLimitRejection, lowQuotaWarning, rateLimitBackoffMs } from './githubRateLimit.js';
 
 interface GitHubCommit {
     sha: string;
@@ -17,6 +18,13 @@ interface GitHubCommit {
     } | null;
 }
 
+interface CommitsResponse {
+    commits: GitHubCommit[];
+    // The response's ETag, replayed on the next poll so an unchanged repo answers
+    // 304 — which GitHub does not charge against the primary rate limit.
+    etag: string | null;
+}
+
 const DEFAULT_REPO = 'RobinJ1995/totaleBlindheidBot';
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_API_BASE = 'https://api.github.com';
@@ -28,6 +36,13 @@ class GitHubService {
     private apiBase: string;
     private intervalMs: number;
     private pollInterval: NodeJS.Timeout | null;
+    private etag: string | null;
+    private etagLoaded: boolean;
+    // Epoch ms before which GitHub asked us not to come back. 0 = free to poll.
+    private rateLimitedUntil: number;
+    // Drives the escalating wait GitHub asks for when a rejection carries no timing
+    // headers. Reset by any response it actually serves.
+    private consecutiveRateLimits: number;
 
     constructor(bot: TelegramBot) {
         this.bot = bot;
@@ -38,6 +53,10 @@ class GitHubService {
         const configured = Number(process.env.GITHUB_POLL_INTERVAL_MS);
         this.intervalMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_INTERVAL_MS;
         this.pollInterval = null;
+        this.etag = null;
+        this.etagLoaded = false;
+        this.rateLimitedUntil = 0;
+        this.consecutiveRateLimits = 0;
     }
 
     start(): void {
@@ -58,7 +77,14 @@ class GitHubService {
         }
     }
 
-    private async fetchCommits(): Promise<GitHubCommit[] | null> {
+    private async fetchCommits(useConditionalRequest: boolean): Promise<CommitsResponse | null> {
+        const now = Date.now();
+        if (now < this.rateLimitedUntil) {
+            // Still inside the window GitHub told us to sit out. Requests made now
+            // would be rejected and still count as used, keeping the bucket pinned.
+            return null;
+        }
+
         const headers: Record<string, string> = {
             'User-Agent': 'totaleBlindheidBot',
             'Accept': 'application/vnd.github+json'
@@ -66,37 +92,106 @@ class GitHubService {
         if (process.env.GITHUB_TOKEN) {
             headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
         }
+        if (useConditionalRequest && this.etag) {
+            headers['If-None-Match'] = this.etag;
+        }
 
         const url = `${this.apiBase}/repos/${this.repo}/commits?per_page=20`;
         const res = await fetch(url, { headers });
+
+        const warning = lowQuotaWarning(res.headers);
+        if (warning) {
+            console.warn(warning);
+        }
+
+        // Anything GitHub actually served — 200 or 304 — means we're inside the
+        // budget again, so the escalating backoff starts over.
+        if (res.ok || res.status === 304) {
+            this.rateLimitedUntil = 0;
+            this.consecutiveRateLimits = 0;
+        }
+
+        // Nothing changed since the last poll. Checked before res.ok, which is false
+        // for 304.
+        if (res.status === 304) {
+            return null;
+        }
+
         if (!res.ok) {
-            console.error(`GitHub API request failed: ${res.status} ${res.statusText}`);
+            // Secondary limits can arrive with no timing headers at all, identifiable
+            // only by the message body. Reading it is free here — the error path has
+            // no other use for it.
+            const errorBody = await res.text().catch(() => '');
+            if (isRateLimitRejection(res.status, res.headers, errorBody)) {
+                this.consecutiveRateLimits += 1;
+                const backoffMs = rateLimitBackoffMs(res.headers, Date.now(), this.consecutiveRateLimits);
+                this.rateLimitedUntil = Date.now() + backoffMs;
+                console.error(
+                    `GitHub API rate limit hit (${res.status}); pausing polls for ${Math.ceil(backoffMs / 1000)}s.`
+                );
+            } else {
+                console.error(`GitHub API request failed: ${res.status} ${res.statusText}`);
+            }
             return null;
         }
 
         const body = await res.json();
-        return Array.isArray(body) ? body as GitHubCommit[] : null;
+        if (!Array.isArray(body)) {
+            return null;
+        }
+
+        return { commits: body as GitHubCommit[], etag: res.headers.get('etag') };
+    }
+
+    /**
+     * Store the ETag only once the response it belongs to has been fully accounted
+     * for. Saving it earlier would mean a failure part-way through processing leaves
+     * us replaying an ETag for commits we never announced — and 304ing forever after.
+     */
+    private async rememberEtag(etag: string | null): Promise<void> {
+        if (!etag || etag === this.etag) {
+            return;
+        }
+        this.etag = etag;
+        await this.dao.setGithubEtag(etag);
     }
 
     private async pollAndNotify(): Promise<void> {
-        const commits = await this.fetchCommits();
-        if (!commits || commits.length === 0) {
+        if (!this.etagLoaded) {
+            // Persisted so a restart resumes conditional requests instead of spending
+            // a full request to relearn what it already knew.
+            this.etag = (await this.dao.getGithubEtag()) ?? null;
+            this.etagLoaded = true;
+        }
+
+        const lastSha = await this.dao.getGithubLastSha();
+
+        // A conditional request is only meaningful once a baseline exists. With no
+        // baseline a 304 tells us nothing we can act on, and — since it carries no
+        // commits — would stop us ever establishing one, silently swallowing the
+        // next push. Ask unconditionally until there is a SHA to compare against.
+        const response = await this.fetchCommits(Boolean(lastSha));
+        if (!response || response.commits.length === 0) {
             return;
         }
+        const { commits, etag } = response;
 
         // GitHub returns newest first.
         const newestSha = commits[0].sha;
-        const lastSha = await this.dao.getGithubLastSha();
 
         // First ever run: record the baseline without announcing historical commits.
         if (!lastSha) {
             await this.dao.setGithubLastSha(newestSha);
+            await this.rememberEtag(etag);
             console.log(`GitHub baseline established at ${newestSha}`);
             return;
         }
 
         if (newestSha === lastSha) {
-            return; // Nothing new.
+            // Nothing new, but this response is now the baseline the next conditional
+            // request compares against.
+            await this.rememberEtag(etag);
+            return;
         }
 
         // Collect commits newer than lastSha (newest-first slice up to the known SHA).
@@ -126,6 +221,7 @@ class GitHubService {
         }
 
         await this.dao.setGithubLastSha(newestSha);
+        await this.rememberEtag(etag);
     }
 
     private formatCommit(commit: GitHubCommit): string {
