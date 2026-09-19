@@ -101,8 +101,10 @@ CREATE TABLE IF NOT EXISTS rollcall_schedule (
 
 -- Single-row state for the one polled GitHub repo.
 CREATE TABLE IF NOT EXISTS github_state (
-    id       TINYINT     NOT NULL DEFAULT 1,
-    last_sha VARCHAR(64) NULL,
+    id       TINYINT      NOT NULL DEFAULT 1,
+    last_sha VARCHAR(64)  NULL,
+    -- ETag of the last commits response, replayed as If-None-Match on the next poll.
+    etag     VARCHAR(255) NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

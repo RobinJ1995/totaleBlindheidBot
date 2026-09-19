@@ -16,3 +16,27 @@ Feature: GitHub commit notifications
     And a user with id 5971 and first name "Tester"
     When a commit "deadbee" with message "Silent change" is pushed to GitHub
     Then no GitHub notification is posted to chat 7002
+
+  Scenario: polls with nothing new are conditional requests
+    # An unchanged repo must answer 304, which GitHub does not charge against the
+    # hourly rate limit — that is what keeps a 5-minute poller affordable.
+    Given the bot has established its GitHub baseline
+    When the GitHub request counters are reset
+    Then GitHub answers at least one poll with "304 Not Modified"
+
+  Scenario: a rate-limited poller backs off and still announces once it recovers
+    Given a chat with id 7003
+    And a user with id 5972 and first name "Tester"
+    And the bot has established its GitHub baseline
+    When the user sends "/github_notify on"
+    Then the bot replies "GitHub notifications for this chat have been turned on."
+    When GitHub rejects the next 2 requests with a rate limit and retry-after 2
+    And a commit "l1m1ted" with message "Survived the rate limit" is pushed to GitHub
+    Then chat 7003 receives a GitHub notification containing "Survived the rate limit"
+
+  # Kept last: a secondary limit carries no timing headers, so the bot falls back to
+  # a minutes-long wait that would starve any scenario running after it.
+  Scenario: a secondary rate limit with no timing headers also stops the polling
+    Given the bot has established its GitHub baseline
+    When GitHub rejects the next request with a secondary rate limit
+    Then the bot stops polling GitHub

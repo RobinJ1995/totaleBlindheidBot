@@ -277,3 +277,77 @@ def github_add_commit(sha: str, message: str) -> None:
         timeout=5,
     )
     resp.raise_for_status()
+
+
+def github_stats() -> Dict[str, int]:
+    resp = requests.get(f"{GITHUB_MOCK_URL}/test/stats", timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def github_reset_stats() -> None:
+    requests.post(f"{GITHUB_MOCK_URL}/test/reset-stats", timeout=5).raise_for_status()
+
+
+def github_reject_requests(count: int, retry_after: int = 1, secondary: bool = False) -> None:
+    """Make the mock answer the next `count` commit requests with a rate-limit 403."""
+    resp = requests.post(
+        f"{GITHUB_MOCK_URL}/test/rate-limit",
+        json={"requests": count, "retry_after": retry_after, "secondary": secondary},
+        timeout=5,
+    )
+    resp.raise_for_status()
+
+
+def wait_for_github_polling_to_stop(quiet_seconds: float = 3.0, timeout: Optional[float] = None) -> None:
+    """Wait until the mock has gone `quiet_seconds` without a single request.
+
+    The bot polls about once a second, so a gap several times that long only
+    happens if it has actually backed off rather than retrying on schedule.
+    """
+    deadline: float = time.time() + (timeout if timeout is not None else REPLY_TIMEOUT)
+    seen: int = github_stats()["total_requests"]
+    quiet_since: float = time.time()
+    while time.time() < deadline:
+        time.sleep(POLL_INTERVAL)
+        current: int = github_stats()["total_requests"]
+        if current != seen:
+            seen = current
+            quiet_since = time.time()
+        elif time.time() - quiet_since >= quiet_seconds:
+            return
+    raise AssertionError(
+        f"Bot kept polling GitHub; never went {quiet_seconds}s without a request"
+    )
+
+
+def wait_for_github_baseline(timeout: Optional[float] = None) -> str:
+    """Wait until the bot has recorded a baseline SHA.
+
+    Scenarios that interfere with polling need this first: without a baseline, the
+    bot treats the next successful poll as the starting point and announces nothing.
+    """
+    deadline: float = time.time() + (timeout if timeout is not None else REPLY_TIMEOUT)
+    while time.time() < deadline:
+        conn = db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT last_sha FROM github_state WHERE id = 1")
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+        finally:
+            conn.close()
+        time.sleep(POLL_INTERVAL)
+    raise AssertionError("Bot never established a GitHub baseline SHA")
+
+
+def wait_for_conditional_request(timeout: Optional[float] = None) -> int:
+    """Wait until the mock has answered at least one poll with a 304."""
+    deadline: float = time.time() + (timeout if timeout is not None else REPLY_TIMEOUT)
+    while time.time() < deadline:
+        hits: int = github_stats()["conditional_hits"]
+        if hits > 0:
+            return hits
+        time.sleep(POLL_INTERVAL)
+    raise AssertionError("Bot never made a conditional request the mock could answer 304")
