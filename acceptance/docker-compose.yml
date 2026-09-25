@@ -3,7 +3,10 @@ name: tbb-acceptance
 services:
   mariadb:
     image: mariadb:11
-    # Ephemeral in-container data dir; state is thrown away each run.
+    # State is thrown away each run, so nothing a test writes is worth an fsync, and on a slow
+    # disk every commit waits for one.
+    tmpfs:
+      - /var/lib/mysql
     environment:
       MARIADB_ROOT_PASSWORD: rootpass
       MARIADB_DATABASE: totaleblindheidbot
