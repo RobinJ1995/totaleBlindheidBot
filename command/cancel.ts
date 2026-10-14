@@ -19,10 +19,10 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                     .then(() => {
                         msg.reply('Scheduled rollcall cancelled.');
                     });
-            } else {
-                msg.reply('No rollcall scheduled for this group.');
-                return;
             }
+
+            msg.reply('No rollcall scheduled for this group.');
+            return;
         })
         .catch((err: Error) => msg.reply(formatError(err)));
 };

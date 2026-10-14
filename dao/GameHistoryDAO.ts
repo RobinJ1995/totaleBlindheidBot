@@ -136,9 +136,15 @@ class GameHistoryDAO {
                 byUser.set(user_id, acc);
             }
             // Rows come back oldest first, so the last non-null value wins — the most recent name.
-            if (row.player_name) acc.playerName = row.player_name;
-            if (row.tg_name) acc.tgName = row.tg_name;
-            if (row.tg_username) acc.username = row.tg_username;
+            if (row.player_name) {
+                acc.playerName = row.player_name;
+            }
+            if (row.tg_name) {
+                acc.tgName = row.tg_name;
+            }
+            if (row.tg_username) {
+                acc.username = row.tg_username;
+            }
         }
         return [...byUser.values()]
             .map(acc => ({

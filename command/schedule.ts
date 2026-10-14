@@ -36,9 +36,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
             if (diffMinutes < 2) {
                 msg.reply('Rollcall must be scheduled at least 2 minutes in advance.');
                 return;
-            }
-
-            if (diffMinutes > 12 * 60) {
+            } else if (diffMinutes > 12 * 60) {
                 msg.reply('Rollcall cannot be scheduled more than 12 hours in advance.');
                 return;
             }

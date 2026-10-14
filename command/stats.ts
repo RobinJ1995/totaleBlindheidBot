@@ -23,9 +23,13 @@ const emptyTally = (): Tally => ({ games: 0, wins: 0, losses: 0, ties: 0 });
 
 const addResult = (tally: Tally, result: GameResult | null): void => {
     tally.games += 1;
-    if (result === 'win') tally.wins += 1;
-    else if (result === 'loss') tally.losses += 1;
-    else if (result === 'tie') tally.ties += 1;
+    if (result === 'win') {
+        tally.wins += 1;
+    } else if (result === 'loss') {
+        tally.losses += 1;
+    } else if (result === 'tie') {
+        tally.ties += 1;
+    }
 };
 
 const percent = (part: number, whole: number): string =>
@@ -43,7 +47,9 @@ const formatDuration = (ms: number): string => {
     const minutes = Math.round(ms / 60000);
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
-    if (h === 0) return `${m}m`;
+    if (h === 0) {
+        return `${m}m`;
+    }
     return `${h}h ${m}m`;
 };
 
@@ -51,8 +57,9 @@ const formatDuration = (ms: number): string => {
 const pickMap = (byMap: Map<string, Tally>, metric: (t: Tally) => number): [string, Tally] | null => {
     let best: [string, Tally] | null = null;
     for (const [map, t] of byMap.entries()) {
-        if (t.games === 0) continue;
-        if (!best
+        if (t.games === 0) {
+            continue;
+        } else if (!best
             || metric(t) / t.games > metric(best[1]) / best[1].games
             || (metric(t) / t.games === metric(best[1]) / best[1].games && t.games > best[1].games)) {
             best = [map, t];
@@ -63,7 +70,9 @@ const pickMap = (byMap: Map<string, Tally>, metric: (t: Tally) => number): [stri
 
 export const renderStats = (entries: GameHistoryEntry[]): string | null => {
     const competitive = entries.filter(e => isCompetitive(e.mode));
-    if (competitive.length === 0) return null;
+    if (competitive.length === 0) {
+        return null;
+    }
 
     const total = emptyTally();
     const byMap = new Map<string, Tally>();
@@ -180,7 +189,9 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     resolvePlayerTarget(dao, msg)
         .then(target => {
-            if (!target) return;  // resolvePlayerTarget already replied with the reason.
+            if (!target) {
+                return;  // resolvePlayerTarget already replied with the reason.
+            }
             return dao.getGameHistory(msg.chat.id, target.user_id)
                 .then((entries: GameHistoryEntry[]) => {
                     const text = renderStats(entries);

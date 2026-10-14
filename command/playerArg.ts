@@ -55,8 +55,7 @@ export const matchPlayerArgument = (
     const matches = [...byUser.values()];
     if (matches.length === 0) {
         return { kind: 'none', needle: trimmed };
-    }
-    if (matches.length > 1) {
+    } else if (matches.length > 1) {
         // Append the username (when known) so two players sharing a display name can be told apart.
         const names = matches.map(m => m.username ? `${m.name} (@${m.username})` : m.name);
         return { kind: 'ambiguous', needle: trimmed, names };
@@ -67,7 +66,9 @@ export const matchPlayerArgument = (
 // The tapped mention (if any) attached to the command, with its display text as the name.
 export const textMention = (msg: ExtendedMessage): MentionRef | undefined => {
     const entity = (msg.entities || []).find(e => e.type === 'text_mention' && e.user);
-    if (!entity?.user) return undefined;
+    if (!entity?.user) {
+        return undefined;
+    }
     const argument = msg.command?.argument?.trim();
     return {
         user_id: entity.user.id,

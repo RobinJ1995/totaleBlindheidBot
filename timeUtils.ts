@@ -32,7 +32,9 @@ const isValidZone = (zone: string): boolean => DateTime.now().setZone(zone).isVa
  */
 const normaliseTimezone = (input: string): string | null => {
     const trimmed: string = input.trim();
-    if (!trimmed) return null;
+    if (!trimmed) {
+        return null;
+    }
 
     // Offset forms: optional UTC/GMT prefix, optional sign, hours, optional minutes.
     const offsetMatch: RegExpMatchArray | null = trimmed.match(
@@ -72,14 +74,18 @@ const normaliseTimezone = (input: string): string | null => {
 
     // (a) exact case-insensitive IANA match (e.g. "europe/madrid").
     const exact: TimezoneResult | undefined = valid.find(r => r.iana.toLowerCase() === lowerInput);
-    if (exact) return exact.iana;
+    if (exact) {
+        return exact.iana;
+    }
 
     // (b) IANA whose last path segment matches the input city (e.g. "Brussels" -> "Europe/Brussels").
     const bySegment: TimezoneResult | undefined = valid.find(r => {
         const segment: string = r.iana.split('/').pop()!.toLowerCase().replace(/_/g, ' ');
         return segment === lowerInput.replace(/_/g, ' ');
     });
-    if (bySegment) return bySegment.iana;
+    if (bySegment) {
+        return bySegment.iana;
+    }
 
     // (c) first valid candidate. Covers abbreviations like "CET"; for ambiguous
     // ones (e.g. "IST", "EST") we accept timezone-soft's first match rather than
@@ -130,7 +136,9 @@ const parseTime = (input: string, now: Date = new Date(), timezone: string = 'UT
         results = chrono.parse('in ' + input, referenceDate, { forwardDate: true });
     }
 
-    if (results.length === 0) return null;
+    if (results.length === 0) {
+        return null;
+    }
 
     const result: chrono.ParsedResult = results[0];
     const components: chrono.ParsedComponents = result.start;

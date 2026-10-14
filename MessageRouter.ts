@@ -38,7 +38,9 @@ class MessageRouter {
     }
 
     handle(msg: Message): void {
-        if (!msg.text || !msg.text.startsWith('/')) return;
+        if (!msg.text || !msg.text.startsWith('/')) {
+            return;
+        }
 
         const parts: string[] = msg.text.split(/\s+/);
         const commandWithPrefix: string = parts[0];
@@ -46,7 +48,9 @@ class MessageRouter {
         const [name] = nameWithTarget.split('@');
 
         const route: Route | undefined = this._routes.find(r => r.command.toLowerCase() === name);
-        if (!route) return;
+        if (!route) {
+            return;
+        }
 
         const extendedMsg = msg as ExtendedMessage;
 

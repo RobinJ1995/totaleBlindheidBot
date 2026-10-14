@@ -38,9 +38,7 @@ const parseMention = (mention: string): ParsedMention => {
     const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
     if (match) {
         return { id: Number(match[2]), display: match[1] };
-    }
-
-    if (mention.startsWith('@')) {
+    } else if (mention.startsWith('@')) {
         return { username: mention.substring(1), display: mention };
     }
 
