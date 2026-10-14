@@ -22,9 +22,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     if (!steamService) {
         msg.reply('Steam service is not enabled.');
         return;
-    }
-
-    if (steamService.submitSteamGuardCode(code)) {
+    } else if (steamService.submitSteamGuardCode(code)) {
         msg.reply('Steam Guard code submitted.');
     } else {
         msg.reply('No Steam Guard code is currently requested, or it was already provided.');

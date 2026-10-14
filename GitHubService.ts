@@ -93,9 +93,7 @@ class GitHubService {
             await this.dao.setGithubLastSha(newestSha);
             console.log(`GitHub baseline established at ${newestSha}`);
             return;
-        }
-
-        if (newestSha === lastSha) {
+        } else if (newestSha === lastSha) {
             return; // Nothing new.
         }
 

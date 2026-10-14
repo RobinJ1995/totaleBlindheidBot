@@ -69,9 +69,13 @@ export interface StreamDerivation {
 
 // Parse a raw "16-14" (or "16:14") score into its parts and round total.
 export const parseRawScore = (score?: string): { a: number; b: number; total: number } | null => {
-    if (!score) return null;
+    if (!score) {
+        return null;
+    }
     const m = score.replace(/[\[\]]/g, '').trim().match(/^(\d+)\s*[-:]\s*(\d+)$/);
-    if (!m) return null;
+    if (!m) {
+        return null;
+    }
     const a = parseInt(m[1], 10);
     const b = parseInt(m[2], 10);
     return { a, b, total: a + b };
@@ -100,19 +104,27 @@ const newSegment = (e: PresenceEvent): MatchSegment => ({
 // old cur.map || map precedence), the max score only ever moves up, names/attribution track the
 // latest observation.
 const absorb = (seg: MatchSegment, e: PresenceEvent, countScore: boolean = true): void => {
-    if (e.map && !seg.map) seg.map = e.map;
-    if (e.mode && !seg.mode) seg.mode = e.mode;
+    if (e.map && !seg.map) {
+        seg.map = e.map;
+    }
+    if (e.mode && !seg.mode) {
+        seg.mode = e.mode;
+    }
     if (countScore && e.score_total != null) {
         const cur = maxTotal(seg);
         if (cur == null || e.score_total > cur) {
             seg.max_score = e.raw_score;
         }
     }
-    if (e.player_name) seg.player_name = e.player_name;
+    if (e.player_name) {
+        seg.player_name = e.player_name;
+    }
     seg.user_id = e.user_id;
     seg.playing = e.playing;
     seg.last_event_at = e.created_at;
-    if (e.playing) seg.last_playing_at = e.created_at;
+    if (e.playing) {
+        seg.last_playing_at = e.created_at;
+    }
     seg.lastEventId = e.id;
     seg.events.push(e);
 };
@@ -151,9 +163,7 @@ export const segmentStream = (events: PresenceEvent[], now: Date, config: Deriva
             if (!seg) {
                 seg = newSegment(ev);
                 continue;
-            }
-
-            if (pending) {
+            } else if (pending) {
                 if (ev.score_total != null) {
                     const oldMax = maxTotal(seg);
                     const backInOldRange = oldMax != null && ev.score_total >= oldMax - config.resetTolerance;
@@ -186,9 +196,7 @@ export const segmentStream = (events: PresenceEvent[], now: Date, config: Deriva
                     absorb(pending, ev);
                 }
                 continue;
-            }
-
-            if (mapChanged(seg.map, ev.map) || modeChanged(seg.mode, ev.mode)) {
+            } else if (mapChanged(seg.map, ev.map) || modeChanged(seg.mode, ev.mode)) {
                 closed.push(seg);
                 seg = newSegment(ev);
                 continue;
@@ -242,8 +250,11 @@ export const deriveRounds = (events: PresenceEvent[]): RoundOutcome[] => {
     let b = 0;
     for (const e of events) {
         const parsed = parseRawScore(e.raw_score);
-        if (!parsed) continue;
-        if (parsed.a < a || parsed.b < b) continue;
+        if (!parsed) {
+            continue;
+        } else if (parsed.a < a || parsed.b < b) {
+            continue;
+        }
         for (let i = a; i < parsed.a; i++) rounds.push('win');
         for (let i = b; i < parsed.b; i++) rounds.push('loss');
         a = parsed.a;
@@ -272,7 +283,9 @@ export const findCoPlayers = (
     const byUser = new Map<number, CoPlayer>();
 
     for (const [, stream] of otherStreams) {
-        if (stream.length === 0) continue;
+        if (stream.length === 0) {
+            continue;
+        }
 
         let idx = 0;
         // Running view of the segment as it accumulated, so each point-in-time check uses what
@@ -282,8 +295,12 @@ export const findCoPlayers = (
         let runMax: number | null = null;
 
         for (const e of segment.events) {
-            if (e.map && !runMap) runMap = e.map;
-            if (e.mode && !runMode) runMode = e.mode;
+            if (e.map && !runMap) {
+                runMap = e.map;
+            }
+            if (e.mode && !runMode) {
+                runMode = e.mode;
+            }
             if (e.score_total != null && (runMax == null || e.score_total > runMax)) {
                 runMax = e.score_total;
             }
@@ -293,13 +310,21 @@ export const findCoPlayers = (
                 idx++;
             }
             const o = stream[idx];
-            if (o.created_at.getTime() > e.created_at.getTime()) continue; // no state yet
-            if (e.created_at.getTime() - o.created_at.getTime() > config.coPlayerStaleMs) continue; // stale
-            if (o.user_id === segment.user_id) continue;                   // same user, other account
-            if (!o.playing) continue;
-            if (mapChanged(runMap, o.map)) continue;
-            if (modeChanged(runMode, o.mode)) continue;
-            if (runMax != null && o.score_total != null && Math.abs(runMax - o.score_total) > config.resetTolerance) continue;
+            if (o.created_at.getTime() > e.created_at.getTime()) {
+                continue; // no state yet
+            } else if (e.created_at.getTime() - o.created_at.getTime() > config.coPlayerStaleMs) {
+                continue; // stale
+            } else if (o.user_id === segment.user_id) {
+                continue; // same user, other account
+            } else if (!o.playing) {
+                continue;
+            } else if (mapChanged(runMap, o.map)) {
+                continue;
+            } else if (modeChanged(runMode, o.mode)) {
+                continue;
+            } else if (runMax != null && o.score_total != null && Math.abs(runMax - o.score_total) > config.resetTolerance) {
+                continue;
+            }
 
             const existing = byUser.get(o.user_id);
             if (!existing) {

@@ -27,9 +27,15 @@ const isAdmin = (userId?: number): boolean => {
 // e.g. "🏆 Vertigo · Competitive · 13-7".
 const describeEntry = (entry: GameHistoryEntry): string => {
     const parts: string[] = [];
-    if (entry.map) parts.push(entry.map);
-    if (entry.mode) parts.push(entry.mode);
-    if (entry.score) parts.push(entry.score);
+    if (entry.map) {
+        parts.push(entry.map);
+    }
+    if (entry.mode) {
+        parts.push(entry.mode);
+    }
+    if (entry.score) {
+        parts.push(entry.score);
+    }
     return `${resultEmoji(entry.score)} ${parts.join(' · ') || 'unknown match'}`;
 };
 
@@ -86,7 +92,9 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
 
     resolvePlayerTarget(dao, msg)
         .then(target => {
-            if (!target) return;  // resolvePlayerTarget already replied with the reason.
+            if (!target) {
+                return;  // resolvePlayerTarget already replied with the reason.
+            }
             return dao.getGameHistoryPage(msg.chat.id, target.user_id, 0, PAGE_SIZE)
                 .then(({ total, entries }) => {
                     if (total === 0) {
@@ -133,14 +141,10 @@ export const handleDeleteMatchCallback = (bot: TelegramBot, query: CallbackQuery
     if (arg === 'noop') {
         answer();
         return;
-    }
-
-    if (!isAdmin(query.from?.id)) {
+    } else if (!isAdmin(query.from?.id)) {
         answer('Only the admin can delete match records.');
         return;
-    }
-
-    if (arg === 'cancel') {
+    } else if (arg === 'cancel') {
         replacePicker('Match record deletion cancelled.').then(() => answer());
         return;
     }
@@ -155,7 +159,9 @@ export const handleDeleteMatchCallback = (bot: TelegramBot, query: CallbackQuery
                 { inline_keyboard: pickerKeyboard(entries, targetUserId, total, at) },
                 { chat_id: message.chat.id, message_id: message.message_id }
             ).catch((err: Error) => {
-                if (!err.message?.includes('message is not modified')) throw err;
+                if (!err.message?.includes('message is not modified')) {
+                    throw err;
+                }
             });
         dao.getGameHistoryPage(message.chat.id, targetUserId, offset, PAGE_SIZE)
             .then(({ total, entries }) => {

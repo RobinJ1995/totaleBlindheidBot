@@ -239,7 +239,9 @@ class SteamService {
     }
 
     private reconnect(delayMs = 30_000): void {
-        if (this.reconnectTimer) return;
+        if (this.reconnectTimer) {
+            return;
+        }
         console.warn(`Steam: scheduling reconnect in ${delayMs / 1000}s...`);
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
@@ -304,9 +306,7 @@ class SteamService {
         if (!tgUserId) {
             console.debug(`Received Steam update for non-tracked user: ${playerName} (${steamId})`);
             return;
-        }
-
-        if (process.env.LOG_DEBUG) {
+        } else if (process.env.LOG_DEBUG) {
             console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}).`, { gameId, ...user });
         } else {
             console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}).`, { gameId, game_played_app_id: user?.game_played_app_id, online_session_instances: user?.online_session_instances, rich_presence: user?.rich_presence });
@@ -406,11 +406,21 @@ class SteamService {
 
             // If no map/status yet, maybe it's just starting
             let text = `🟢 *${escapeMarkdown(displayName)}* is playing Counter-Strike`;
-            if (map || status || score || rounds.length > 0) text += `\n`;
-            if (map) text += `\nMap: ${escapeMarkdown(map)}`;
-            if (status) text += `\nStatus: ${escapeMarkdown(status)}`;
-            if (score) text += `\nScore: ${escapeMarkdown(score)}`;
-            if (rounds.length > 0) text += `\nRounds: ${this.formatRounds(rounds)}`;
+            if (map || status || score || rounds.length > 0) {
+                text += `\n`;
+            }
+            if (map) {
+                text += `\nMap: ${escapeMarkdown(map)}`;
+            }
+            if (status) {
+                text += `\nStatus: ${escapeMarkdown(status)}`;
+            }
+            if (score) {
+                text += `\nScore: ${escapeMarkdown(score)}`;
+            }
+            if (rounds.length > 0) {
+                text += `\nRounds: ${this.formatRounds(rounds)}`;
+            }
 
             console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
@@ -457,9 +467,7 @@ class SteamService {
             if (lastUpdate && lastUpdate.text === text) {
                 console.log(`Update for user ${tgUserId} in chat ${chatId} is redundant (text hasn't changed), skipping.`);
                 return;
-            }
-
-            if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
+            } else if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
                 const oldInfo: GameUpdateInfo = lastUpdate.info || {};
                 
                 // Check if the new update is less detailed than the previous one.
@@ -532,7 +540,9 @@ class SteamService {
     }
 
     isGenericStatus(status: string | null | undefined): boolean {
-        if (!status) return true;
+        if (!status) {
+            return true;
+        }
         const generic = [
             'playing counter-strike 2',
             'counter-strike 2',
@@ -546,7 +556,9 @@ class SteamService {
     }
 
     formatScore(score: string): string {
-        if (!score) return score;
+        if (!score) {
+            return score;
+        }
         // Strip surrounding brackets and whitespace
         const cleanScore = score.replace(/[\[\]]/g, '').trim();
         const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
@@ -563,10 +575,16 @@ class SteamService {
     // "13-8" form used elsewhere.
     sessionOverviewLine(match: SessionMatch): string {
         const parts: string[] = [this.resultEmoji(match.score)];
-        if (match.mode) parts.push(`${escapeMarkdown(match.mode)}:`);
-        if (match.map) parts.push(escapeMarkdown(match.map));
+        if (match.mode) {
+            parts.push(`${escapeMarkdown(match.mode)}:`);
+        }
+        if (match.map) {
+            parts.push(escapeMarkdown(match.map));
+        }
         const parsed = this.parseRawScore(match.score);
-        if (parsed) parts.push(this.formatScore(`${parsed.a}:${parsed.b}`));
+        if (parsed) {
+            parts.push(this.formatScore(`${parsed.a}:${parsed.b}`));
+        }
         return parts.join(' ');
     }
 
@@ -601,9 +619,13 @@ class SteamService {
     // 🏆/☠️/🤝 from a raw score (first part = player, second = opponents).
     resultEmoji(score?: string): string {
         const parsed = this.parseRawScore(score);
-        if (!parsed) return '•';
-        if (parsed.a > parsed.b) return '🏆';
-        if (parsed.a < parsed.b) return '☠️';
+        if (!parsed) {
+            return '•';
+        } else if (parsed.a > parsed.b) {
+            return '🏆';
+        } else if (parsed.a < parsed.b) {
+            return '☠️';
+        }
         return '🤝';
     }
 
@@ -717,7 +739,9 @@ class SteamService {
                 const chatCoPlayers: GameHistoryCoPlayer[] = [];
                 for (const co of coPlayers) {
                     const coChats = await this.userDao.getUserChats(co.user_id);
-                    if (!coChats.includes(chatId)) continue;
+                    if (!coChats.includes(chatId)) {
+                        continue;
+                    }
                     const name = await this.resolveCoPlayerName(chatId, co.user_id, co.player_name);
                     chatCoPlayers.push({ tg_user_id: co.user_id, name });
                 }
@@ -773,7 +797,9 @@ class SteamService {
         const otherStreams = new Map<string, PresenceEvent[]>();
         const trackedIds = await this.presenceEventDao.getTrackedSteamIds();
         for (const otherId of trackedIds) {
-            if (otherId === steamId) continue;
+            if (otherId === steamId) {
+                continue;
+            }
             const stream = await this.presenceEventDao.getStreamAround(otherId, segment.started_at, segment.last_event_at);
             if (stream.length > 0) {
                 otherStreams.set(otherId, stream);
@@ -785,7 +811,9 @@ class SteamService {
     // Resolve a co-player's display name: Telegram name → rollcall mention → Steam name → id.
     private async resolveCoPlayerName(chatId: number, otherTgId: number, fallback?: string): Promise<string> {
         const tgName = await this.getTelegramDisplayName(chatId, otherTgId);
-        if (tgName) return tgName;
+        if (tgName) {
+            return tgName;
+        }
         try {
             const rotation = await this.rollcallPlayerDao.getRollcallPlayerUsernames(chatId);
             for (const mention of rotation) {
@@ -809,9 +837,9 @@ class SteamService {
             return 'win';
         } else if (parsed.a < parsed.b) {
             return 'loss';
-        } else {
-            return 'tie';
         }
+
+        return 'tie';
     }
 
     // Join names into "A", "A and B", or "A, B and C". Order is irrelevant.
@@ -820,9 +848,9 @@ class SteamService {
             return 'Someone';
         } else if (names.length === 1) {
             return names[0];
-        } else {
-            return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
         }
+
+        return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
     }
 
     private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string): string {
@@ -865,8 +893,7 @@ class SteamService {
         const sameSig = candidates.filter(c => {
             if (c.id === historyId) {
                 return false;
-            }
-            if (this.matchResult(c.score) !== result) {
+            } else if (this.matchResult(c.score) !== result) {
                 return false;
             }
             const t = this.parseRawScore(c.score)?.total;
@@ -896,8 +923,7 @@ class SteamService {
         for (const [messageId, g] of groups) {
             if (g.ownerIds.has(match.user_id)) {
                 continue; // a previous match of this player
-            }
-            if (!target || g.maxId > target.maxId) {
+            } else if (!target || g.maxId > target.maxId) {
                 target = { messageId, rows: g.rows, maxId: g.maxId };
             }
         }
@@ -983,19 +1009,23 @@ class SteamService {
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
         try {
             if (await this.isAnyAccountPlayingCS2(tgUserId)) {
-                 if (process.env.LOG_DEBUG) {
-                     console.debug(`User ${tgUserId} has an active session on one of their accounts. Not closing.`);
-                 }
-                 return;
+                if (process.env.LOG_DEBUG) {
+                    console.debug(`User ${tgUserId} has an active session on one of their accounts. Not closing.`);
+                }
+                return;
             }
 
             const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
-            if (!lastUpdate || !lastUpdate.text) return;
+            if (!lastUpdate || !lastUpdate.text) {
+                return;
+            }
 
             // If message is too old (> 6 hours), ignore
             const now = new Date();
             const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-            if (new Date(lastUpdate.timestamp) < sixHoursAgo) return;
+            if (new Date(lastUpdate.timestamp) < sixHoursAgo) {
+                return;
+            }
 
             let newText = lastUpdate.text;
 
@@ -1004,9 +1034,7 @@ class SteamService {
             // look anywhere in the text rather than at the start.
             if (newText.includes('🔴')) {
                 return;
-            }
-
-            if (newText.includes('🟢')) {
+            } else if (newText.includes('🟢')) {
                 newText = newText.replace('🟢', '🔴');
             } else {
                 // Legacy or unexpected format, prepend red

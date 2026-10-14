@@ -77,8 +77,7 @@ def bot_api(token: str, method: str) -> Response:
                 _updates[:] = [u for u in _updates if u["update_id"] >= offset]
             result = list(_updates)
         return jsonify({"ok": True, "result": result})
-
-    if method == "sendMessage":
+    elif method == "sendMessage":
         with _lock:
             message_id = _next_message_id
             _next_message_id += 1
@@ -100,8 +99,7 @@ def bot_api(token: str, method: str) -> Response:
                 "text": text,
             },
         })
-
-    if method == "editMessageText":
+    elif method == "editMessageText":
         with _lock:
             chat_id = params.get("chat_id")
             text = params.get("text", "")
@@ -121,16 +119,14 @@ def bot_api(token: str, method: str) -> Response:
                 "text": text,
             },
         })
-
-    if method == "answerCallbackQuery":
+    elif method == "answerCallbackQuery":
         with _lock:
             _callback_answers.append({
                 "callback_query_id": params.get("callback_query_id"),
                 "text": params.get("text"),
             })
         return jsonify({"ok": True, "result": True})
-
-    if method == "getMe":
+    elif method == "getMe":
         return jsonify({
             "ok": True,
             "result": {

@@ -18,8 +18,7 @@ class RollcallPlayerDAO {
     private _playerMention(row: RollcallPlayerRow): string {
         if (row.user_id !== null) {
             return `[${row.display_name ?? ''}](tg://user?id=${row.user_id})`;
-        }
-        if (row.username !== null) {
+        } else if (row.username !== null) {
             return `@${row.username}`;
         }
         return row.display_name ?? '';
@@ -30,8 +29,7 @@ class RollcallPlayerDAO {
         const match = input.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
         if (match) {
             return { user_id: Number(match[2]), username: null, display_name: match[1] };
-        }
-        if (input.startsWith('@')) {
+        } else if (input.startsWith('@')) {
             return { user_id: null, username: input.substring(1), display_name: null };
         }
         return { user_id: null, username: null, display_name: input };

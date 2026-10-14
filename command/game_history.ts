@@ -20,9 +20,13 @@ export type GameResult = 'win' | 'loss' | 'tie';
 
 export const scoreResult = (score?: string): GameResult | null => {
     const parsed = parseScore(score);
-    if (!parsed) return null;
-    if (parsed.us > parsed.them) return 'win';
-    if (parsed.us < parsed.them) return 'loss';
+    if (!parsed) {
+        return null;
+    } else if (parsed.us > parsed.them) {
+        return 'win';
+    } else if (parsed.us < parsed.them) {
+        return 'loss';
+    }
     return 'tie';
 };
 
@@ -40,9 +44,15 @@ const safeName = (name: string): string => escapeMarkdown(name).replace('@', '@â
 
 const renderLine = (entry: GameHistoryEntry): string => {
     const parts: string[] = [];
-    if (entry.map) parts.push(escapeMarkdown(entry.map));
-    if (entry.mode) parts.push(escapeMarkdown(entry.mode));
-    if (entry.score) parts.push(escapeMarkdown(entry.score));
+    if (entry.map) {
+        parts.push(escapeMarkdown(entry.map));
+    }
+    if (entry.mode) {
+        parts.push(escapeMarkdown(entry.mode));
+    }
+    if (entry.score) {
+        parts.push(escapeMarkdown(entry.score));
+    }
     if (entry.co_players && entry.co_players.length > 0) {
         parts.push(`with ${entry.co_players.map(p => safeName(p.name)).join(', ')}`);
     }
@@ -52,7 +62,9 @@ const renderLine = (entry: GameHistoryEntry): string => {
 export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     resolvePlayerTarget(dao, msg)
         .then(target => {
-            if (!target) return;  // resolvePlayerTarget already replied with the reason.
+            if (!target) {
+                return;  // resolvePlayerTarget already replied with the reason.
+            }
             return dao.getGameHistory(msg.chat.id, target.user_id)
                 .then((entries: GameHistoryEntry[]) => {
                     if (entries.length === 0) {
