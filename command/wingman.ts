@@ -17,7 +17,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
     dao.getRollcallPlayerUsernames(msg.chat?.id || 0)
         .then((players: string[]) => presenceMarkers(players).then(markers => {
             // Prefix each tag with the player's 🟢/🟡/🔴 presence, like rollcalls and schedules.
-            const tags: string[] = players.map(player => markers[player] ? `${markers[player]} ${player}` : player);
+            const tags: string[] = players.map(player => markers[player] ? `${markers[player]}${player}` : player);
             return msg.reply(`${pickRandom(QUOTES)}\n${tags.join(' ')}`);
         }))
         .catch((err: Error) => msg.reply(`*${escapeMarkdown(err.toString())}*`));
