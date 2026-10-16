@@ -77,8 +77,9 @@ export interface RsvpGroups {
 // Combine the live rotation roster with the explicit entries on the RSVP list.
 // Players are uncategorised until they tap a button; explicit entries (incl. the seeded
 // initiator) place them into yes/maybe/no, and non-rotation tappers are appended as extra
-// people. Every rotation player is still tagged in the mention line unless they opted out.
-const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGroups => {
+// people. Every rotation player is still tagged in the mention line unless they opted out,
+// prefixed with their presence marker (keyed by rotation mention string) when one is given.
+const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers: Record<string, string> = {}): RsvpGroups => {
     const people: ResolvedPerson[] = [];
     const byId: Map<number, ResolvedPerson> = new Map();
     const byUsername: Map<string, ResolvedPerson> = new Map();
@@ -116,7 +117,8 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGr
         }
         // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
-            mentions.push(mentionMarkdown(person.mention));
+            const marker: string | undefined = markers[person.mention];
+            mentions.push(marker ? `${marker} ${mentionMarkdown(person.mention)}` : mentionMarkdown(person.mention));
         }
     });
 

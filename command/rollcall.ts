@@ -4,6 +4,7 @@ import { pickRandom, escapeMarkdown } from '../utils.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
+import { presenceMarkers } from '../presence.js';
 
 const rollcallPlayerDao = new RollcallPlayerDAO();
 const rsvpDao = new RsvpDAO();
@@ -27,9 +28,10 @@ interface ExecuteRollcallOptions {
 
 const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<Message> => {
     return Promise.all([
-        rollcallPlayerDao.getRollcallPlayerUsernames(chat_id),
+        rollcallPlayerDao.getRollcallPlayerUsernames(chat_id)
+            .then(rotation => presenceMarkers(rotation).then(markers => ({ rotation, markers }))),
         opts.rsvp_id ? rsvpDao.getRsvpList(opts.rsvp_id) : Promise.resolve(undefined)
-    ]).then(([rotation, existing]) => {
+    ]).then(([{ rotation, markers }, existing]) => {
         // Inherit the shared list's entries when triggered by a schedule; otherwise seed
         // a fresh list with the initiator marked as joining.
         const entries: Record<string, RsvpEntry> = existing ? existing.entries : {};
@@ -37,8 +39,9 @@ const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcal
             entries[opts.initiator.id] = entryFromUser(opts.initiator, 'yes');
         }
 
-        const { groups, mentions } = resolve(rotation, entries);
-        // The ping line is baked in at send time: anyone who said "no" is dropped here.
+        const { groups, mentions } = resolve(rotation, entries, markers);
+        // The ping line is baked in at send time: anyone who said "no" is dropped here, and the
+        // 🟢/🟡/🔴 presence markers are a snapshot of who was in CS2 / online / offline.
         const baseText: string = `${pickRandom(QUOTES)}\n${mentions.join(' ')}`;
 
         return bot.sendMessage(chat_id, renderMessage(baseText, groups), {

@@ -7,6 +7,7 @@ import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { formatError, escapeMarkdown } from '../utils.js';
 import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp.js';
+import { presenceMarkers } from '../presence.js';
 
 const userDao = new UserDAO();
 const scheduleDao = new ScheduleDAO();
@@ -52,7 +53,8 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                 })
                 .then(() => scheduleDao.setScheduledRollcall(chat_id, scheduledTime))
                 .then(() => rollcallPlayerDao.getRollcallPlayerUsernames(chat_id))
-                .then((rotation: string[]) => {
+                .then((rotation: string[]) => presenceMarkers(rotation).then(markers => ({ rotation, markers })))
+                .then(({ rotation, markers }) => {
                     const timeString: string = scheduledTime.toLocaleString('en-GB', {
                         timeZone: timezone,
                         year: 'numeric',
@@ -70,9 +72,10 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                         entries[msg.from.id] = entryFromUser(msg.from, 'yes');
                     }
 
-                    const { groups, mentions } = resolve(rotation, entries);
+                    const { groups, mentions } = resolve(rotation, entries, markers);
                     // Like a rollcall, the schedule tags the whole rotation up front. The
-                    // mention line is baked in here so it records who was pinged when scheduled.
+                    // mention line is baked in here so it records who was pinged when scheduled,
+                    // along with their 🟢/🟡/🔴 presence at that moment.
                     const heading: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
                     const baseText: string = mentions.length ? `${heading}\n${mentions.join(' ')}` : heading;
 

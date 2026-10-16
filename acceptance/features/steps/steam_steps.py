@@ -123,6 +123,16 @@ def step_steam_stopped(context: Context, steam_id: str) -> None:
     helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None})
 
 
+@when('Steam reports user "{steam_id}" online but not playing')
+def step_steam_online(context: Context, steam_id: str) -> None:
+    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None, "persona_state": 1})
+
+
+@when('Steam reports user "{steam_id}" offline')
+def step_steam_offline(context: Context, steam_id: str) -> None:
+    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None, "persona_state": 0})
+
+
 @when('a Steam Guard code is requested')
 def step_steam_guard_requested(context: Context) -> None:
     # Notification is sent to the admin chat; track that chat for assertions.

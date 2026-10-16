@@ -81,6 +81,9 @@ interface SteamUserUpdate {
     online_session_instances?: number | null;
 }
 
+// A Telegram user's Steam presence: in CS2, signed in to Steam but not in CS2, or signed out.
+export type Presence = 'playing' | 'online' | 'offline';
+
 class SteamService {
     private bot: TelegramBot;
     private client: SteamUser; // Initialize in constructor
@@ -1004,6 +1007,24 @@ class SteamService {
             // Check if playing CS2 (AppID 730)
             return user && user.gameid == this.appIdCS2;
         });
+    }
+
+    // The user's presence across all of their mapped Steam accounts; the most active account
+    // wins. Undefined when they have no linked account or Steam hasn't told us about any of them.
+    async getPresence(tgUserId: number): Promise<Presence | undefined> {
+        const settings = await this.userDao.getUserSettings(tgUserId);
+        const known = (settings.steam_ids || [])
+            .map(sid => this.client.users[sid])
+            .filter(user => !!user);
+        if (known.length === 0) {
+            return undefined;
+        } else if (known.some(user => user.gameid == this.appIdCS2)) {
+            return 'playing';
+        } else if (known.some(user => user.gameid || (user.persona_state != null && user.persona_state !== SteamUser.EPersonaState.Offline))) {
+            // Being in any game implies being online, even if the persona state is missing.
+            return 'online';
+        }
+        return 'offline';
     }
 
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {

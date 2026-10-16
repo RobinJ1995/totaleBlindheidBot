@@ -90,6 +90,12 @@ class UserDAO {
         });
     }
 
+    // Resolve an @username (without the @) to a Telegram user id via the recorded telegram_user rows.
+    async getUserIdByUsername(username: string): Promise<number | undefined> {
+        const rows = await query<RowDataPacket[]>('SELECT user_id FROM telegram_user WHERE username = :username LIMIT 1', { username });
+        return rows.length > 0 ? Number(rows[0].user_id) : undefined;
+    }
+
     async getUserChats(user_id: number): Promise<number[]> {
         const rows = await query<RowDataPacket[]>('SELECT chat_id FROM user_chat WHERE user_id = :user_id', { user_id });
         return rows.map(r => Number(r.chat_id));
