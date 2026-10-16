@@ -91,9 +91,11 @@ class UserDAO {
     }
 
     // Resolve an @username (without the @) to a Telegram user id via the recorded telegram_user rows.
+    // Usernames aren't unique there (a stale handle survives until its old owner sets a new one, and
+    // may since have been taken by someone else), so an ambiguous handle resolves to nobody.
     async getUserIdByUsername(username: string): Promise<number | undefined> {
-        const rows = await query<RowDataPacket[]>('SELECT user_id FROM telegram_user WHERE username = :username LIMIT 1', { username });
-        return rows.length > 0 ? Number(rows[0].user_id) : undefined;
+        const rows = await query<RowDataPacket[]>('SELECT user_id FROM telegram_user WHERE username = :username LIMIT 2', { username });
+        return rows.length === 1 ? Number(rows[0].user_id) : undefined;
     }
 
     async getUserChats(user_id: number): Promise<number[]> {
