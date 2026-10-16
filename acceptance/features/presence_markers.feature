@@ -1,4 +1,4 @@
-Feature: Steam presence markers on rollcall and schedule tags
+Feature: Steam presence markers on rollcall, schedule and wingman tags
   Every tagged rotation player is prefixed with their Steam presence: 🟢 in CS2, 🟡 online but
   not in CS2, 🔴 offline. Players without a linked Steam account are tagged without a marker.
   Each example uses its own chat, users and Steam ids since app data persists across scenarios.
@@ -38,3 +38,4 @@ Feature: Steam presence markers on rollcall and schedule tags
       | command           | chat | id  |
       | /rollcall         | 7001 | 710 |
       | /schedule 3 hours | 7002 | 720 |
+      | /wingman          | 7003 | 730 |
