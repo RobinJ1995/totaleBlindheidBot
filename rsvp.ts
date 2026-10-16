@@ -118,7 +118,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers
         // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
             const marker: string | undefined = markers[person.mention];
-            mentions.push(marker ? `${marker} ${mentionMarkdown(person.mention)}` : mentionMarkdown(person.mention));
+            mentions.push(marker ? `${marker}${mentionMarkdown(person.mention)}` : mentionMarkdown(person.mention));
         }
     });
 

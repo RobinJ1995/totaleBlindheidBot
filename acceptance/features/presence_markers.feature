@@ -26,13 +26,13 @@ Feature: Steam presence markers on rollcall, schedule and wingman tags
     When the user sends "/rollcall_add_player Dave" mentioning user <id>4 as "Dave"
     Then the bot replies "Added 1 players to rollcall."
     When the user sends "<command>"
-    Then the bot reply contains "🟢 [Alice](tg://user?id=<id>1)"
-    And the bot reply contains "🟡 [Bob](tg://user?id=<id>2)"
-    And the bot reply contains "🔴 [Carol](tg://user?id=<id>3)"
+    Then the bot reply contains "🟢[Alice](tg://user?id=<id>1)"
+    And the bot reply contains "🟡[Bob](tg://user?id=<id>2)"
+    And the bot reply contains "🔴[Carol](tg://user?id=<id>3)"
     And the bot reply contains "[Dave](tg://user?id=<id>4)"
-    And the bot reply does not contain "🟢 [Dave]"
-    And the bot reply does not contain "🟡 [Dave]"
-    And the bot reply does not contain "🔴 [Dave]"
+    And the bot reply does not contain "🟢[Dave]"
+    And the bot reply does not contain "🟡[Dave]"
+    And the bot reply does not contain "🔴[Dave]"
 
     Examples:
       | command           | chat | id  |
