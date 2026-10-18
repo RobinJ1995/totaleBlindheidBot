@@ -42,7 +42,7 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
 
         const { groups, mentions } = resolve(rotation, entries, markers);
         // The ping line is baked in at send time: anyone who said "no" is dropped here, and the
-        // 🟢/🟡/🔴 presence markers are a snapshot of who was in CS2 / online / offline.
+        // 🟢/🟡/🔴/😶‍🌫️ presence markers are a snapshot of who was in CS2 / online / offline / unlinked.
         const base: Formatted = fmt`${pickRandom(QUOTES)}\n${join(mentions, ' ')}`;
 
         return bot.api.sendMessage({

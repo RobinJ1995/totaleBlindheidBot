@@ -76,7 +76,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                     const { groups, mentions } = resolve(rotation, entries, markers);
                     // Like a rollcall, the schedule tags the whole rotation up front. The
                     // mention line is baked in here so it records who was pinged when scheduled,
-                    // along with their 🟢/🟡/🔴 presence at that moment.
+                    // along with their 🟢/🟡/🔴/😶‍🌫️ presence at that moment.
                     const heading: string = `Rollcall scheduled for ${timeString}`;
                     const base: Formatted = mentions.length ? fmt`${heading}\n${join(mentions, ' ')}` : asFormatted(heading);
 
