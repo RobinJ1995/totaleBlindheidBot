@@ -1,7 +1,7 @@
 import { Bot, CallbackQuery, Message } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import UserDAO from '../dao/UserDAO.js';
-import { formatError, isAdmin } from '../utils.js';
+import { formatError } from '../utils.js';
 import { messageText, Part } from '../format.js';
 
 const dao = new UserDAO();
@@ -12,6 +12,11 @@ const ADMIN_ONLY = 'Only the admin can set Steam IDs for other users.';
 
 // "<chat_id>:<picker message_id>" -> the user the admin's reply to that message sets Steam IDs for.
 const prompts: Map<string, { user_id: number, name: string }> = new Map();
+
+const isAdmin = (userId?: number): boolean => {
+    const admin = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
+    return !!admin && String(userId) === admin;
+};
 
 const parseIds = (arg: string): string[] | null => {
     const ids: string[] = arg.split(',').map(s => s.trim()).filter(s => s.length > 0);

@@ -2,7 +2,7 @@ import { Bot, CallbackQuery, InlineKeyboardButton } from 'node-telegram-bot-api'
 import { DateTime } from 'luxon';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../../dao/GameHistoryDAO.js';
-import { formatError, isAdmin } from '../../utils.js';
+import { formatError } from '../../utils.js';
 import { bold, fmt, messageText } from '../../format.js';
 import { resolvePlayerTarget } from '../playerArg.js';
 import { resultEmoji } from '../game_history.js';
@@ -17,6 +17,12 @@ export const PAGE_SIZE = 10;
 // by the main callback_query listener. Payloads: "<id>" deletes a record, "page:<uid>:<offset>"
 // re-renders the keyboard at another offset, "noop" is the inert page indicator, "cancel" closes.
 export const CALLBACK_PREFIX = 'delmatch:';
+
+// Only the configured Steam admin may delete match records.
+const isAdmin = (userId?: number): boolean => {
+    const admin = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
+    return !!admin && userId != null && String(userId) === admin;
+};
 
 // Plain-text description of a match record for button labels and confirmations,
 // e.g. "🏆 Vertigo · Competitive · 13-7".
