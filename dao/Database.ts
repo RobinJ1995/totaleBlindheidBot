@@ -1,7 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import mysql, { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-import { fromLegacyMarkdown } from '../format.js';
 
 let pool: Pool | null = null;
 
@@ -109,14 +108,14 @@ const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Prom
     }
 };
 
-// One-off, idempotent migration: stored message text used to be legacy Markdown and is now plain
-// text plus a JSON entities column. Add the column and convert the rows that predate it.
-const migrateStoredMarkdownToEntities = async (conn: PoolConnection): Promise<void> => {
+// One-off, idempotent migration: add the columns holding stored messages' entities to databases
+// created before they existed. Older rows keep their Markdown text until they age out.
+const migrateEntitiesColumns = async (conn: PoolConnection): Promise<void> => {
     const targets = [
-        { table: 'rsvp_message', keys: ['rsvp_list_id', 'message_id'], text: 'base_text', entities: 'base_entities' },
-        { table: 'game_update', keys: ['id'], text: 'text', entities: 'entities' }
+        { table: 'rsvp_message', text: 'base_text', entities: 'base_entities' },
+        { table: 'game_update', text: 'text', entities: 'entities' }
     ];
-    for (const { table, keys, text, entities } of targets) {
+    for (const { table, text, entities } of targets) {
         const [tblRows] = await conn.query<RowDataPacket[]>(
             'SELECT COUNT(*) AS tbl FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table',
             { table }
@@ -130,16 +129,8 @@ const migrateStoredMarkdownToEntities = async (conn: PoolConnection): Promise<vo
             { table, column: entities }
         );
         if (Number(colRows[0]?.col) === 0) {
-            console.log(`Adding ${table}.${entities} and converting its stored Markdown.`);
+            console.log(`Adding ${table}.${entities}.`);
             await conn.query(`ALTER TABLE ${table} ADD COLUMN ${entities} TEXT NULL AFTER ${text}`);
-        }
-        const [rows] = await conn.query<RowDataPacket[]>(`SELECT ${[...keys, text].join(', ')} FROM ${table} WHERE ${entities} IS NULL`);
-        for (const row of rows) {
-            const converted = fromLegacyMarkdown(row[text]);
-            await conn.query(
-                `UPDATE ${table} SET ${text} = :text, ${entities} = :entities WHERE ${keys.map(k => `${k} = :${k}`).join(' AND ')}`,
-                { text: converted.text, entities: JSON.stringify(converted.entities), ...Object.fromEntries(keys.map(k => [k, row[k]])) }
-            );
         }
     }
 };
@@ -152,7 +143,7 @@ export const ensureSchema = async (): Promise<void> => {
     try {
         await migrateDropCurrentMatch(conn);
         await migrateGameHistoryAnnouncementColumns(conn);
-        await migrateStoredMarkdownToEntities(conn);
+        await migrateEntitiesColumns(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }
