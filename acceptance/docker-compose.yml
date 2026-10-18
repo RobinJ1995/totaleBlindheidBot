@@ -1,11 +1,9 @@
 name: tbb-acceptance
 
-# Every service is throwaway, so teardown kills them outright instead of sending SIGTERM and
-# waiting out the grace period for processes that don't handle it.
 services:
   mariadb:
     image: mariadb:11
-    stop_signal: SIGKILL
+    stop_grace_period: 1s
     # State is thrown away each run, so nothing a test writes is worth an fsync, and on a slow
     # disk every commit waits for one.
     tmpfs:
@@ -22,7 +20,7 @@ services:
   telegram-mock:
     build:
       context: ./telegram_mock
-    stop_signal: SIGKILL
+    stop_grace_period: 1s
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/test/health')"]
       interval: 3s
@@ -32,7 +30,7 @@ services:
   github-mock:
     build:
       context: ./github_mock
-    stop_signal: SIGKILL
+    stop_grace_period: 1s
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/test/health')"]
       interval: 3s
@@ -43,7 +41,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    stop_signal: SIGKILL
+    stop_grace_period: 1s
     # Swap the real steam-user package for the acceptance fake at runtime.
     volumes:
       - ./steam_mock:/app/node_modules/steam-user:ro
@@ -86,7 +84,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.behave
-    stop_signal: SIGKILL
+    stop_grace_period: 1s
     environment:
       TELEGRAM_MOCK_URL: http://telegram-mock:8081
       STEAM_CONTROL_URL: http://bot:9100
