@@ -4,7 +4,7 @@ import consoleStamp from 'console-stamp';
 // function it actually is at runtime.
 (consoleStamp as unknown as (console: Console, options?: object) => void)(console);
 
-import TelegramBot, { CallbackQuery, Message } from 'node-telegram-bot-api';
+import { Bot, CallbackQuery, Context, Message } from 'node-telegram-bot-api';
 import ScheduleDAO from './dao/ScheduleDAO.js';
 import RsvpDAO from './dao/RsvpDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
@@ -47,12 +47,7 @@ if (!token) {
 }
 
 const baseApiUrl = process.env.TELEGRAM_API_BASE_URL;
-const bot = new TelegramBot(token, {
-    // Polling is started only after ensureSchema() completes, so no handler can
-    // call a DAO method before the MariaDB tables exist.
-    polling: false,
-    ...(baseApiUrl ? { baseApiUrl } : {})
-});
+const bot = new Bot(token, baseApiUrl ? { apiRoot: baseApiUrl } : {});
 const scheduleDao = new ScheduleDAO();
 const rsvpDao = new RsvpDAO();
 const rollcallPlayerDao = new RollcallPlayerDAO();
@@ -93,9 +88,10 @@ const closeScheduleConfirmation = (chat_id: number, rsvp_id?: number): Promise<v
             return;
         }
         return Promise.resolve()
-            .then(() => bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+            .then(() => bot.api.editMessageReplyMarkup({
                 chat_id,
-                message_id: confirmation.message_id
+                message_id: confirmation.message_id,
+                reply_markup: { inline_keyboard: [] }
             }).catch(() => undefined))
             .then(() => rsvpDao.removeRsvpMessage(rsvp_id, confirmation.message_id));
     });
@@ -106,7 +102,8 @@ const renderRsvpMessages = (list: RsvpList): Promise<unknown> => {
     return rollcallPlayerDao.getRollcallPlayerUsernames(list.chat_id).then(rotation => {
         const { groups } = resolve(rotation, list.entries);
         return Promise.all(list.messages.map(ref =>
-            bot.editMessageText(renderMessage(ref.base_text, groups), {
+            bot.api.editMessageText({
+                text: renderMessage(ref.base_text, groups),
                 chat_id: list.chat_id,
                 message_id: ref.message_id,
                 parse_mode: 'Markdown',
@@ -139,16 +136,16 @@ const handleRsvpCallback = (query: CallbackQuery): void => {
     rsvpDao.getRsvpListByMessage(chat_id, message_id)
         .then(list => {
             if (!list) {
-                return bot.answerCallbackQuery(query.id, { text: 'This RSVP has expired.' });
+                return bot.api.answerCallbackQuery({ callback_query_id: query.id, text: 'This RSVP has expired.' });
             }
 
             return rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
                 .then(updated => updated ? renderRsvpMessages(updated) : undefined)
-                .then(() => bot.answerCallbackQuery(query.id));
+                .then(() => bot.api.answerCallbackQuery({ callback_query_id: query.id }));
         })
         .catch((err: Error) => {
             console.error('Error handling RSVP callback:', err);
-            bot.answerCallbackQuery(query.id, { text: 'Something went wrong.' }).catch(() => undefined);
+            bot.api.answerCallbackQuery({ callback_query_id: query.id, text: 'Something went wrong.' }).catch(() => undefined);
         });
 };
 
@@ -161,6 +158,17 @@ if (steamEnabled) {
 // GitHub Service (public repo, no auth required)
 const githubService: GitHubService = new GitHubService(bot);
 
+// Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
+const POLLING_RESTART_DELAY_MS = 5000;
+const startPolling = (): void => {
+    bot.startPolling(undefined, {
+        onError: (error: unknown) => console.error('Telegram Polling Error:', error)
+    }).catch((error: unknown) => {
+        console.error('Telegram Polling Error:', error);
+        setTimeout(startPolling, POLLING_RESTART_DELAY_MS);
+    });
+};
+
 // Create the database schema before any service starts querying it, and only then
 // start polling so no message/callback handler can run against missing tables.
 ensureSchema()
@@ -168,7 +176,7 @@ ensureSchema()
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
-        return bot.startPolling();
+        startPolling();
     })
     .catch((err: Error) => {
         console.error('Failed to initialise database schema:', err);
@@ -220,7 +228,7 @@ if (steamEnabled) {
     });
 }
 
-router.route('help', (bot: TelegramBot, msg: ExtendedMessage) => {
+router.route('help', (bot: Bot, msg: ExtendedMessage) => {
     const args = msg.command?.argumentTokens;
     const [prefix, separator] = ((): [string, string] => {
         if (args?.[0] === 'botfather') {
@@ -249,7 +257,9 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
     helpText: 'Get all players in the rollcall.'
 });
 
-bot.on('message', (msg: Message) => {
+// Don't return handler work: the poll loop awaits it before fetching the next update.
+bot.on('message', (ctx: Context) => {
+    const msg: Message = ctx.message!;
     if (steamEnabled && msg.from && msg.chat) {
         const userId: number = msg.from.id;
         userDao.addUserChat(userId, msg.chat.id, msg.from.first_name, msg.from.username)
@@ -264,7 +274,8 @@ bot.on('message', (msg: Message) => {
     router.handle(msg);
 });
 
-bot.on('callback_query', (query: CallbackQuery) => {
+bot.on('callback_query', (ctx: Context) => {
+    const query: CallbackQuery = ctx.callbackQuery!;
     if (query.data?.startsWith(DELETE_MATCH_CALLBACK_PREFIX)) {
         handleDeleteMatchCallback(bot, query);
         return;
@@ -272,12 +283,8 @@ bot.on('callback_query', (query: CallbackQuery) => {
     handleRsvpCallback(query);
 });
 
-bot.on('error', (error: Error) => {
+bot.catch((error: unknown) => {
     console.error('Telegram Bot Error:', error);
-});
-
-bot.on('polling_error', (error: Error) => {
-    console.error('Telegram Polling Error:', error);
 });
 
 console.log('Bot is running...');

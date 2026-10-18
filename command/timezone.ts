@@ -1,4 +1,4 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import UserDAO from '../dao/UserDAO.js';
 import { formatError } from '../utils.js';
@@ -6,7 +6,7 @@ import { normaliseTimezone } from '../timeUtils.js';
 
 const dao = new UserDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const argument: string | undefined = msg.command?.argument;
     const user_id: number = msg.from?.id || 0;
 

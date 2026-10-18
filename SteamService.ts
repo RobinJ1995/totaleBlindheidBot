@@ -1,6 +1,6 @@
 import SteamUser from 'steam-user';
 import SteamTotp from 'steam-totp';
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
 import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
@@ -85,7 +85,7 @@ interface SteamUserUpdate {
 export type Presence = 'playing' | 'online' | 'offline';
 
 class SteamService {
-    private bot: TelegramBot;
+    private bot: Bot;
     private client: SteamUser; // Initialize in constructor
     private userDao: UserDAO;
     private chatDao: ChatDAO;
@@ -110,7 +110,7 @@ class SteamService {
     private sharedSecret: string | undefined;
     public static instance: SteamService | null = null;
 
-    constructor(bot: TelegramBot) {
+    constructor(bot: Bot) {
         this.bot = bot;
 
         // Where the steam-user library persists its own session/sentry files.
@@ -192,7 +192,7 @@ class SteamService {
             if (lastCodeWrong) {
                 console.error('Last Steam Guard code was wrong.');
                 if (this.adminUserId) {
-                    this.bot.sendMessage(this.adminUserId, 'Last Steam Guard code was wrong. Please try again with /steam_guard <code>')
+                    this.bot.api.sendMessage({ chat_id: this.adminUserId, text: 'Last Steam Guard code was wrong. Please try again with /steam_guard <code>' })
                         .catch(err => console.error('Failed to send error to admin:', err));
                 }
             }
@@ -203,7 +203,7 @@ class SteamService {
                 const method = domain ? `email to ${domain}` : 'mobile app';
                 console.warn(`Steam Guard code needed (${method}). Please use /steam_guard <code>.`);
                 if (this.adminUserId) {
-                    this.bot.sendMessage(this.adminUserId, `Steam Guard code needed (${method}). Please use /steam_guard <code> to log in.`)
+                    this.bot.api.sendMessage({ chat_id: this.adminUserId, text: `Steam Guard code needed (${method}). Please use /steam_guard <code> to log in.` })
                         .catch(err => console.error('Failed to notify admin:', err));
                 } else {
                     console.warn('Set STEAM_ADMIN_TELEGRAM_USER_ID to your Telegram user ID to receive these notifications directly in Telegram.');
@@ -214,7 +214,7 @@ class SteamService {
         this.client.on('error', (err: any) => {
             console.error('Steam fatal error (will reconnect):', err);
             if (this.adminUserId) {
-                this.bot.sendMessage(this.adminUserId, `Steam fatal error: ${err.message ?? err}. Reconnecting in 30s...`)
+                this.bot.api.sendMessage({ chat_id: this.adminUserId, text: `Steam fatal error: ${err.message ?? err}. Reconnecting in 30s...` })
                     .catch(() => {});
             }
             this.reconnect();
@@ -437,7 +437,7 @@ class SteamService {
             return cached.name || null;
         }
         try {
-            const member = await this.bot.getChatMember(chatId, tgUserId);
+            const member = await this.bot.api.getChatMember({ chat_id: chatId, user_id: tgUserId });
             // Use the username without the @ prefix so it doesn't trigger a mention notification
             const name = member.user.first_name || member.user.username || '';
             this.telegramNameCache[cacheKey] = { name, fetchedAt: Date.now() };
@@ -500,7 +500,8 @@ class SteamService {
                 // Update existing message
                 try {
                     console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);
-                    await this.bot.editMessageText(text, {
+                    await this.bot.api.editMessageText({
+                        text,
                         chat_id: chatId,
                         message_id: lastUpdate.message_id,
                         parse_mode: 'Markdown'
@@ -522,7 +523,9 @@ class SteamService {
 
             // Send new message
             console.log(`Sending new update message to chat ${chatId} for user ${tgUserId}`);
-            const sentMessage = await this.bot.sendMessage(chatId, text, {
+            const sentMessage = await this.bot.api.sendMessage({
+                chat_id: chatId,
+                text,
                 parse_mode: 'Markdown'
             });
             if (sentMessage && sentMessage.message_id) {
@@ -955,7 +958,8 @@ class SteamService {
 
         if (target) {
             try {
-                await this.bot.editMessageText(text, {
+                await this.bot.api.editMessageText({
+                    text,
                     chat_id: chatId,
                     message_id: target.messageId,
                     parse_mode: 'Markdown'
@@ -970,7 +974,7 @@ class SteamService {
             return;
         }
 
-        const sent = await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+        const sent = await this.bot.api.sendMessage({ chat_id: chatId, text, parse_mode: 'Markdown' });
         if (sent && sent.message_id) {
             await this.gameHistoryDao.setGameHistoryMessageId(historyId, sent.message_id);
         }
@@ -1064,7 +1068,8 @@ class SteamService {
 
             console.log(`Closing session for user ${tgUserId} in chat ${chatId}. Editing message ${lastUpdate.message_id}.`);
 
-            await this.bot.editMessageText(newText, {
+            await this.bot.api.editMessageText({
+                text: newText,
                 chat_id: chatId,
                 message_id: lastUpdate.message_id,
                 parse_mode: 'Markdown'

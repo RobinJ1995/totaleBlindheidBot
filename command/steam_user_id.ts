@@ -1,11 +1,11 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import UserDAO from '../dao/UserDAO.js';
 import { formatError } from '../utils.js';
 
 const dao = new UserDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const args: string[] = msg.command?.argumentTokens || [];
     const adminId: string | undefined = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
     const isAdmin: boolean = !!(adminId && String(msg.from?.id) === String(adminId));

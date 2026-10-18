@@ -1,4 +1,4 @@
-import TelegramBot, { Message } from 'node-telegram-bot-api';
+import { Bot, Message } from 'node-telegram-bot-api';
 import { formatError } from './utils.js';
 
 export interface CommandContext {
@@ -12,7 +12,7 @@ export interface ExtendedMessage extends Message {
     command: CommandContext;
 }
 
-export type CommandHandler = (bot: TelegramBot, msg: ExtendedMessage) => void | Promise<void> | Promise<any> | any;
+export type CommandHandler = (bot: Bot, msg: ExtendedMessage) => void | Promise<void> | Promise<any> | any;
 
 interface Route {
     command: string;
@@ -21,10 +21,10 @@ interface Route {
 }
 
 class MessageRouter {
-    private _bot: TelegramBot;
+    private _bot: Bot;
     private _routes: Route[];
 
-    constructor(bot: TelegramBot) {
+    constructor(bot: Bot) {
         this._bot = bot;
         this._routes = [];
     }
@@ -54,7 +54,9 @@ class MessageRouter {
 
         const extendedMsg = msg as ExtendedMessage;
 
-        extendedMsg.reply = (text: string) => this._bot.sendMessage(msg.chat.id, text, {
+        extendedMsg.reply = (text: string) => this._bot.api.sendMessage({
+            chat_id: msg.chat.id,
+            text,
             reply_parameters: { message_id: msg.message_id },
             parse_mode: 'Markdown'
         });

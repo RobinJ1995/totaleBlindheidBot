@@ -1,4 +1,4 @@
-import TelegramBot, { CallbackQuery, InlineKeyboardButton } from 'node-telegram-bot-api';
+import { Bot, CallbackQuery, InlineKeyboardButton } from 'node-telegram-bot-api';
 import { DateTime } from 'luxon';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../../dao/GameHistoryDAO.js';
@@ -84,7 +84,7 @@ export const pickerKeyboard = (
     return keyboard;
 };
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     if (!isAdmin(msg.from?.id)) {
         msg.reply('Only the admin can delete match records.');
         return;
@@ -105,12 +105,12 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                     }
 
                     const who = target.name ? ` for *${escapeMarkdown(target.name)}*` : '';
-                    return bot.sendMessage(msg.chat.id,
-                        `Select the match record to delete${who} (${total} recorded):`,
-                        {
-                            parse_mode: 'Markdown',
-                            reply_markup: { inline_keyboard: pickerKeyboard(entries, target.user_id, total, 0) }
-                        });
+                    return bot.api.sendMessage({
+                        chat_id: msg.chat.id,
+                        text: `Select the match record to delete${who} (${total} recorded):`,
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: pickerKeyboard(entries, target.user_id, total, 0) }
+                    });
                 });
         })
         .catch((err: Error) => msg.reply(formatError(err)));
@@ -120,7 +120,7 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
 // whole chat); page taps re-render the keyboard at the requested offset, record taps verify the
 // record still exists and belongs to the chat the button lives in, then delete it and replace
 // the picker with a confirmation.
-export const handleDeleteMatchCallback = (bot: TelegramBot, query: CallbackQuery): void => {
+export const handleDeleteMatchCallback = (bot: Bot, query: CallbackQuery): void => {
     const data = query.data;
     const message = query.message;
     if (!data || !data.startsWith(CALLBACK_PREFIX) || !message) {
@@ -128,9 +128,10 @@ export const handleDeleteMatchCallback = (bot: TelegramBot, query: CallbackQuery
     }
 
     const answer = (text?: string): Promise<unknown> =>
-        bot.answerCallbackQuery(query.id, text ? { text } : {}).catch(() => undefined);
+        bot.api.answerCallbackQuery({ callback_query_id: query.id, ...(text ? { text } : {}) }).catch(() => undefined);
     const replacePicker = (text: string): Promise<unknown> =>
-        bot.editMessageText(text, {
+        bot.api.editMessageText({
+            text,
             chat_id: message.chat.id,
             message_id: message.message_id,
             parse_mode: 'Markdown'
@@ -155,10 +156,11 @@ export const handleDeleteMatchCallback = (bot: TelegramBot, query: CallbackQuery
         const offset = Number(pageMatch[2]);
         // A tap that lands on an unchanged keyboard (e.g. a double-tap) is not an error.
         const updateKeyboard = (entries: GameHistoryEntry[], total: number, at: number): Promise<unknown> =>
-            bot.editMessageReplyMarkup(
-                { inline_keyboard: pickerKeyboard(entries, targetUserId, total, at) },
-                { chat_id: message.chat.id, message_id: message.message_id }
-            ).catch((err: Error) => {
+            bot.api.editMessageReplyMarkup({
+                chat_id: message.chat.id,
+                message_id: message.message_id,
+                reply_markup: { inline_keyboard: pickerKeyboard(entries, targetUserId, total, at) }
+            }).catch((err: Error) => {
                 if (!err.message?.includes('message is not modified')) {
                     throw err;
                 }
