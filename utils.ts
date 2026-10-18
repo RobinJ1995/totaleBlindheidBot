@@ -75,6 +75,11 @@ const formatError = (err: Error): Part => {
     return bold(err.message);
 }
 
+const isAdmin = (userId?: number): boolean => {
+    const admin = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
+    return !!admin && userId != null && String(userId) === admin;
+};
+
 export {
     checkNotNull,
     checkNotEmpty,
@@ -84,6 +89,7 @@ export {
     promiseLog,
     escapeHtml,
     formatError,
+    isAdmin,
     NullValueError,
     EmptyValueError,
     WrongTypeError
