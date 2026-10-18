@@ -130,7 +130,6 @@ def inject_message(
     if entities:
         message["entities"] = entities
     if reply_to_message_id is not None:
-        # Replying to one of the bot's own messages.
         message["reply_to_message"] = {
             "message_id": int(reply_to_message_id),
             "date": int(time.time()),

@@ -104,8 +104,6 @@ class UserDAO {
         return rows.length === 1 ? Number(rows[0].user_id) : undefined;
     }
 
-    // Users the bot has seen in a chat (from user_chat), with their stored Telegram name and username
-    // when known, ordered by name.
     async getChatUsers(chat_id: number): Promise<ChatUser[]> {
         const rows = await query<RowDataPacket[]>(
             'SELECT uc.user_id, u.name, u.username FROM user_chat uc ' +

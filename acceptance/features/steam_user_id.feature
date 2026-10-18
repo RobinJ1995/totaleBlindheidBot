@@ -29,7 +29,7 @@ Feature: steam_user_id command
   Scenario: an admin naming an unknown @username is told so
     Given a chat with id 1703
     When user 9999 sends "/steam_user_id @nobody_here 76561198000000014"
-    Then the bot replies "I can't tell who @nobody_here is. They need to have sent a message where I can see it."
+    Then the bot replies "I don't know @nobody_here."
 
   Scenario: a non-admin cannot set Steam IDs for someone else
     Given a chat with id 1704
@@ -52,8 +52,7 @@ Feature: steam_user_id command
     When user 5817 named "Sneaky" taps the button containing "User5816"
     Then the tap is answered with "Only the admin can set Steam IDs for other users."
     When user 9999 named "Admin" taps the button containing "User5816"
-    And a moment passes
-    Then the bot reply contains "Reply to this message with the Steam ID(s) for User5816"
+    Then the bot replies "Reply to this message with the Steam ID(s) for User5816."
     When the latest bot message is remembered
     And the user replies "not an id" to the remembered message
     Then the bot replies "Invalid Steam ID(s). Each must be a 17-digit number (SteamID64) starting with 7656."

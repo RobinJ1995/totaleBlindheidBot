@@ -208,7 +208,7 @@ router.route('github_notify', githubNotifyHandler, {
 
 if (steamEnabled) {
     router.route('steam_user_id', steamUserIdHandler, {
-        helpText: 'Set your Steam user ID(s) for live game updates. Either single ID or comma-separated. Admin: put @user first to set theirs, or send no arguments to pick a user.'
+        helpText: 'Set your Steam user ID(s) for live game updates. Either single ID or comma-separated. Admin: /steam_user_id @user <id(s)>, or no arguments to pick a user.'
     });
     router.route('steam_updates', steamUpdatesHandler, {
         helpText: 'Enable or disable Steam updates for this chat (on/off).'
@@ -270,7 +270,6 @@ bot.on('message', (ctx: Context) => {
             .catch((err: Error) => console.error('Error adding user chat:', err));
     }
 
-    // The admin's reply to a /steam_user_id picker prompt isn't a command, so catch it before routing.
     if (steamEnabled && handleSteamIdReply(bot, msg)) {
         return;
     }
