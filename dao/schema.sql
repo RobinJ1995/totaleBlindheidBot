@@ -75,10 +75,11 @@ CREATE TABLE IF NOT EXISTS rsvp_entry (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS rsvp_message (
-    rsvp_list_id BIGINT NOT NULL,
-    message_id   BIGINT NOT NULL,
-    base_text    TEXT   NOT NULL,
-    keyboard     ENUM('schedule','rollcall') NOT NULL,
+    rsvp_list_id  BIGINT NOT NULL,
+    message_id    BIGINT NOT NULL,
+    base_text     TEXT   NOT NULL,
+    base_entities TEXT   NULL,
+    keyboard      ENUM('schedule','rollcall') NOT NULL,
     PRIMARY KEY (rsvp_list_id, message_id),
     KEY idx_rsvp_message_message (message_id),
     CONSTRAINT fk_rsvp_message_list FOREIGN KEY (rsvp_list_id)
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS game_update (
     user_id    BIGINT      NOT NULL,
     message_id BIGINT      NOT NULL,
     text       TEXT        NOT NULL,
+    entities   TEXT        NULL,
     game_id    VARCHAR(64) NULL,
     map        VARCHAR(64) NULL,
     status     VARCHAR(255) NULL,

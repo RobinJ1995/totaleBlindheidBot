@@ -4,7 +4,7 @@ These use behave's regex matcher (which anchors patterns at both ends) so the
 generic "the user sends ..." step does not greedily swallow the more specific
 mention variants.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from behave import given, when, then, use_step_matcher
 from behave.runner import Context
@@ -132,6 +132,12 @@ def step_reply_not_contains(context: Context, unexpected: str) -> None:
     reply: str = _latest_reply(context)
     assert unexpected not in reply, \
         f"Expected reply not to contain {unexpected!r}, got {reply!r}"
+
+
+@then('the bot reply links "(?P<text>[^"]*)" to "(?P<url>[^"]*)"')
+def step_reply_links(context: Context, text: str, url: str) -> None:
+    links: List[Tuple[str, str]] = helpers.text_links(_latest_message(context))
+    assert (text, url) in links, f"Expected {text!r} linked to {url!r}, got {links}"
 
 
 @then('the bot reply offers a "(?P<label>[^"]*)" button')

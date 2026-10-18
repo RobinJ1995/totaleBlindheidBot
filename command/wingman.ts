@@ -1,6 +1,8 @@
 import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
-import { pickRandom, escapeMarkdown } from '../utils.js';
+import { pickRandom } from '../utils.js';
+import { bold, fmt, join, Part } from '../format.js';
+import { mentionText } from '../rsvp.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import { presenceMarkers } from '../presence.js';
 
@@ -17,8 +19,8 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
     dao.getRollcallPlayerUsernames(msg.chat?.id || 0)
         .then((players: string[]) => presenceMarkers(players).then(markers => {
             // Prefix each tag with the player's 🟢/🟡/🔴 presence, like rollcalls and schedules.
-            const tags: string[] = players.map(player => markers[player] ? `${markers[player]}${player}` : player);
-            return msg.reply(`${pickRandom(QUOTES)}\n${tags.join(' ')}`);
+            const tags: Part[] = players.map(player => markers[player] ? fmt`${markers[player]}${mentionText(player)}` : mentionText(player));
+            return msg.reply(fmt`${pickRandom(QUOTES)}\n${join(tags, ' ')}`);
         }))
-        .catch((err: Error) => msg.reply(`*${escapeMarkdown(err.toString())}*`));
+        .catch((err: Error) => msg.reply(bold(err.toString())));
 };

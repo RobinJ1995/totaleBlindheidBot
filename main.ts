@@ -13,7 +13,7 @@ import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
-import { escapeMarkdown } from './utils.js';
+import { messageText } from './format.js';
 import { Rsvp, RsvpList } from './dao/RsvpDAO.js';
 import { ensureSchema } from './dao/Database.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp.js';
@@ -103,10 +103,9 @@ const renderRsvpMessages = (list: RsvpList): Promise<unknown> => {
         const { groups } = resolve(rotation, list.entries);
         return Promise.all(list.messages.map(ref =>
             bot.api.editMessageText({
-                text: renderMessage(ref.base_text, groups),
+                ...messageText(renderMessage(ref.base, groups)),
                 chat_id: list.chat_id,
                 message_id: ref.message_id,
-                parse_mode: 'Markdown',
                 reply_markup: keyboard(ref.keyboard)
             }).catch((err: Error) => {
                 // Telegram throws when the text is unchanged; that's harmless here.
@@ -241,7 +240,7 @@ router.route('help', (bot: Bot, msg: ExtendedMessage) => {
     // Accessing private _routes specifically for help command, which is fine for internal use
     const routes = (router as any)._routes;
     return msg.reply(
-        routes.map((r: any) => `${prefix}${r.command}${separator}${r.helpText}`).map(escapeMarkdown).join('\n')
+        routes.map((r: any) => `${prefix}${r.command}${separator}${r.helpText}`).join('\n')
     );
 }, {
     helpText: 'I wonder...'

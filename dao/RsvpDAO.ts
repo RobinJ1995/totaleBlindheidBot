@@ -1,6 +1,7 @@
 import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
 import { ensureTelegramUser } from './telegramUser.js';
+import { Formatted } from '../format.js';
 
 // RSVP lists older than this are pruned on write.
 const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;
@@ -16,7 +17,7 @@ export interface RsvpEntry {
 
 export interface RsvpMessageRef {
     message_id: number;
-    base_text: string;                 // text above the lists (differs per message)
+    base: Formatted;                   // text above the lists (differs per message)
     keyboard: 'schedule' | 'rollcall'; // which button labels to show on this message
 }
 
@@ -27,6 +28,8 @@ export interface RsvpList {
     messages: RsvpMessageRef[];         // every message currently displaying this list
     created_at: Date;                   // for pruning
 }
+
+const baseColumns = (base: Formatted) => ({ base_text: base.text, base_entities: JSON.stringify(base.entities) });
 
 class RsvpDAO {
     private async _loadRsvpList(conn: PoolConnection, rsvp_id: number): Promise<RsvpList | undefined> {
@@ -40,7 +43,7 @@ class RsvpDAO {
             { id: rsvp_id }
         );
         const [messageRows] = await conn.query<RowDataPacket[]>(
-            'SELECT message_id, base_text, keyboard FROM rsvp_message WHERE rsvp_list_id = :id',
+            'SELECT message_id, base_text, base_entities, keyboard FROM rsvp_message WHERE rsvp_list_id = :id',
             { id: rsvp_id }
         );
         const entries: Record<string, RsvpEntry> = {};
@@ -58,7 +61,7 @@ class RsvpDAO {
             entries,
             messages: messageRows.map(row => ({
                 message_id: Number(row.message_id),
-                base_text: row.base_text,
+                base: { text: row.base_text, entities: JSON.parse(row.base_entities ?? '[]') },
                 keyboard: row.keyboard
             })),
             created_at: listRows[0].created_at
@@ -83,8 +86,9 @@ class RsvpDAO {
             }
             for (const ref of list.messages) {
                 await conn.query(
-                    'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, keyboard) VALUES (:rsvp_id, :message_id, :base_text, :keyboard)',
-                    { rsvp_id, message_id: ref.message_id, base_text: ref.base_text, keyboard: ref.keyboard }
+                    'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, base_entities, keyboard) ' +
+                    'VALUES (:rsvp_id, :message_id, :base_text, :base_entities, :keyboard)',
+                    { rsvp_id, message_id: ref.message_id, ...baseColumns(ref.base), keyboard: ref.keyboard }
                 );
             }
             return rsvp_id;
@@ -133,9 +137,10 @@ class RsvpDAO {
                 return;
             }
             await conn.query(
-                'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, keyboard) VALUES (:rsvp_id, :message_id, :base_text, :keyboard) ' +
-                'ON DUPLICATE KEY UPDATE base_text = VALUES(base_text), keyboard = VALUES(keyboard)',
-                { rsvp_id, message_id: ref.message_id, base_text: ref.base_text, keyboard: ref.keyboard }
+                'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, base_entities, keyboard) ' +
+                'VALUES (:rsvp_id, :message_id, :base_text, :base_entities, :keyboard) ' +
+                'ON DUPLICATE KEY UPDATE base_text = VALUES(base_text), base_entities = VALUES(base_entities), keyboard = VALUES(keyboard)',
+                { rsvp_id, message_id: ref.message_id, ...baseColumns(ref.base), keyboard: ref.keyboard }
             );
         });
     }

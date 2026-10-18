@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboardMarkup, User } from 'node-telegram-bot-api';
-import { escapeMarkdown } from './utils.js';
+import { fmt, Formatted, link, Part } from './format.js';
 import RsvpDAO, { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
@@ -47,18 +47,15 @@ const parseMention = (mention: string): ParsedMention => {
 
 // Render a name so that it shows up in the message without pinging the user
 // (zero-width space breaks the @mention), matching command/admin/rollcall_get_players.ts.
-const displayName = (name: string): string => escapeMarkdown(name).replace('@', '@​');
+const displayName = (name: string): string => name.replace('@', '@​');
 
-// Build a Markdown-safe pingable mention for the tag line. A rotation entry is stored
-// either as a `[name](tg://user?id=ID)` text-mention link or a plain `@username`. The line
-// is baked into a `parse_mode: 'Markdown'` message, so escape the visible text — otherwise a
-// name with a Markdown metacharacter (e.g. `Foo_Bar`) makes Telegram reject the message.
-const mentionMarkdown = (mention: string): string => {
+// Build a pingable mention for the tag line from a stored rotation entry.
+const mentionText = (mention: string): Part => {
     const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
     if (match) {
-        return `[${escapeMarkdown(match[1])}](tg://user?id=${match[2]})`;
+        return link(match[1], `tg://user?id=${match[2]}`);
     }
-    return escapeMarkdown(mention);
+    return mention;
 };
 
 interface ResolvedPerson {
@@ -71,7 +68,7 @@ interface ResolvedPerson {
 
 export interface RsvpGroups {
     groups: Record<Rsvp, string[]>; // display names per rsvp value (only those who chose)
-    mentions: string[];             // rotation mention strings whose rsvp != 'no'
+    mentions: Part[];               // rotation mentions whose rsvp != 'no'
 }
 
 // Combine the live rotation roster with the explicit entries on the RSVP list.
@@ -109,7 +106,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers
     });
 
     const groups: Record<Rsvp, string[]> = { yes: [], maybe: [], no: [] };
-    const mentions: string[] = [];
+    const mentions: Part[] = [];
     people.forEach(person => {
         // Only people who have actually made a selection appear in the lists.
         if (person.rsvp) {
@@ -118,7 +115,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers
         // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
             const marker: string | undefined = markers[person.mention];
-            mentions.push(marker ? `${marker}${mentionMarkdown(person.mention)}` : mentionMarkdown(person.mention));
+            mentions.push(marker ? fmt`${marker}${mentionText(person.mention)}` : mentionText(person.mention));
         }
     });
 
@@ -132,9 +129,9 @@ const renderLists = (groups: Record<Rsvp, string[]>): string =>
         .map(value => `${RSVP_EMOJI[value]} ${groups[value].join(' ')}`)
         .join('\n');
 
-const renderMessage = (baseText: string, groups: Record<Rsvp, string[]>): string => {
+const renderMessage = (base: Formatted, groups: Record<Rsvp, string[]>): Formatted => {
     const lists: string = renderLists(groups);
-    return lists ? `${baseText}\n\n${lists}` : baseText;
+    return lists ? fmt`${base}\n\n${lists}` : base;
 };
 
 // Build an RSVP entry from a Telegram user (used when seeding the initiator and when
@@ -164,6 +161,7 @@ export {
     keyboard,
     parseMention,
     displayName,
+    mentionText,
     resolve,
     renderLists,
     renderMessage,

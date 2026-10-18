@@ -1,6 +1,6 @@
 import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
-import { formatError, escapeMarkdown } from '../../utils.js';
+import { formatError } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
 
 const dao = new RollcallPlayerDAO();
@@ -14,7 +14,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                 msg.reply(`Players in rollcall:\n${players.map((p: string) => {
                     const match: RegExpMatchArray | null = p.match(/^\[(.*)\]\(tg:\/\/user\?id=\d+\)$/);
                     const displayName: string = match ? match[1] : p;
-                    return escapeMarkdown(displayName).replace('@', '@\u200B');
+                    return displayName.replace('@', '@\u200B');
                 }).map(p => `- ${p}`).join('\n')}`);
             }
         })

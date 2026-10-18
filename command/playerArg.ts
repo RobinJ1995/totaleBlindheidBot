@@ -1,6 +1,5 @@
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { ChatPlayer } from '../dao/GameHistoryDAO.js';
-import { escapeMarkdown } from '../utils.js';
 
 // The user whose history a command should look at.
 export interface PlayerTarget {
@@ -96,11 +95,10 @@ export const resolvePlayerTarget = async (dao: GameHistoryDAO, msg: ExtendedMess
         case 'player':
             return { user_id: match.user_id, name: match.name };
         case 'none':
-            // needle and names are user/external input, rendered under Markdown parse mode.
-            msg.reply(`I don't have any recorded games for "${escapeMarkdown(match.needle)}" in this chat.`);
+            msg.reply(`I don't have any recorded games for "${match.needle}" in this chat.`);
             return null;
         case 'ambiguous':
-            msg.reply(`"${escapeMarkdown(match.needle)}" matches multiple players: ${match.names.map(escapeMarkdown).join(', ')}. Please be more specific.`);
+            msg.reply(`"${match.needle}" matches multiple players: ${match.names.join(', ')}. Please be more specific.`);
             return null;
     }
 };

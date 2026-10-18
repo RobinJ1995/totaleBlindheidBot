@@ -6,7 +6,7 @@ the MariaDB backend lives here so the step files stay declarative.
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymysql
 import requests
@@ -171,6 +171,20 @@ def reply_markup(message: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(markup, str):
         return json.loads(markup)
     return markup or {}
+
+
+def text_links(message: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Return (linked text, url) for each text_link entity of a recorded outbox message."""
+    entities: Any = message.get("params", {}).get("entities") or []
+    if isinstance(entities, str):
+        entities = json.loads(entities)
+    # Entity offsets count UTF-16 code units.
+    utf16: bytes = message["text"].encode("utf-16-le")
+    return [
+        (utf16[e["offset"] * 2:(e["offset"] + e["length"]) * 2].decode("utf-16-le"), e["url"])
+        for e in entities
+        if e.get("type") == "text_link"
+    ]
 
 
 def button_labels(message: Dict[str, Any]) -> List[str]:

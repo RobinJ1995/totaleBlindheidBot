@@ -7,7 +7,7 @@ import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
 import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, SiblingMatch } from './dao/GameHistoryDAO.js';
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
-import { escapeMarkdown } from './utils.js';
+import { bold, fmt, Formatted, messageText, sameFormatted } from './format.js';
 import { parseMention } from './rsvp.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
@@ -408,22 +408,23 @@ class SteamService {
             const displayName = (await this.getTelegramDisplayName(chatId, tgUserId)) || playerName;
 
             // If no map/status yet, maybe it's just starting
-            let text = `🟢 *${escapeMarkdown(displayName)}* is playing Counter-Strike`;
+            let details = '';
             if (map || status || score || rounds.length > 0) {
-                text += `\n`;
+                details += `\n`;
             }
             if (map) {
-                text += `\nMap: ${escapeMarkdown(map)}`;
+                details += `\nMap: ${map}`;
             }
             if (status) {
-                text += `\nStatus: ${escapeMarkdown(status)}`;
+                details += `\nStatus: ${status}`;
             }
             if (score) {
-                text += `\nScore: ${escapeMarkdown(score)}`;
+                details += `\nScore: ${score}`;
             }
             if (rounds.length > 0) {
-                text += `\nRounds: ${this.formatRounds(rounds)}`;
+                details += `\nRounds: ${this.formatRounds(rounds)}`;
             }
+            const text = fmt`🟢 ${bold(displayName)} is playing Counter-Strike${details}`;
 
             console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
@@ -448,7 +449,7 @@ class SteamService {
         }
     }
 
-    async publishUpdate(chatId: number, tgUserId: number, text: string, info: GameUpdateInfo): Promise<void> {
+    async publishUpdate(chatId: number, tgUserId: number, text: Formatted, info: GameUpdateInfo): Promise<void> {
         try {
             const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
 
@@ -462,12 +463,12 @@ class SteamService {
                 const sessionStart = new Date(new Date(lastUpdate.timestamp).getTime() - SESSION_OVERVIEW_SLACK_MS);
                 const sessionMatches = await this.gameHistoryDao.getGameHistorySince(chatId, tgUserId, sessionStart);
                 if (sessionMatches.length > 0) {
-                    text = `${sessionMatches.map(m => this.sessionOverviewLine(m)).join('\n')}\n\n${text}`;
+                    text = fmt`${sessionMatches.map(m => this.sessionOverviewLine(m)).join('\n')}\n\n${text}`;
                 }
             }
 
             // Avoid redundant updates
-            if (lastUpdate && lastUpdate.text === text) {
+            if (lastUpdate.text && sameFormatted(lastUpdate.text, text)) {
                 console.log(`Update for user ${tgUserId} in chat ${chatId} is redundant (text hasn't changed), skipping.`);
                 return;
             } else if (lastUpdate && new Date(lastUpdate.timestamp) > sixHoursAgo) {
@@ -501,10 +502,9 @@ class SteamService {
                 try {
                     console.log(`Editing message ${lastUpdate.message_id} in chat ${chatId} for user ${tgUserId}`);
                     await this.bot.api.editMessageText({
-                        text,
+                        ...messageText(text),
                         chat_id: chatId,
-                        message_id: lastUpdate.message_id,
-                        parse_mode: 'Markdown'
+                        message_id: lastUpdate.message_id
                     });
                     // Keep original timestamp, but update text and info
                     await this.gameUpdateDao.updateGameUpdateText(chatId, tgUserId, text, info);
@@ -525,8 +525,7 @@ class SteamService {
             console.log(`Sending new update message to chat ${chatId} for user ${tgUserId}`);
             const sentMessage = await this.bot.api.sendMessage({
                 chat_id: chatId,
-                text,
-                parse_mode: 'Markdown'
+                ...messageText(text)
             });
             if (sentMessage && sentMessage.message_id) {
                 await this.gameUpdateDao.setGameUpdate(chatId, tgUserId, sentMessage.message_id, text, info);
@@ -582,10 +581,10 @@ class SteamService {
     sessionOverviewLine(match: SessionMatch): string {
         const parts: string[] = [this.resultEmoji(match.score)];
         if (match.mode) {
-            parts.push(`${escapeMarkdown(match.mode)}:`);
+            parts.push(`${match.mode}:`);
         }
         if (match.map) {
-            parts.push(escapeMarkdown(match.map));
+            parts.push(match.map);
         }
         const parsed = this.parseRawScore(match.score);
         if (parsed) {
@@ -859,21 +858,20 @@ class SteamService {
         return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
     }
 
-    private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string): string {
+    private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string): Formatted {
         const emoji = result === 'win' ? '🏆' : result === 'loss' ? '☠️' : '🤝';
         const verb = result === 'win' ? 'won' : result === 'loss' ? 'lost' : 'tied';
-        const nameList = this.formatNameList(names.map(n => escapeMarkdown(n)));
-        let text = `${emoji} *${nameList}* ${verb} a game`;
+        let details = '';
         if (map) {
-            text += ` on ${escapeMarkdown(map)}`;
+            details += ` on ${map}`;
         }
         if (mode) {
-            text += ` (${escapeMarkdown(mode)})`;
+            details += ` (${mode})`;
         }
         if (score) {
-            text += `: ${this.formatScore(score)}`;
+            details += `: ${this.formatScore(score)}`;
         }
-        return text;
+        return fmt`${emoji} ${bold(this.formatNameList(names))} ${verb} a game${details}`;
     }
 
     // Announce a finished match as a single per-match message that names every participating
@@ -959,10 +957,9 @@ class SteamService {
         if (target) {
             try {
                 await this.bot.api.editMessageText({
-                    text,
+                    ...messageText(text),
                     chat_id: chatId,
-                    message_id: target.messageId,
-                    parse_mode: 'Markdown'
+                    message_id: target.messageId
                 });
             } catch (err: any) {
                 if (!(err.message && err.message.includes('message is not modified'))) {
@@ -974,7 +971,7 @@ class SteamService {
             return;
         }
 
-        const sent = await this.bot.api.sendMessage({ chat_id: chatId, text, parse_mode: 'Markdown' });
+        const sent = await this.bot.api.sendMessage({ chat_id: chatId, ...messageText(text) });
         if (sent && sent.message_id) {
             await this.gameHistoryDao.setGameHistoryMessageId(historyId, sent.message_id);
         }
@@ -1057,22 +1054,22 @@ class SteamService {
             // Check if already closed. The 🟢/🔴 marker sits on the current-state line, which is
             // no longer necessarily the first one (the session overview renders above it), so
             // look anywhere in the text rather than at the start.
-            if (newText.includes('🔴')) {
+            if (newText.text.includes('🔴')) {
                 return;
-            } else if (newText.includes('🟢')) {
-                newText = newText.replace('🟢', '🔴');
+            } else if (newText.text.includes('🟢')) {
+                // Both are two UTF-16 units, so the entity offsets stay valid.
+                newText = { ...newText, text: newText.text.replace('🟢', '🔴') };
             } else {
                 // Legacy or unexpected format, prepend red
-                newText = `🔴 ${newText}`;
+                newText = fmt`🔴 ${newText}`;
             }
 
             console.log(`Closing session for user ${tgUserId} in chat ${chatId}. Editing message ${lastUpdate.message_id}.`);
 
             await this.bot.api.editMessageText({
-                text: newText,
+                ...messageText(newText),
                 chat_id: chatId,
-                message_id: lastUpdate.message_id,
-                parse_mode: 'Markdown'
+                message_id: lastUpdate.message_id
             });
 
             // Update DAO with the red text, but drop the now-stale detail. A closed session

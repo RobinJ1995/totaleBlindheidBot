@@ -108,6 +108,33 @@ const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Prom
     }
 };
 
+// One-off, idempotent migration: add the columns holding stored messages' entities to databases
+// created before they existed. Older rows keep their Markdown text until they age out.
+const migrateEntitiesColumns = async (conn: PoolConnection): Promise<void> => {
+    const targets = [
+        { table: 'rsvp_message', text: 'base_text', entities: 'base_entities' },
+        { table: 'game_update', text: 'text', entities: 'entities' }
+    ];
+    for (const { table, text, entities } of targets) {
+        const [tblRows] = await conn.query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS tbl FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table',
+            { table }
+        );
+        if (Number(tblRows[0]?.tbl) === 0) {
+            continue;
+        }
+        const [colRows] = await conn.query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+            ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column',
+            { table, column: entities }
+        );
+        if (Number(colRows[0]?.col) === 0) {
+            console.log(`Adding ${table}.${entities}.`);
+            await conn.query(`ALTER TABLE ${table} ADD COLUMN ${entities} TEXT NULL AFTER ${text}`);
+        }
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -116,6 +143,7 @@ export const ensureSchema = async (): Promise<void> => {
     try {
         await migrateDropCurrentMatch(conn);
         await migrateGameHistoryAnnouncementColumns(conn);
+        await migrateEntitiesColumns(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }
