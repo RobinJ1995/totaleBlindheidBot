@@ -1,5 +1,6 @@
 import { Bot, Message } from 'node-telegram-bot-api';
 import { formatError } from './utils.js';
+import { messageText, Part } from './format.js';
 
 export interface CommandContext {
     name: string;
@@ -8,7 +9,7 @@ export interface CommandContext {
 }
 
 export interface ExtendedMessage extends Message {
-    reply: (text: string) => Promise<Message>;
+    reply: (text: Part) => Promise<Message>;
     command: CommandContext;
 }
 
@@ -54,11 +55,10 @@ class MessageRouter {
 
         const extendedMsg = msg as ExtendedMessage;
 
-        extendedMsg.reply = (text: string) => this._bot.api.sendMessage({
+        extendedMsg.reply = (text: Part) => this._bot.api.sendMessage({
             chat_id: msg.chat.id,
-            text,
-            reply_parameters: { message_id: msg.message_id },
-            parse_mode: 'Markdown'
+            ...messageText(text),
+            reply_parameters: { message_id: msg.message_id }
         });
 
         extendedMsg.command = {

@@ -5,7 +5,8 @@ import UserDAO from '../dao/UserDAO.js';
 import ScheduleDAO from '../dao/ScheduleDAO.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
-import { formatError, escapeMarkdown } from '../utils.js';
+import { formatError } from '../utils.js';
+import { asFormatted, fmt, Formatted, join, messageText } from '../format.js';
 import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp.js';
 import { presenceMarkers } from '../presence.js';
 
@@ -76,20 +77,19 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                     // Like a rollcall, the schedule tags the whole rotation up front. The
                     // mention line is baked in here so it records who was pinged when scheduled,
                     // along with their 🟢/🟡/🔴 presence at that moment.
-                    const heading: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
-                    const baseText: string = mentions.length ? `${heading}\n${mentions.join(' ')}` : heading;
+                    const heading: string = `Rollcall scheduled for ${timeString}`;
+                    const base: Formatted = mentions.length ? fmt`${heading}\n${join(mentions, ' ')}` : asFormatted(heading);
 
                     return bot.api.sendMessage({
                         chat_id,
-                        text: renderMessage(baseText, groups),
+                        ...messageText(renderMessage(base, groups)),
                         reply_parameters: { message_id: msg.message_id },
-                        parse_mode: 'Markdown',
                         reply_markup: keyboard('schedule')
                     }).then((sent: Message) => {
                         return rsvpDao.createRsvpList({
                             chat_id,
                             entries,
-                            messages: [{ message_id: sent.message_id, base_text: baseText, keyboard: 'schedule' }]
+                            messages: [{ message_id: sent.message_id, base, keyboard: 'schedule' }]
                         }).then((rsvp_id: number) =>
                             // Store the rsvp_id + initiator on the schedule so the timer can
                             // find and share the same list when the rollcall fires.

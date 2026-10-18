@@ -2,7 +2,8 @@ import { Bot, CallbackQuery, InlineKeyboardButton } from 'node-telegram-bot-api'
 import { DateTime } from 'luxon';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../../dao/GameHistoryDAO.js';
-import { escapeMarkdown, formatError } from '../../utils.js';
+import { formatError } from '../../utils.js';
+import { bold, fmt, messageText } from '../../format.js';
 import { resolvePlayerTarget } from '../playerArg.js';
 import { resultEmoji } from '../game_history.js';
 
@@ -99,16 +100,15 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                 .then(({ total, entries }) => {
                     if (total === 0) {
                         msg.reply(target.name
-                            ? `No match records for ${escapeMarkdown(target.name)} in this chat.`
+                            ? `No match records for ${target.name} in this chat.`
                             : 'No match records for you in this chat.');
                         return;
                     }
 
-                    const who = target.name ? ` for *${escapeMarkdown(target.name)}*` : '';
+                    const who = target.name ? fmt` for ${bold(target.name)}` : '';
                     return bot.api.sendMessage({
                         chat_id: msg.chat.id,
-                        text: `Select the match record to delete${who} (${total} recorded):`,
-                        parse_mode: 'Markdown',
+                        ...messageText(fmt`Select the match record to delete${who} (${total} recorded):`),
                         reply_markup: { inline_keyboard: pickerKeyboard(entries, target.user_id, total, 0) }
                     });
                 });
@@ -133,8 +133,7 @@ export const handleDeleteMatchCallback = (bot: Bot, query: CallbackQuery): void 
         bot.api.editMessageText({
             text,
             chat_id: message.chat.id,
-            message_id: message.message_id,
-            parse_mode: 'Markdown'
+            message_id: message.message_id
         }).catch((err: Error) => console.error(`Failed to edit match-deletion message ${message.message_id}:`, err));
 
     const arg = data.substring(CALLBACK_PREFIX.length);
@@ -198,8 +197,8 @@ export const handleDeleteMatchCallback = (bot: Bot, query: CallbackQuery): void 
                 if (!deleted) {
                     return replacePicker('That match record no longer exists.').then(() => answer());
                 }
-                const who = entry.player_name ? ` (${escapeMarkdown(entry.player_name)})` : '';
-                return replacePicker(`🗑️ Deleted match record: ${escapeMarkdown(describeEntry(entry))}${who}`)
+                const who = entry.player_name ? ` (${entry.player_name})` : '';
+                return replacePicker(`🗑️ Deleted match record: ${describeEntry(entry)}${who}`)
                     .then(() => answer('Match record deleted.'));
             });
         })

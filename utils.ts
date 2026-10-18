@@ -1,3 +1,5 @@
+import { bold, Part } from './format.js';
+
 class NullValueError extends Error {}
 class EmptyValueError extends Error {}
 class WrongTypeError extends Error {}
@@ -60,22 +62,17 @@ const promiseLog = (message?: string): (<T>(x: T) => T) => {
     }
 }
 
-const escapeMarkdown = (text: string): string => {
-    // Only escape the subset of special characters accepted by Telegram
-    return text.replace(/([`_*\\(\[])/g, '\\$1');
-}
-
 const escapeHtml = (text: string): string => {
     // Escape the characters that are significant in Telegram's HTML parse mode
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const formatError = (err: Error): string => {
+const formatError = (err: Error): Part => {
     if (err.stack) {
-        return escapeMarkdown(err.stack);
+        return err.stack;
     }
 
-    return `*${err.message}*`;
+    return bold(err.message);
 }
 
 export {
@@ -85,7 +82,6 @@ export {
     checkInstanceOf,
     pickRandom,
     promiseLog,
-    escapeMarkdown,
     escapeHtml,
     formatError,
     NullValueError,

@@ -1,6 +1,7 @@
 import { Bot, Message, User } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
-import { pickRandom, escapeMarkdown } from '../utils.js';
+import { pickRandom } from '../utils.js';
+import { bold, fmt, Formatted, join, messageText } from '../format.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
@@ -42,18 +43,17 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
         const { groups, mentions } = resolve(rotation, entries, markers);
         // The ping line is baked in at send time: anyone who said "no" is dropped here, and the
         // 🟢/🟡/🔴 presence markers are a snapshot of who was in CS2 / online / offline.
-        const baseText: string = `${pickRandom(QUOTES)}\n${mentions.join(' ')}`;
+        const base: Formatted = fmt`${pickRandom(QUOTES)}\n${join(mentions, ' ')}`;
 
         return bot.api.sendMessage({
             chat_id,
-            text: renderMessage(baseText, groups),
+            ...messageText(renderMessage(base, groups)),
             // reply_parameters is only set for user-triggered rollcalls; scheduled ones
             // (no originating message) omit it entirely.
             ...(opts.reply_to_message_id ? { reply_parameters: { message_id: opts.reply_to_message_id } } : {}),
-            parse_mode: 'Markdown',
             reply_markup: keyboard('rollcall')
         }).then((sent: Message) => {
-            const ref = { message_id: sent.message_id, base_text: baseText, keyboard: 'rollcall' as const };
+            const ref = { message_id: sent.message_id, base, keyboard: 'rollcall' as const };
             const attach: Promise<unknown> = (existing && opts.rsvp_id)
                 ? rsvpDao.addRsvpMessage(opts.rsvp_id, ref)
                 : rsvpDao.createRsvpList({ chat_id, entries, messages: [ref] });
@@ -66,7 +66,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
     executeRollcall(bot, msg.chat.id, {
         reply_to_message_id: msg.message_id,
         initiator: msg.from
-    }).catch((err: Error) => msg.reply(`*${escapeMarkdown(err.toString())}*`));
+    }).catch((err: Error) => msg.reply(bold(err.toString())));
 };
 
 export { executeRollcall };

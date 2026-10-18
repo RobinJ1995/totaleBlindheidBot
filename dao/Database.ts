@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import mysql, { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import { fromLegacyMarkdown } from '../format.js';
 
 let pool: Pool | null = null;
 
@@ -108,6 +109,41 @@ const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Prom
     }
 };
 
+// One-off, idempotent migration: stored message text used to be legacy Markdown and is now plain
+// text plus a JSON entities column. Add the column and convert the rows that predate it.
+const migrateStoredMarkdownToEntities = async (conn: PoolConnection): Promise<void> => {
+    const targets = [
+        { table: 'rsvp_message', keys: ['rsvp_list_id', 'message_id'], text: 'base_text', entities: 'base_entities' },
+        { table: 'game_update', keys: ['id'], text: 'text', entities: 'entities' }
+    ];
+    for (const { table, keys, text, entities } of targets) {
+        const [tblRows] = await conn.query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS tbl FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table',
+            { table }
+        );
+        if (Number(tblRows[0]?.tbl) === 0) {
+            continue;
+        }
+        const [colRows] = await conn.query<RowDataPacket[]>(
+            'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+            ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column',
+            { table, column: entities }
+        );
+        if (Number(colRows[0]?.col) === 0) {
+            console.log(`Adding ${table}.${entities} and converting its stored Markdown.`);
+            await conn.query(`ALTER TABLE ${table} ADD COLUMN ${entities} TEXT NULL AFTER ${text}`);
+        }
+        const [rows] = await conn.query<RowDataPacket[]>(`SELECT ${[...keys, text].join(', ')} FROM ${table} WHERE ${entities} IS NULL`);
+        for (const row of rows) {
+            const converted = fromLegacyMarkdown(row[text]);
+            await conn.query(
+                `UPDATE ${table} SET ${text} = :text, ${entities} = :entities WHERE ${keys.map(k => `${k} = :${k}`).join(' AND ')}`,
+                { text: converted.text, entities: JSON.stringify(converted.entities), ...Object.fromEntries(keys.map(k => [k, row[k]])) }
+            );
+        }
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -116,6 +152,7 @@ export const ensureSchema = async (): Promise<void> => {
     try {
         await migrateDropCurrentMatch(conn);
         await migrateGameHistoryAnnouncementColumns(conn);
+        await migrateStoredMarkdownToEntities(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

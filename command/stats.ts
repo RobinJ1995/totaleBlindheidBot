@@ -1,7 +1,8 @@
 import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
-import { escapeMarkdown, formatError } from '../utils.js';
+import { formatError } from '../utils.js';
+import { bold, fmt, Formatted, join } from '../format.js';
 import { GameResult, parseScore, scoreResult } from './game_history.js';
 import { resolvePlayerTarget } from './playerArg.js';
 
@@ -68,7 +69,7 @@ const pickMap = (byMap: Map<string, Tally>, metric: (t: Tally) => number): [stri
     return best && metric(best[1]) > 0 ? best : null;
 };
 
-export const renderStats = (entries: GameHistoryEntry[]): string | null => {
+export const renderStats = (entries: GameHistoryEntry[]): Formatted | null => {
     const competitive = entries.filter(e => isCompetitive(e.mode));
     if (competitive.length === 0) {
         return null;
@@ -157,15 +158,15 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         }
     }
     if (favourite) {
-        maps.push(['Favourite map', `${escapeMarkdown(favourite[0])} (${favourite[1].games} games)`]);
+        maps.push(['Favourite map', `${favourite[0]} (${favourite[1].games} games)`]);
     }
     const bestMap = pickMap(byMap, t => t.wins);
     if (bestMap) {
-        maps.push(['Best map', `${escapeMarkdown(bestMap[0])} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
+        maps.push(['Best map', `${bestMap[0]} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
     }
     const worstMap = pickMap(byMap, t => t.losses);
     if (worstMap) {
-        maps.push(['Worst map', `${escapeMarkdown(worstMap[0])} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
+        maps.push(['Worst map', `${worstMap[0]} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
     }
 
     const sections: [string, [string, string][]][] = [
@@ -174,16 +175,14 @@ export const renderStats = (entries: GameHistoryEntry[]): string | null => {
         ['🗺️ Maps', maps],
     ];
 
-    // Rendered as Markdown (not a monospace block): a bold section header followed by one
-    // "label: value" line per row. Dynamic values (map names) are escaped where they're built;
-    // the static labels here contain no Markdown-significant characters.
+    // A bold section header followed by one "label: value" line per row.
     const blocks = sections
         .filter(([, rows]) => rows.length > 0)
         .map(([title, rows]) => {
             const body = rows.map(([label, value]) => `${label}: ${value}`).join('\n');
-            return `*${title}*\n${body}`;
+            return fmt`${bold(title)}\n${body}`;
         });
-    return blocks.join('\n\n');
+    return join(blocks, '\n\n');
 };
 
 export default (bot: Bot, msg: ExtendedMessage): void => {
@@ -197,12 +196,12 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                     const text = renderStats(entries);
                     if (!text) {
                         msg.reply(target.name
-                            ? `No competitive games for ${escapeMarkdown(target.name)} in this chat yet.`
+                            ? `No competitive games for ${target.name} in this chat yet.`
                             : 'No competitive games in your history yet.');
                         return;
                     }
-                    const header = target.name ? `Competitive stats for *${escapeMarkdown(target.name)}*\n` : '';
-                    msg.reply(header + text);
+                    const header = target.name ? fmt`Competitive stats for ${bold(target.name)}\n` : '';
+                    msg.reply(fmt`${header}${text}`);
                 });
         })
         .catch((err: Error) => msg.reply(formatError(err)));

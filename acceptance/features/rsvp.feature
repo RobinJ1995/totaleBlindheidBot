@@ -10,7 +10,7 @@ Feature: RSVP buttons on schedules and rollcalls
     Then the bot replies "Added 1 players to rollcall."
     When the user sends "/schedule 3 hours"
     Then the bot reply starts with "Rollcall scheduled for"
-    And the bot reply contains "tg://user?id=777"
+    And the bot reply links "Alice" to "tg://user?id=777"
     And the bot reply contains "🙋‍♂️ Captain"
     And the bot reply does not contain "🤷‍♂️"
     And the bot reply offers a "I'm in" button
