@@ -105,7 +105,6 @@ export const handleSteamIdCallback = (bot: Bot, query: CallbackQuery): void => {
         .catch((err: Error) => console.error('Error handling Steam ID picker tap:', err));
 };
 
-// Returns whether the message was a reply to a picker prompt, so it isn't routed as a command.
 export const handleSteamIdReply = (bot: Bot, msg: Message): boolean => {
     const key = `${msg.chat.id}:${msg.reply_to_message?.message_id}`;
     const target = prompts.get(key);

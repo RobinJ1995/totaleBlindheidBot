@@ -207,6 +207,7 @@ router.route('github_notify', githubNotifyHandler, {
 });
 
 if (steamEnabled) {
+    router.onReply(handleSteamIdReply);
     router.route('steam_user_id', steamUserIdHandler, {
         helpText: 'Set your Steam user ID(s) for live game updates. Either single ID or comma-separated. Admin: /steam_user_id @user <id(s)>, or no arguments to pick a user.'
     });
@@ -268,10 +269,6 @@ bot.on('message', (ctx: Context) => {
                 }
             })
             .catch((err: Error) => console.error('Error adding user chat:', err));
-    }
-
-    if (steamEnabled && handleSteamIdReply(bot, msg)) {
-        return;
     }
 
     router.handle(msg);
