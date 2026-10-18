@@ -51,9 +51,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                 : setForUser(user_id, first, rest.join(' '), reply));
         done.catch((err: Error) => msg.reply(formatError(err)));
         return;
-    }
-
-    if (admin && msg.command.argument === '') {
+    } else if (admin && msg.command.argument === '') {
         dao.getChatUsers(msg.chat.id)
             .then(users => bot.api.sendMessage({
                 chat_id: msg.chat.id,
@@ -87,8 +85,7 @@ export const handleSteamIdCallback = (bot: Bot, query: CallbackQuery): void => {
     const message = query.message;
     if (!message || !query.data) {
         return;
-    }
-    if (!isAdmin(query.from.id)) {
+    } else if (!isAdmin(query.from.id)) {
         bot.api.answerCallbackQuery({ callback_query_id: query.id, text: ADMIN_ONLY }).catch(() => undefined);
         return;
     }
