@@ -81,8 +81,9 @@ interface SteamUserUpdate {
     online_session_instances?: number | null;
 }
 
-// A Telegram user's Steam presence: in CS2, signed in to Steam but not in CS2, or signed out.
-export type Presence = 'playing' | 'online' | 'offline';
+// A Telegram user's Steam presence: in CS2, signed in to Steam but not in CS2, signed out, or no
+// Steam account linked at all.
+export type Presence = 'playing' | 'online' | 'offline' | 'unlinked';
 
 class SteamService {
     private bot: Bot;
@@ -1011,10 +1012,14 @@ class SteamService {
     }
 
     // The user's presence across all of their mapped Steam accounts; the most active account
-    // wins. Undefined when they have no linked account or Steam hasn't told us about any of them.
+    // wins. Undefined when Steam hasn't told us about any of their linked accounts yet.
     async getPresence(tgUserId: number): Promise<Presence | undefined> {
         const settings = await this.userDao.getUserSettings(tgUserId);
-        const known = (settings.steam_ids || [])
+        const steamIds = settings.steam_ids || [];
+        if (steamIds.length === 0) {
+            return 'unlinked';
+        }
+        const known = steamIds
             .map(sid => this.client.users[sid])
             .filter(user => !!user);
         if (known.length === 0) {

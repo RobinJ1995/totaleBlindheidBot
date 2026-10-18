@@ -7,13 +7,14 @@ const userDao = new UserDAO();
 const PRESENCE_EMOJI: Record<Presence, string> = {
     playing: '🟢',
     online: '🟡',
-    offline: '🔴'
+    offline: '🔴',
+    unlinked: '😶‍🌫️'
 };
 
 // Map each rotation mention to its Steam presence marker, for prefixing the tag line of rollcalls
-// and schedules. Players without a resolvable Telegram id or linked Steam account get no marker, and
-// the map is empty when Steam is disabled. Presence is decoration only, so lookup failures are
-// logged and skipped rather than failing the rollcall.
+// and schedules. Players without a resolvable Telegram id get no marker, and the map is empty when
+// Steam is disabled. Presence is decoration only, so lookup failures are logged and skipped rather
+// than failing the rollcall.
 const presenceMarkers = async (rotation: string[]): Promise<Record<string, string>> => {
     const steam: SteamService | null = SteamService.instance;
     const markers: Record<string, string> = {};

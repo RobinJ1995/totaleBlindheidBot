@@ -1,6 +1,6 @@
 Feature: Steam presence markers on rollcall, schedule and wingman tags
   Every tagged rotation player is prefixed with their Steam presence: 🟢 in CS2, 🟡 online but
-  not in CS2, 🔴 offline. Players without a linked Steam account are tagged without a marker.
+  not in CS2, 🔴 offline, 😶‍🌫️ no Steam account linked.
   Each example uses its own chat, users and Steam ids since app data persists across scenarios.
 
   Scenario Outline: <command> prefixes each tag with the player's presence
@@ -32,10 +32,8 @@ Feature: Steam presence markers on rollcall, schedule and wingman tags
     And the bot reply links "Bob" to "tg://user?id=<id>2"
     And the bot reply contains "🔴Carol"
     And the bot reply links "Carol" to "tg://user?id=<id>3"
+    And the bot reply contains "😶‍🌫️Dave"
     And the bot reply links "Dave" to "tg://user?id=<id>4"
-    And the bot reply does not contain "🟢Dave"
-    And the bot reply does not contain "🟡Dave"
-    And the bot reply does not contain "🔴Dave"
 
     Examples:
       | command           | chat | id  |
