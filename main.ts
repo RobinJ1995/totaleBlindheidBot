@@ -25,7 +25,7 @@ import scheduleHandler from './command/schedule.js';
 import cancelHandler from './command/cancel.js';
 import timezoneHandler from './command/timezone.js';
 import wingmanHandler from './command/wingman.js';
-import steamUserIdHandler from './command/steam_user_id.js';
+import steamUserIdHandler, { handleSteamIdCallback, handleSteamIdReply, CALLBACK_PREFIX as STEAM_ID_CALLBACK_PREFIX } from './command/steam_user_id.js';
 import steamUpdatesHandler from './command/steam_updates.js';
 import steamGuardHandler from './command/steam_guard.js';
 import gameHistoryHandler from './command/game_history.js';
@@ -207,8 +207,9 @@ router.route('github_notify', githubNotifyHandler, {
 });
 
 if (steamEnabled) {
+    router.onReply(handleSteamIdReply);
     router.route('steam_user_id', steamUserIdHandler, {
-        helpText: 'Set your Steam user ID(s) for live game updates. Either single ID or comma-separated.'
+        helpText: 'Set your Steam user ID(s) for live game updates. Either single ID or comma-separated. Admin: /steam_user_id @user <id(s)>, or no arguments to pick a user.'
     });
     router.route('steam_updates', steamUpdatesHandler, {
         helpText: 'Enable or disable Steam updates for this chat (on/off).'
@@ -277,6 +278,9 @@ bot.on('callback_query', (ctx: Context) => {
     const query: CallbackQuery = ctx.callbackQuery!;
     if (query.data?.startsWith(DELETE_MATCH_CALLBACK_PREFIX)) {
         handleDeleteMatchCallback(bot, query);
+        return;
+    } else if (query.data?.startsWith(STEAM_ID_CALLBACK_PREFIX)) {
+        handleSteamIdCallback(bot, query);
         return;
     }
     handleRsvpCallback(query);

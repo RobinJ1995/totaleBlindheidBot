@@ -15,6 +15,9 @@ export interface ExtendedMessage extends Message {
 
 export type CommandHandler = (bot: Bot, msg: ExtendedMessage) => void | Promise<void> | Promise<any> | any;
 
+// Returns true when it consumed the message.
+export type ReplyHandler = (bot: Bot, msg: Message) => boolean;
+
 interface Route {
     command: string;
     handler: CommandHandler;
@@ -24,10 +27,16 @@ interface Route {
 class MessageRouter {
     private _bot: Bot;
     private _routes: Route[];
+    private _replyHandlers: ReplyHandler[];
 
     constructor(bot: Bot) {
         this._bot = bot;
         this._routes = [];
+        this._replyHandlers = [];
+    }
+
+    onReply(handler: ReplyHandler): void {
+        this._replyHandlers.push(handler);
     }
 
     route(command: string, handler: CommandHandler, etc: any = {}): void {
@@ -39,7 +48,9 @@ class MessageRouter {
     }
 
     handle(msg: Message): void {
-        if (!msg.text || !msg.text.startsWith('/')) {
+        if (msg.reply_to_message && this._replyHandlers.some(handler => handler(this._bot, msg))) {
+            return;
+        } else if (!msg.text || !msg.text.startsWith('/')) {
             return;
         }
 

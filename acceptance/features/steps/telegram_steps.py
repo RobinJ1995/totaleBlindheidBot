@@ -37,10 +37,11 @@ def _send(
     text: str,
     user: Dict[str, Any],
     entities: List[Dict[str, Any]] = None,
+    reply_to_message_id: Optional[int] = None,
 ) -> None:
     context.cmd_chat = context.chat_id
     context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
-    helpers.inject_message(text, context.chat_id, user, entities=entities)
+    helpers.inject_message(text, context.chat_id, user, entities=entities, reply_to_message_id=reply_to_message_id)
 
 
 @when('the user sends "(?P<text>[^"]*)"')
@@ -59,6 +60,18 @@ def step_specific_user_sends(context: Context, user_id: str, text: str) -> None:
 def step_user_sends_mention(context: Context, text: str, user_id: str, word: str) -> None:
     entity: Dict[str, Any] = helpers.text_mention_entity(text, word, int(user_id))
     _send(context, text, context.user, entities=[entity])
+
+
+@when('the latest bot message is remembered')
+def step_remember_latest_message(context: Context) -> None:
+    outbox: List[Dict[str, Any]] = helpers.get_outbox(context.chat_id)
+    assert outbox, "No bot message exists to remember"
+    context.remembered_message_id = outbox[-1]["message_id"]
+
+
+@when('the user replies "(?P<text>[^"]*)" to the remembered message')
+def step_user_replies(context: Context, text: str) -> None:
+    _send(context, text, context.user, reply_to_message_id=context.remembered_message_id)
 
 
 @when('the user sends "(?P<text>[^"]*)" mentioning (?P<count>\\d+) users')
