@@ -29,8 +29,6 @@ _lock = threading.Lock()
 _updates: List[Dict[str, Any]] = []
 _next_update_id: int = 1
 
-# Notified whenever an update is queued, so a long-polling getUpdates returns as
-# soon as there is something to deliver.
 _updates_available = threading.Condition(_lock)
 
 # Ordered record of every outbound API call the bot made (sendMessage, etc.).
@@ -80,10 +78,7 @@ def bot_api(token: str, method: str) -> Response:
                 # Telegram semantics: offset confirms receipt of everything
                 # with update_id < offset, so drop those.
                 _updates[:] = [u for u in _updates if u["update_id"] >= offset]
-            # Long-poll like the real API: hold the request open for up to
-            # `timeout` seconds until an update arrives. The bot re-polls
-            # immediately after every response, so answering an empty queue
-            # straight away would have it hammer this server in a tight loop.
+            # Long-poll like the real API; the bot re-polls immediately.
             if timeout > 0:
                 _updates_available.wait_for(lambda: _updates, timeout=timeout)
             result = list(_updates)

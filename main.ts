@@ -158,9 +158,7 @@ if (steamEnabled) {
 // GitHub Service (public repo, no auth required)
 const githubService: GitHubService = new GitHubService(bot);
 
-// Transient getUpdates failures are retried inside the poll loop and reported through
-// onError; anything fatal (e.g. a 409 while another instance is still polling) ends the
-// loop, so log it and start polling again after a short pause.
+// Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
 const POLLING_RESTART_DELAY_MS = 5000;
 const startPolling = (): void => {
     bot.startPolling(undefined, {
@@ -259,8 +257,7 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
     helpText: 'Get all players in the rollcall.'
 });
 
-// Handlers deliberately don't return their work: the poll loop awaits each handler before
-// fetching the next update, so returning it would serialise every chat behind slow commands.
+// Don't return handler work: the poll loop awaits it before fetching the next update.
 bot.on('message', (ctx: Context) => {
     const msg: Message = ctx.message!;
     if (steamEnabled && msg.from && msg.chat) {
