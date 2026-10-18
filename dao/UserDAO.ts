@@ -7,6 +7,12 @@ export interface UserSettings {
     timezone?: string;
 }
 
+export interface ChatUser {
+    user_id: number;
+    name: string;
+    username?: string;
+}
+
 class UserDAO {
     async getUserSettings(user_id: number): Promise<UserSettings> {
         const [settingsRows, steamRows] = await Promise.all([
@@ -96,6 +102,24 @@ class UserDAO {
     async getUserIdByUsername(username: string): Promise<number | undefined> {
         const rows = await query<RowDataPacket[]>('SELECT user_id FROM telegram_user WHERE username = :username LIMIT 2', { username });
         return rows.length === 1 ? Number(rows[0].user_id) : undefined;
+    }
+
+    // Users the bot has seen in a chat (from user_chat), with their stored Telegram name and username
+    // when known, ordered by name.
+    async getChatUsers(chat_id: number): Promise<ChatUser[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT uc.user_id, u.name, u.username FROM user_chat uc ' +
+            'LEFT JOIN telegram_user u ON u.user_id = uc.user_id ' +
+            'WHERE uc.chat_id = :chat_id',
+            { chat_id }
+        );
+        return rows
+            .map(row => ({
+                user_id: Number(row.user_id),
+                name: row.name || row.username || String(row.user_id),
+                username: row.username ?? undefined
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     async getUserChats(user_id: number): Promise<number[]> {

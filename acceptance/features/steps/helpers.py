@@ -113,6 +113,7 @@ def inject_message(
     chat_id: int,
     user: Dict[str, Any],
     entities: Optional[List[Dict[str, Any]]] = None,
+    reply_to_message_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     message: Dict[str, Any] = {
         "message_id": int(time.time() * 1000) % 1000000,
@@ -128,6 +129,14 @@ def inject_message(
     }
     if entities:
         message["entities"] = entities
+    if reply_to_message_id is not None:
+        # Replying to one of the bot's own messages.
+        message["reply_to_message"] = {
+            "message_id": int(reply_to_message_id),
+            "date": int(time.time()),
+            "chat": {"id": int(chat_id), "type": "group"},
+            "from": {"id": 42, "is_bot": True, "first_name": "TestBot", "username": "test_bot"},
+        }
     resp = requests.post(
         f"{TELEGRAM_MOCK_URL}/test/inject", json=message, timeout=5
     )
