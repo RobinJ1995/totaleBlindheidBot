@@ -1,11 +1,11 @@
-import TelegramBot, { MessageEntity } from 'node-telegram-bot-api';
+import { Bot, MessageEntity } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import { formatError } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
 
 const dao = new RollcallPlayerDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const args: string[] = msg.command?.argumentTokens || [];
     const mentions: MessageEntity[] = (msg.entities || []).filter(entity => entity?.type === 'mention' || entity?.type === 'text_mention');
 

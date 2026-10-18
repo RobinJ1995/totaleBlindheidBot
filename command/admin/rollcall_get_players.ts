@@ -1,11 +1,11 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import { formatError, escapeMarkdown } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
 
 const dao = new RollcallPlayerDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     dao.getRollcallPlayerUsernames(msg.chat.id)
         .then((players: string[]) => {
             if (players.length === 0) {

@@ -18,7 +18,7 @@
         "console-stamp": "^3.1.2",
         "luxon": "^3.4.4",
         "mysql2": "^3.23.1",
-        "node-telegram-bot-api": "^1.0.0",
+        "node-telegram-bot-api": "^2.1.0",
         "steam-totp": "^2.1.2",
         "steam-user": "^5.3.0",
         "timezone-soft": "^1.5.2"

@@ -1,4 +1,4 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import ScheduleDAO, { ScheduledRollcalls } from '../dao/ScheduleDAO.js';
 import RsvpDAO from '../dao/RsvpDAO.js';
@@ -8,7 +8,7 @@ import { retireRsvpList } from '../rsvp.js';
 const scheduleDao = new ScheduleDAO();
 const rsvpDao = new RsvpDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const chat_id: number = msg.chat.id;
     scheduleDao.getScheduledRollcalls()
         .then((schedules: ScheduledRollcalls) => {

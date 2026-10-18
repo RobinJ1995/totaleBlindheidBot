@@ -1,4 +1,4 @@
-import TelegramBot, { Message, User } from 'node-telegram-bot-api';
+import { Bot, Message, User } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { pickRandom, escapeMarkdown } from '../utils.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
@@ -26,7 +26,7 @@ interface ExecuteRollcallOptions {
     rsvp_id?: number;
 }
 
-const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<Message> => {
+const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<Message> => {
     return Promise.all([
         rollcallPlayerDao.getRollcallPlayerUsernames(chat_id)
             .then(rotation => presenceMarkers(rotation).then(markers => ({ rotation, markers }))),
@@ -44,7 +44,9 @@ const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcal
         // 🟢/🟡/🔴 presence markers are a snapshot of who was in CS2 / online / offline.
         const baseText: string = `${pickRandom(QUOTES)}\n${mentions.join(' ')}`;
 
-        return bot.sendMessage(chat_id, renderMessage(baseText, groups), {
+        return bot.api.sendMessage({
+            chat_id,
+            text: renderMessage(baseText, groups),
             // reply_parameters is only set for user-triggered rollcalls; scheduled ones
             // (no originating message) omit it entirely.
             ...(opts.reply_to_message_id ? { reply_parameters: { message_id: opts.reply_to_message_id } } : {}),
@@ -60,7 +62,7 @@ const executeRollcall = (bot: TelegramBot, chat_id: number, opts: ExecuteRollcal
     });
 };
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     executeRollcall(bot, msg.chat.id, {
         reply_to_message_id: msg.message_id,
         initiator: msg.from

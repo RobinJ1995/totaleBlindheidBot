@@ -1,4 +1,4 @@
-import TelegramBot, { Message } from 'node-telegram-bot-api';
+import { Bot, Message } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { parseTime } from '../timeUtils.js';
 import UserDAO from '../dao/UserDAO.js';
@@ -14,7 +14,7 @@ const scheduleDao = new ScheduleDAO();
 const rollcallPlayerDao = new RollcallPlayerDAO();
 const rsvpDao = new RsvpDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const argument: string | undefined = msg.command?.argument;
     if (!argument) {
         msg.reply('Please specify a time to schedule the rollcall.');
@@ -79,7 +79,9 @@ export default (bot: TelegramBot, msg: ExtendedMessage): void => {
                     const heading: string = `Rollcall scheduled for ${escapeMarkdown(timeString)}`;
                     const baseText: string = mentions.length ? `${heading}\n${mentions.join(' ')}` : heading;
 
-                    return bot.sendMessage(chat_id, renderMessage(baseText, groups), {
+                    return bot.api.sendMessage({
+                        chat_id,
+                        text: renderMessage(baseText, groups),
                         reply_parameters: { message_id: msg.message_id },
                         parse_mode: 'Markdown',
                         reply_markup: keyboard('schedule')

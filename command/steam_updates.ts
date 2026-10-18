@@ -1,11 +1,11 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import ChatDAO from '../dao/ChatDAO.js';
 import { formatError } from '../utils.js';
 
 const dao = new ChatDAO();
 
-export default (bot: TelegramBot, msg: ExtendedMessage): void => {
+export default (bot: Bot, msg: ExtendedMessage): void => {
     const arg: string | undefined = msg.command?.argument?.toLowerCase();
     if (arg !== 'on' && arg !== 'off') {
         msg.reply('Please specify "on" or "off" to enable or disable Steam updates for this chat.');

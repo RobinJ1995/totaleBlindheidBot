@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 
 from flask import Flask, Response, request, jsonify
 
-# The bot busy-polls getUpdates several times a second; without this the
+# The bot polls getUpdates continuously; without this the
 # per-request access log floods stdout and buries the behave output (and the
 # CI "dump logs on failure" step). Keep only warnings/errors.
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
@@ -28,6 +28,10 @@ _lock = threading.Lock()
 # Queue of pending updates the bot has not yet consumed (via getUpdates offset).
 _updates: List[Dict[str, Any]] = []
 _next_update_id: int = 1
+
+# Notified whenever an update is queued, so a long-polling getUpdates returns as
+# soon as there is something to deliver.
+_updates_available = threading.Condition(_lock)
 
 # Ordered record of every outbound API call the bot made (sendMessage, etc.).
 _outbox: List[Dict[str, Any]] = []
@@ -70,11 +74,18 @@ def bot_api(token: str, method: str) -> Response:
 
     if method == "getUpdates":
         offset = int(params.get("offset", 0) or 0)
-        with _lock:
+        timeout = float(params.get("timeout", 0) or 0)
+        with _updates_available:
             if offset:
                 # Telegram semantics: offset confirms receipt of everything
                 # with update_id < offset, so drop those.
                 _updates[:] = [u for u in _updates if u["update_id"] >= offset]
+            # Long-poll like the real API: hold the request open for up to
+            # `timeout` seconds until an update arrives. The bot re-polls
+            # immediately after every response, so answering an empty queue
+            # straight away would have it hammer this server in a tight loop.
+            if timeout > 0:
+                _updates_available.wait_for(lambda: _updates, timeout=timeout)
             result = list(_updates)
         return jsonify({"ok": True, "result": result})
     elif method == "sendMessage":
@@ -169,6 +180,7 @@ def inject() -> Response:
         update["update_id"] = _next_update_id
         _next_update_id += 1
         _updates.append(update)
+        _updates_available.notify_all()
         update_id = update["update_id"]
     return jsonify({"ok": True, "update_id": update_id})
 

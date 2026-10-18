@@ -1,4 +1,4 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Bot } from 'node-telegram-bot-api';
 import GithubDAO from './dao/GithubDAO.js';
 import { escapeHtml } from './utils.js';
 
@@ -22,14 +22,14 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_API_BASE = 'https://api.github.com';
 
 class GitHubService {
-    private bot: TelegramBot;
+    private bot: Bot;
     private dao: GithubDAO;
     private repo: string;
     private apiBase: string;
     private intervalMs: number;
     private pollInterval: NodeJS.Timeout | null;
 
-    constructor(bot: TelegramBot) {
+    constructor(bot: Bot) {
         this.bot = bot;
         this.dao = new GithubDAO();
         this.repo = process.env.GITHUB_REPO || DEFAULT_REPO;
@@ -112,7 +112,9 @@ class GitHubService {
                 const text = this.formatCommit(commit);
                 for (const chatId of chats) {
                     try {
-                        await this.bot.sendMessage(chatId, text, {
+                        await this.bot.api.sendMessage({
+                            chat_id: chatId,
+                            text,
                             parse_mode: 'HTML',
                             link_preview_options: { is_disabled: true }
                         });
