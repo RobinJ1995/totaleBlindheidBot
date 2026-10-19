@@ -1,15 +1,8 @@
-import SteamService, { Presence } from './SteamService.js';
+import SteamService, { Presence, PRESENCE_EMOJI } from './SteamService.js';
 import UserDAO from './dao/UserDAO.js';
 import { parseMention } from './rsvp.js';
 
 const userDao = new UserDAO();
-
-const PRESENCE_EMOJI: Record<Presence, string> = {
-    playing: '🟢',
-    online: '🟡',
-    offline: '🔴',
-    unlinked: '😶‍🌫️'
-};
 
 // Map each rotation mention to its Steam presence marker, for prefixing the tag line of rollcalls
 // and schedules. Players without a resolvable Telegram id get no marker, and the map is empty when

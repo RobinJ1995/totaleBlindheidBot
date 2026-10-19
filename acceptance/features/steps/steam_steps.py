@@ -123,6 +123,14 @@ def step_steam_stopped(context: Context, steam_id: str) -> None:
     helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None})
 
 
+@when('Steam reports user "{steam_id}" left CS2 but stayed online')
+def step_steam_stopped_online(context: Context, steam_id: str) -> None:
+    # Like "stopped playing", but still signed in to Steam, so the session closes as 🟡.
+    time.sleep(1)
+    _capture_steam_baseline(context)
+    helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None, "persona_state": 1})
+
+
 @when('Steam reports user "{steam_id}" online but not playing')
 def step_steam_online(context: Context, steam_id: str) -> None:
     helpers.steam_emit_user(steam_id, {"player_name": "Gamer", "gameid": None, "persona_state": 1})
