@@ -85,6 +85,13 @@ interface SteamUserUpdate {
 // Steam account linked at all.
 export type Presence = 'playing' | 'online' | 'offline' | 'unlinked';
 
+export const PRESENCE_EMOJI: Record<Presence, string> = {
+    playing: '🟢',
+    online: '🟡',
+    offline: '🔴',
+    unlinked: '😶‍🌫️'
+};
+
 class SteamService {
     private bot: Bot;
     private client: SteamUser; // Initialize in constructor
@@ -425,7 +432,7 @@ class SteamService {
             if (rounds.length > 0) {
                 details += `\nRounds: ${this.formatRounds(rounds)}`;
             }
-            const text = fmt`🟢 ${bold(displayName)} is playing Counter-Strike${details}`;
+            const text = fmt`${PRESENCE_EMOJI.playing} ${bold(displayName)} is playing Counter-Strike${details}`;
 
             console.debug(`Publishing update for user ${tgUserId} to chat ${chatId}`);
             await this.publishUpdate(chatId, tgUserId, text, info);
@@ -1056,17 +1063,23 @@ class SteamService {
 
             let newText = lastUpdate.text;
 
-            // Check if already closed. The 🟢/🔴 marker sits on the current-state line, which is
-            // no longer necessarily the first one (the session overview renders above it), so
-            // look anywhere in the text rather than at the start.
-            if (newText.text.includes('🔴')) {
+            // Mark the session closed with the user's current presence: 🟡 if they're still signed in
+            // to Steam, 🔴 once they're offline. A 🟡 message is downgraded to 🔴 when they later sign
+            // out. The marker sits on the current-state line, which is no longer necessarily the first
+            // one (the session overview renders above it), so look anywhere in the text rather than at
+            // the start. All three markers are two UTF-16 units, so the entity offsets stay valid.
+            const marker: string = await this.getPresence(tgUserId) === 'online'
+                ? PRESENCE_EMOJI.online
+                : PRESENCE_EMOJI.offline;
+            const current: string | undefined = [PRESENCE_EMOJI.playing, PRESENCE_EMOJI.online, PRESENCE_EMOJI.offline]
+                .find(emoji => newText.text.includes(emoji));
+            if (current === marker || current === PRESENCE_EMOJI.offline) {
                 return;
-            } else if (newText.text.includes('🟢')) {
-                // Both are two UTF-16 units, so the entity offsets stay valid.
-                newText = { ...newText, text: newText.text.replace('🟢', '🔴') };
+            } else if (current) {
+                newText = { ...newText, text: newText.text.replace(current, marker) };
             } else {
-                // Legacy or unexpected format, prepend red
-                newText = fmt`🔴 ${newText}`;
+                // Legacy or unexpected format, prepend the marker
+                newText = fmt`${marker} ${newText}`;
             }
 
             console.log(`Closing session for user ${tgUserId} in chat ${chatId}. Editing message ${lastUpdate.message_id}.`);
@@ -1077,7 +1090,7 @@ class SteamService {
                 message_id: lastUpdate.message_id
             });
 
-            // Update DAO with the red text, but drop the now-stale detail. A closed session
+            // Update DAO with the closed text, but drop the now-stale detail. A closed session
             // has no live map/score left to protect, so the next launch — often a bare
             // "playing" update before rich presence arrives — must not be suppressed by the
             // less-detailed-update guard in publishUpdate().

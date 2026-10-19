@@ -1,6 +1,7 @@
 Feature: Steam game-presence updates
-  When a tracked user starts playing CS2 the bot posts to their chats and edits
-  the message when the session ends. Chats that opted out receive nothing.
+  When a tracked user starts playing CS2 the bot posts to their chats (🟢) and edits
+  the message when the session ends: 🟡 while still online on Steam, 🔴 once offline.
+  Chats that opted out receive nothing.
 
   Scenario: posting a game update and closing the session
     Given a chat with id 2001
@@ -12,6 +13,19 @@ Feature: Steam game-presence updates
     Then chat 2001 receives a Steam message containing "is playing Counter-Strike"
     When Steam reports user "76561198000000010" stopped playing
     Then the Steam message in chat 2001 is edited to contain "🔴"
+
+  Scenario: a session closed while still online is marked yellow, then red once offline
+    Given a chat with id 2007
+    And a user with id 5907 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000070"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000070"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000070" playing CS2 on map "Inferno"
+    Then chat 2007 receives a Steam message containing "🟢"
+    When Steam reports user "76561198000000070" left CS2 but stayed online
+    Then the Steam message in chat 2007 is edited to contain "🟡"
+    When Steam reports user "76561198000000070" stopped playing
+    Then the Steam message in chat 2007 is edited to contain "🔴"
 
   Scenario: a less-detailed update does not overwrite a more-detailed one
     Given a chat with id 2003
