@@ -1070,14 +1070,10 @@ class SteamService {
                 : PRESENCE_EMOJI.offline;
             const current: string | undefined = [PRESENCE_EMOJI.playing, PRESENCE_EMOJI.online, PRESENCE_EMOJI.offline]
                 .find(emoji => newText.text.includes(emoji));
-            if (current === marker || current === PRESENCE_EMOJI.offline) {
+            if (!current || current === marker || current === PRESENCE_EMOJI.offline) {
                 return;
-            } else if (current) {
-                newText = { ...newText, text: newText.text.replace(current, marker) };
-            } else {
-                // Legacy or unexpected format, prepend the marker
-                newText = fmt`${marker} ${newText}`;
             }
+            newText = { ...newText, text: newText.text.replace(current, marker) };
 
             console.log(`Closing session for user ${tgUserId} in chat ${chatId}. Editing message ${lastUpdate.message_id}.`);
 
