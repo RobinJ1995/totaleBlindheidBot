@@ -1063,11 +1063,8 @@ class SteamService {
 
             let newText = lastUpdate.text;
 
-            // Mark the session closed with the user's current presence: 🟡 if they're still signed in
-            // to Steam, 🔴 once they're offline. A 🟡 message is downgraded to 🔴 when they later sign
-            // out. The marker sits on the current-state line, which is no longer necessarily the first
-            // one (the session overview renders above it), so look anywhere in the text rather than at
-            // the start. All three markers are two UTF-16 units, so the entity offsets stay valid.
+            // Close with 🟡 while still online, 🔴 once offline. Markers are two UTF-16 units each,
+            // so entity offsets stay valid.
             const marker: string = await this.getPresence(tgUserId) === 'online'
                 ? PRESENCE_EMOJI.online
                 : PRESENCE_EMOJI.offline;
