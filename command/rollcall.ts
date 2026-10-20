@@ -1,11 +1,12 @@
 import { Bot, Message, User } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { pickRandom } from '../utils.js';
-import { bold, fmt, Formatted, join, messageText } from '../format.js';
+import { asFormatted, bold, Formatted, messageText } from '../format.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
-import { presenceMarkers } from '../presence.js';
+import { presenceMarkers, withTags } from '../presence.js';
+import { trackTaggedMessage } from '../taggedMessages.js';
 
 const rollcallPlayerDao = new RollcallPlayerDAO();
 const rsvpDao = new RsvpDAO();
@@ -40,24 +41,26 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
             entries[opts.initiator.id] = entryFromUser(opts.initiator, 'yes');
         }
 
-        const { groups, mentions } = resolve(rotation, entries, markers);
-        // The ping line is baked in at send time: anyone who said "no" is dropped here, and the
-        // 🟢/🟡/🔴/😶‍🌫️ presence markers are a snapshot of who was in CS2 / online / offline / unlinked.
-        const base: Formatted = fmt`${pickRandom(QUOTES)}\n${join(mentions, ' ')}`;
+        const { groups, tagged } = resolve(rotation, entries);
+        // The ping line is baked in at send time: anyone who said "no" is dropped here. Its
+        // 🟢/🟡/🔴/😶‍🌫️ presence markers (in CS2 / online / offline / unlinked) are kept up to date
+        // for a while and then stripped, so the stored base leaves them out.
+        const head: Formatted = asFormatted(`${pickRandom(QUOTES)}\n`);
+        const base: Formatted = withTags(head, tagged);
 
         return bot.api.sendMessage({
             chat_id,
-            ...messageText(renderMessage(base, groups)),
+            ...messageText(renderMessage(withTags(head, tagged, markers), groups)),
             // reply_parameters is only set for user-triggered rollcalls; scheduled ones
             // (no originating message) omit it entirely.
             ...(opts.reply_to_message_id ? { reply_parameters: { message_id: opts.reply_to_message_id } } : {}),
             reply_markup: keyboard('rollcall')
         }).then((sent: Message) => {
             const ref = { message_id: sent.message_id, base, keyboard: 'rollcall' as const };
-            const attach: Promise<unknown> = (existing && opts.rsvp_id)
+            const attach = (): Promise<unknown> => (existing && opts.rsvp_id)
                 ? rsvpDao.addRsvpMessage(opts.rsvp_id, ref)
                 : rsvpDao.createRsvpList({ chat_id, entries, messages: [ref] });
-            return attach.then(() => sent);
+            return trackTaggedMessage(sent, head, tagged, true).then(attach).then(() => sent);
         });
     });
 };

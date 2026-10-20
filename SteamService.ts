@@ -109,6 +109,9 @@ class SteamService {
     // so rapidly-arriving presence updates and the sweep can't race each other.
     private matchLocks: Record<string, Promise<unknown>> = {};
     private lastPresencePruneAt: number = 0;
+    // Last presence reported to the presence-change listeners, per Telegram user.
+    private lastPresence: Map<number, Presence | undefined> = new Map();
+    private presenceListeners: ((tgUserId: number) => void)[] = [];
     private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
@@ -322,6 +325,9 @@ class SteamService {
         } else {
             console.debug(`Received Steam update for tracked user: ${playerName} (${steamId}).`, { gameId, game_played_app_id: user?.game_played_app_id, online_session_instances: user?.online_session_instances, rich_presence: user?.rich_presence });
         }
+
+        this.checkPresenceChange(tgUserId)
+            .catch(err => console.error(`Error checking presence change for user ${tgUserId}:`, err));
 
         // Check if playing CS2
         const isPlayingCS2 = gameId == this.appIdCS2;
@@ -1038,6 +1044,22 @@ class SteamService {
             return 'online';
         }
         return 'offline';
+    }
+
+    // Called with a Telegram user id whenever that user's presence changes.
+    onPresenceChange(listener: (tgUserId: number) => void): void {
+        this.presenceListeners.push(listener);
+    }
+
+    // Steam re-sends a user on every rich presence tick, so only tell listeners when the user's
+    // presence actually changed.
+    private async checkPresenceChange(tgUserId: number): Promise<void> {
+        const presence: Presence | undefined = await this.getPresence(tgUserId);
+        if (this.lastPresence.has(tgUserId) && this.lastPresence.get(tgUserId) === presence) {
+            return;
+        }
+        this.lastPresence.set(tgUserId, presence);
+        this.presenceListeners.forEach(listener => listener(tgUserId));
     }
 
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
