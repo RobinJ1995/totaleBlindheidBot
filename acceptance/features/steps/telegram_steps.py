@@ -4,6 +4,7 @@ These use behave's regex matcher (which anchors patterns at both ends) so the
 generic "the user sends ..." step does not greedily swallow the more specific
 mention variants.
 """
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from behave import given, when, then, use_step_matcher
@@ -12,6 +13,8 @@ from behave.runner import Context
 import helpers
 
 use_step_matcher("re")
+
+PRESENCE_MARKERS: List[str] = ["🟢", "🟡", "🔴", "😶‍🌫️"]
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +70,39 @@ def step_remember_latest_message(context: Context) -> None:
     outbox: List[Dict[str, Any]] = helpers.get_outbox(context.chat_id)
     assert outbox, "No bot message exists to remember"
     context.remembered_message_id = outbox[-1]["message_id"]
+
+
+def _wait_for_remembered_edit(context: Context, matches: Any, description: str) -> None:
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    edits: List[str] = []
+    while time.time() < deadline:
+        edits = [
+            m["text"] for m in helpers.get_outbox(context.chat_id)
+            if m["method"] == "editMessageText" and m["message_id"] == context.remembered_message_id
+        ]
+        if any(matches(text) for text in edits):
+            return
+        time.sleep(helpers.POLL_INTERVAL)
+    raise AssertionError(f"The remembered message was never edited {description}; edits: {edits}")
+
+
+@then('the remembered message is edited to contain "(?P<expected>[^"]*)"')
+def step_remembered_edited_to_contain(context: Context, expected: str) -> None:
+    _wait_for_remembered_edit(context, lambda text: expected in text, f"to contain {expected!r}")
+
+
+@then('the remembered message is edited to contain "(?P<expected>[^"]*)" without a presence marker')
+def step_remembered_edited_without_markers(context: Context, expected: str) -> None:
+    _wait_for_remembered_edit(
+        context,
+        lambda text: expected in text and not any(marker in text for marker in PRESENCE_MARKERS),
+        f"to contain {expected!r} without a presence marker",
+    )
+
+
+@when('the presence markers\' live window has passed')
+def step_presence_window_passed(context: Context) -> None:
+    helpers.age_tagged_messages(7)
 
 
 @when('the user replies "(?P<text>[^"]*)" to the remembered message')

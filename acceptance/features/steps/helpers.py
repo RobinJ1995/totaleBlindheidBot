@@ -25,7 +25,7 @@ MARIADB_DATABASE: str = os.environ.get("MARIADB_DATABASE", "totaleblindheidbot")
 # Every application-data table; truncated between runs to start from a clean DAO state.
 _APP_TABLES: List[str] = [
     "telegram_user", "user_settings", "user_steam_id", "user_chat", "chat_settings",
-    "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule",
+    "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule", "tagged_message",
     "github_state", "game_update", "steam_storage",
     "presence_event", "match_stream_cursor", "game_history_coplayer", "game_history",
 ]
@@ -68,6 +68,16 @@ def wait_for_db(timeout: int = 90) -> None:
             last_err = exc
         time.sleep(1)
     raise RuntimeError(f"Timed out waiting for MariaDB schema: {last_err}")
+
+
+def age_tagged_messages(hours: int) -> None:
+    """Backdate every tracked message, as if it was sent `hours` earlier than it was."""
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE tagged_message SET sent_at = sent_at - INTERVAL %s HOUR", (hours,))
+    finally:
+        conn.close()
 
 
 def reset_db() -> None:

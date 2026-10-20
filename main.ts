@@ -7,16 +7,15 @@ import consoleStamp from 'console-stamp';
 import { Bot, CallbackQuery, Context, Message } from 'node-telegram-bot-api';
 import ScheduleDAO from './dao/ScheduleDAO.js';
 import RsvpDAO from './dao/RsvpDAO.js';
-import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
-import { messageText } from './format.js';
-import { Rsvp, RsvpList } from './dao/RsvpDAO.js';
+import { Rsvp } from './dao/RsvpDAO.js';
 import { ensureSchema } from './dao/Database.js';
-import { keyboard, resolve, renderMessage, entryFromUser } from './rsvp.js';
+import { entryFromUser } from './rsvp.js';
+import { closeScheduleConfirmation, refreshTaggedMessagesFor, renderRsvpList, startTaggedMessageSweep } from './taggedMessages.js';
 
 // Command Handlers
 import hiHandler from './command/hi.js';
@@ -50,7 +49,6 @@ const baseApiUrl = process.env.TELEGRAM_API_BASE_URL;
 const bot = new Bot(token, baseApiUrl ? { apiRoot: baseApiUrl } : {});
 const scheduleDao = new ScheduleDAO();
 const rsvpDao = new RsvpDAO();
-const rollcallPlayerDao = new RollcallPlayerDAO();
 const userDao = new UserDAO();
 const steamEnabled = !!(process.env.STEAM_USERNAME && process.env.STEAM_PASSWORD);
 
@@ -64,7 +62,7 @@ setInterval(() => {
                 if (scheduledTime <= now) {
                     console.log(`Executing scheduled rollcall for chat ${chat_id}`);
                     executeRollcall(bot, parseInt(chat_id), { rsvp_id: schedule.rsvp_id })
-                        .then(() => closeScheduleConfirmation(parseInt(chat_id), schedule.rsvp_id))
+                        .then(() => closeScheduleConfirmation(bot, schedule.rsvp_id))
                         .catch((err: Error) => console.error(`Error executing scheduled rollcall for ${chat_id}:`, err))
                         .finally(() => scheduleDao.removeScheduledRollcall(Number(chat_id)));
                 }
@@ -72,50 +70,6 @@ setInterval(() => {
         })
         .catch((err: Error) => console.error('Error checking schedules:', err));
 }, 30000);
-
-// When a schedule fires, the rollcall message takes over the shared RSVP list. Strip the
-// buttons from the now-stale confirmation message and detach it so only the rollcall stays live.
-const closeScheduleConfirmation = (chat_id: number, rsvp_id?: number): Promise<void> => {
-    if (!rsvp_id) {
-        return Promise.resolve();
-    }
-    return rsvpDao.getRsvpList(rsvp_id).then(list => {
-        if (!list) {
-            return;
-        }
-        const confirmation = list.messages.find(m => m.keyboard === 'schedule');
-        if (!confirmation) {
-            return;
-        }
-        return Promise.resolve()
-            .then(() => bot.api.editMessageReplyMarkup({
-                chat_id,
-                message_id: confirmation.message_id,
-                reply_markup: { inline_keyboard: [] }
-            }).catch(() => undefined))
-            .then(() => rsvpDao.removeRsvpMessage(rsvp_id, confirmation.message_id));
-    });
-};
-
-// Re-render every message attached to an RSVP list against the current rotation.
-const renderRsvpMessages = (list: RsvpList): Promise<unknown> => {
-    return rollcallPlayerDao.getRollcallPlayerUsernames(list.chat_id).then(rotation => {
-        const { groups } = resolve(rotation, list.entries);
-        return Promise.all(list.messages.map(ref =>
-            bot.api.editMessageText({
-                ...messageText(renderMessage(ref.base, groups)),
-                chat_id: list.chat_id,
-                message_id: ref.message_id,
-                reply_markup: keyboard(ref.keyboard)
-            }).catch((err: Error) => {
-                // Telegram throws when the text is unchanged; that's harmless here.
-                if (!err.message?.includes('message is not modified')) {
-                    console.error(`Error updating RSVP message ${ref.message_id}:`, err);
-                }
-            })
-        ));
-    });
-};
 
 const handleRsvpCallback = (query: CallbackQuery): void => {
     const data: string | undefined = query.data;
@@ -139,7 +93,7 @@ const handleRsvpCallback = (query: CallbackQuery): void => {
             }
 
             return rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
-                .then(updated => updated ? renderRsvpMessages(updated) : undefined)
+                .then(updated => updated ? renderRsvpList(bot, updated.rsvp_id) : undefined)
                 .then(() => bot.api.answerCallbackQuery({ callback_query_id: query.id }));
         })
         .catch((err: Error) => {
@@ -152,6 +106,11 @@ const handleRsvpCallback = (query: CallbackQuery): void => {
 let steamService: SteamService | null = null;
 if (steamEnabled) {
     steamService = new SteamService(bot);
+    // Keep the presence markers on recent rollcalls, schedules and wingman calls up to date.
+    steamService.onPresenceChange((user_id: number) => {
+        refreshTaggedMessagesFor(bot, user_id)
+            .catch((err: Error) => console.error(`Error refreshing presence markers for user ${user_id}:`, err));
+    });
 }
 
 // GitHub Service (public repo, no auth required)
@@ -175,6 +134,7 @@ ensureSchema()
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
+        startTaggedMessageSweep(bot);
         startPolling();
     })
     .catch((err: Error) => {

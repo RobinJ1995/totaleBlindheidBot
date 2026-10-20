@@ -1,12 +1,10 @@
 import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import ScheduleDAO, { ScheduledRollcalls } from '../dao/ScheduleDAO.js';
-import RsvpDAO from '../dao/RsvpDAO.js';
 import { formatError } from '../utils.js';
-import { retireRsvpList } from '../rsvp.js';
+import { retireRsvpList } from '../taggedMessages.js';
 
 const scheduleDao = new ScheduleDAO();
-const rsvpDao = new RsvpDAO();
 
 export default (bot: Bot, msg: ExtendedMessage): void => {
     const chat_id: number = msg.chat.id;
@@ -15,7 +13,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
             if (schedules[chat_id]) {
                 const schedule = schedules[chat_id];
                 return scheduleDao.removeScheduledRollcall(chat_id)
-                    .then(() => schedule.rsvp_id ? retireRsvpList(bot, rsvpDao, schedule.rsvp_id) : undefined)
+                    .then(() => schedule.rsvp_id ? retireRsvpList(bot, schedule.rsvp_id) : undefined)
                     .then(() => {
                         msg.reply('Scheduled rollcall cancelled.');
                     });

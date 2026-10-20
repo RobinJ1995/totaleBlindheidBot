@@ -6,9 +6,10 @@ import ScheduleDAO from '../dao/ScheduleDAO.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { formatError } from '../utils.js';
-import { asFormatted, fmt, Formatted, join, messageText } from '../format.js';
-import { keyboard, resolve, renderMessage, entryFromUser, retireRsvpList } from '../rsvp.js';
-import { presenceMarkers } from '../presence.js';
+import { asFormatted, Formatted, messageText } from '../format.js';
+import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
+import { presenceMarkers, withTags } from '../presence.js';
+import { retireRsvpList, trackTaggedMessage } from '../taggedMessages.js';
 
 const userDao = new UserDAO();
 const scheduleDao = new ScheduleDAO();
@@ -50,7 +51,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
             return scheduleDao.getScheduledRollcalls()
                 .then(schedules => {
                     const previous = schedules[chat_id];
-                    return previous?.rsvp_id ? retireRsvpList(bot, rsvpDao, previous.rsvp_id) : undefined;
+                    return previous?.rsvp_id ? retireRsvpList(bot, previous.rsvp_id) : undefined;
                 })
                 .then(() => scheduleDao.setScheduledRollcall(chat_id, scheduledTime))
                 .then(() => rollcallPlayerDao.getRollcallPlayerUsernames(chat_id))
@@ -73,20 +74,22 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                         entries[msg.from.id] = entryFromUser(msg.from, 'yes');
                     }
 
-                    const { groups, mentions } = resolve(rotation, entries, markers);
+                    const { groups, tagged } = resolve(rotation, entries);
                     // Like a rollcall, the schedule tags the whole rotation up front. The
-                    // mention line is baked in here so it records who was pinged when scheduled,
-                    // along with their 🟢/🟡/🔴/😶‍🌫️ presence at that moment.
+                    // mention line is baked in here so it records who was pinged when scheduled.
+                    // Its 🟢/🟡/🔴/😶‍🌫️ presence markers are kept up to date for a while and then
+                    // stripped, so the stored base leaves them out.
                     const heading: string = `Rollcall scheduled for ${timeString}`;
-                    const base: Formatted = mentions.length ? fmt`${heading}\n${join(mentions, ' ')}` : asFormatted(heading);
+                    const head: Formatted = asFormatted(tagged.length ? `${heading}\n` : heading);
+                    const base: Formatted = withTags(head, tagged);
 
                     return bot.api.sendMessage({
                         chat_id,
-                        ...messageText(renderMessage(base, groups)),
+                        ...messageText(renderMessage(withTags(head, tagged, markers), groups)),
                         reply_parameters: { message_id: msg.message_id },
                         reply_markup: keyboard('schedule')
                     }).then((sent: Message) => {
-                        return rsvpDao.createRsvpList({
+                        return trackTaggedMessage(sent, head, tagged, true).then(() => rsvpDao.createRsvpList({
                             chat_id,
                             entries,
                             messages: [{ message_id: sent.message_id, base, keyboard: 'schedule' }]
@@ -94,7 +97,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                             // Store the rsvp_id + initiator on the schedule so the timer can
                             // find and share the same list when the rollcall fires.
                             scheduleDao.setScheduledRollcall(chat_id, scheduledTime, rsvp_id, user_id)
-                        );
+                        ));
                     });
                 });
         })

@@ -1,10 +1,10 @@
 import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { pickRandom } from '../utils.js';
-import { bold, fmt, join, Part } from '../format.js';
-import { mentionText } from '../rsvp.js';
+import { asFormatted, bold, Formatted } from '../format.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
-import { presenceMarkers } from '../presence.js';
+import { presenceMarkers, withTags } from '../presence.js';
+import { trackTaggedMessage } from '../taggedMessages.js';
 
 const dao = new RollcallPlayerDAO();
 
@@ -18,9 +18,11 @@ const QUOTES: string[] = [
 export default (bot: Bot, msg: ExtendedMessage): void => {
     dao.getRollcallPlayerUsernames(msg.chat?.id || 0)
         .then((players: string[]) => presenceMarkers(players).then(markers => {
-            // Prefix each tag with the player's 🟢/🟡/🔴/😶‍🌫️ presence, like rollcalls and schedules.
-            const tags: Part[] = players.map(player => markers[player] ? fmt`${markers[player]}${mentionText(player)}` : mentionText(player));
-            return msg.reply(fmt`${pickRandom(QUOTES)}\n${join(tags, ' ')}`);
+            // Prefix each tag with the player's 🟢/🟡/🔴/😶‍🌫️ presence, kept up to date for a while
+            // like rollcalls and schedules.
+            const head: Formatted = asFormatted(`${pickRandom(QUOTES)}\n`);
+            return msg.reply(withTags(head, players, markers))
+                .then(sent => trackTaggedMessage(sent, head, players, false));
         }))
         .catch((err: Error) => msg.reply(bold(err.toString())));
 };

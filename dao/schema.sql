@@ -86,6 +86,21 @@ CREATE TABLE IF NOT EXISTS rsvp_message (
         REFERENCES rsvp_list (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Messages that tag the rotation with Steam presence markers (rollcalls, schedule
+-- confirmations, wingman calls) while their markers are still kept up to date. The tag line
+-- is rebuilt from head + tags on every edit; the row is deleted once the markers are stripped.
+CREATE TABLE IF NOT EXISTS tagged_message (
+    chat_id       BIGINT      NOT NULL,
+    message_id    BIGINT      NOT NULL,
+    head_text     TEXT        NOT NULL,
+    head_entities TEXT        NULL,
+    tags          TEXT        NOT NULL,
+    rsvp          TINYINT(1)  NOT NULL,
+    sent_at       DATETIME(3) NOT NULL,
+    PRIMARY KEY (chat_id, message_id),
+    KEY idx_tagged_message_sent (sent_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Surrogate id + non-unique chat_id index: the schema permits many schedules per
 -- chat. The DAO keeps one-per-chat behaviour by replacing the row on write.
 CREATE TABLE IF NOT EXISTS rollcall_schedule (

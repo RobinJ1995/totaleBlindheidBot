@@ -64,6 +64,8 @@ services:
       MATCH_IDLE_MS: "6000"
       MATCH_SWEEP_MS: "1000"
       MATCH_RESET_CONFIRM_MS: "2000"
+      # Strip presence markers from messages past their live window without waiting a minute.
+      TAGGED_MESSAGE_SWEEP_MS: "1000"
       GITHUB_API_BASE_URL: http://github-mock:8082
       GITHUB_REPO: acceptance/repo
       GITHUB_POLL_INTERVAL_MS: "1000"

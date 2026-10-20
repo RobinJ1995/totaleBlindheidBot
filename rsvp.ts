@@ -1,6 +1,6 @@
-import { Bot, InlineKeyboardMarkup, User } from 'node-telegram-bot-api';
+import { InlineKeyboardMarkup, User } from 'node-telegram-bot-api';
 import { fmt, Formatted, link, Part } from './format.js';
-import RsvpDAO, { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
+import { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
@@ -68,15 +68,14 @@ interface ResolvedPerson {
 
 export interface RsvpGroups {
     groups: Record<Rsvp, string[]>; // display names per rsvp value (only those who chose)
-    mentions: Part[];               // rotation mentions whose rsvp != 'no'
+    tagged: string[];               // rotation mention strings whose rsvp != 'no'
 }
 
 // Combine the live rotation roster with the explicit entries on the RSVP list.
 // Players are uncategorised until they tap a button; explicit entries (incl. the seeded
 // initiator) place them into yes/maybe/no, and non-rotation tappers are appended as extra
-// people. Every rotation player is still tagged in the mention line unless they opted out,
-// prefixed with their presence marker (keyed by rotation mention string) when one is given.
-const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers: Record<string, string> = {}): RsvpGroups => {
+// people. Every rotation player is still tagged in the mention line unless they opted out.
+const resolve = (rotation: string[], entries: Record<string, RsvpEntry>): RsvpGroups => {
     const people: ResolvedPerson[] = [];
     const byId: Map<number, ResolvedPerson> = new Map();
     const byUsername: Map<string, ResolvedPerson> = new Map();
@@ -106,7 +105,7 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers
     });
 
     const groups: Record<Rsvp, string[]> = { yes: [], maybe: [], no: [] };
-    const mentions: Part[] = [];
+    const tagged: string[] = [];
     people.forEach(person => {
         // Only people who have actually made a selection appear in the lists.
         if (person.rsvp) {
@@ -114,12 +113,11 @@ const resolve = (rotation: string[], entries: Record<string, RsvpEntry>, markers
         }
         // Tag every rotation player except those who explicitly opted out.
         if (person.mention && person.rsvp !== 'no') {
-            const marker: string | undefined = markers[person.mention];
-            mentions.push(marker ? fmt`${marker}${mentionText(person.mention)}` : mentionText(person.mention));
+            tagged.push(person.mention);
         }
     });
 
-    return { groups, mentions };
+    return { groups, tagged };
 };
 
 // Build the 🙋‍♂️/🤷‍♂️/🙅‍♂️ block, omitting any group that has no members.
@@ -143,20 +141,6 @@ const entryFromUser = (user: User, rsvp: Rsvp): RsvpEntry => ({
     rsvp
 });
 
-// Strip the buttons from every message attached to a list and delete it, so its now-stale
-// confirmation can no longer record responses. Used when rescheduling or cancelling.
-const retireRsvpList = (bot: Bot, dao: RsvpDAO, rsvp_id: number): Promise<void> =>
-    dao.getRsvpList(rsvp_id).then(list => {
-        const strips: Promise<unknown>[] = list
-            ? list.messages.map(ref => bot.api.editMessageReplyMarkup({
-                chat_id: list.chat_id,
-                message_id: ref.message_id,
-                reply_markup: { inline_keyboard: [] }
-            }).catch(() => undefined))
-            : [];
-        return Promise.all(strips).then(() => dao.deleteRsvpList(rsvp_id));
-    });
-
 export {
     keyboard,
     parseMention,
@@ -165,6 +149,5 @@ export {
     resolve,
     renderLists,
     renderMessage,
-    entryFromUser,
-    retireRsvpList
+    entryFromUser
 };
