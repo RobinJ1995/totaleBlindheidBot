@@ -132,12 +132,12 @@ class SteamService {
             this.client.storage.on('save', (filename: string, contents: Buffer, callback: (err: Error | null) => void) => {
                 saveSteamFile(`steam-user/${filename}`, contents)
                     .then(() => callback(null))
-                    .catch(err => callback(err));
+                    .catch(callback);
             });
             this.client.storage.on('read', (filename: string, callback: (err: Error | null, content?: any) => void) => {
                 readSteamFile(`steam-user/${filename}`)
                     .then(contents => callback(null, contents))
-                    .catch(err => callback(err));
+                    .catch(callback);
             });
         } else {
             // filesystem (default): persist to a fixed directory so a mounted volume keeps the
