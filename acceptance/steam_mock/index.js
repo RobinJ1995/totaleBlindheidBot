@@ -74,9 +74,9 @@ FakeSteamUser.EFriendRelationship = {
 // ---------------------------------------------------------------------------
 
 function readBody(req) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
         let data = '';
-        req.on('data', (chunk) => { data += chunk; });
+        req.on('data', chunk => { data += chunk; });
         req.on('end', () => {
             try {
                 resolve(data ? JSON.parse(data) : {});
@@ -121,7 +121,7 @@ const controlServer = http.createServer(async (req, res) => {
         steamGuardState.requested = true;
         steamGuardState.called = false;
         steamGuardState.code = null;
-        const callback = (code) => {
+        const callback = code => {
             steamGuardState.called = true;
             steamGuardState.code = code;
         };
