@@ -1019,30 +1019,20 @@ class SteamService {
     private async stripExpiredGameMessages(): Promise<void> {
         const expired: StoredGameMessage[] = await this.gameUpdateDao.getGameUpdatesBefore(new Date(Date.now() - GAME_UPDATE_LIVE_MS));
         for (const message of expired) {
-            // The marker starts its line; an emoji inside the name or details must not match.
-            const match = new RegExp(`^(${PRESENCE_EMOJI.playing}|${PRESENCE_EMOJI.online}|${PRESENCE_EMOJI.offline}) `, 'm').exec(message.text.text);
-            if (!match) {
+            const marker: string | undefined = [PRESENCE_EMOJI.playing, PRESENCE_EMOJI.online, PRESENCE_EMOJI.offline]
+                .find(emoji => message.text.text.includes(`${emoji} `));
+            if (!marker) {
                 continue;
             }
-            const at: number = match.index;
-            const removed: number = match[0].length;
+            const at: number = message.text.text.indexOf(`${marker} `);
+            const removed: number = marker.length + 1;
             const text: Formatted = {
                 text: message.text.text.slice(0, at) + message.text.text.slice(at + removed),
                 entities: message.text.entities.map(e => e.offset > at ? { ...e, offset: e.offset - removed } : e)
             };
-            const done: boolean = await this.bot.api.editMessageText({ ...messageText(text), chat_id: message.chat_id, message_id: message.message_id })
-                .then(() => true)
-                .catch((err: Error) => {
-                    // Retrying these would never succeed.
-                    if (/message is not modified|message to edit not found|message can't be edited/.test(err.message ?? '')) {
-                        return true;
-                    }
-                    console.error(`Failed to strip presence marker from message ${message.message_id} in chat ${message.chat_id}:`, err);
-                    return false;
-                });
-            if (done) {
-                await this.gameUpdateDao.setGameMessageText({ ...message, text });
-            }
+            await this.bot.api.editMessageText({ ...messageText(text), chat_id: message.chat_id, message_id: message.message_id })
+                .catch((err: Error) => console.error(`Failed to strip presence marker from message ${message.message_id} in chat ${message.chat_id}:`, err));
+            await this.gameUpdateDao.setGameMessageText({ ...message, text });
         }
     }
 
