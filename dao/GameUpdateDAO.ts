@@ -10,6 +10,13 @@ export interface GameUpdate {
     timestamp: Date;
 }
 
+export interface StoredGameMessage {
+    chat_id: number;
+    user_id: number;
+    message_id: number;
+    text: Formatted;
+}
+
 class GameUpdateDAO {
     // gameId is the only info field that may be numeric; reconstruct it as a number
     // when it parses as one so the publishUpdate diff logic keeps comparing like for like.
@@ -53,6 +60,31 @@ class GameUpdateDAO {
                 }
             );
         });
+    }
+
+    async getGameUpdatesBefore(before: Date): Promise<StoredGameMessage[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT chat_id, user_id, message_id, text, entities FROM game_update WHERE timestamp < :before',
+            { before }
+        );
+        return rows.map(row => ({
+            chat_id: Number(row.chat_id),
+            user_id: Number(row.user_id),
+            message_id: Number(row.message_id),
+            text: { text: row.text, entities: JSON.parse(row.entities ?? '[]') }
+        }));
+    }
+
+    // Only while the row still holds this message, so a newer one isn't overwritten.
+    setGameMessageText(message: StoredGameMessage): Promise<void> {
+        return query<ResultSetHeader>(
+            'UPDATE game_update SET text = :text, entities = :entities ' +
+            'WHERE chat_id = :chat_id AND user_id = :user_id AND message_id = :message_id',
+            {
+                chat_id: message.chat_id, user_id: message.user_id, message_id: message.message_id,
+                text: message.text.text, entities: JSON.stringify(message.text.entities)
+            }
+        ).then(() => undefined);
     }
 
     updateGameUpdateText(chat_id: number, user_id: number, text: Formatted, info: any = {}): Promise<void> {

@@ -3,7 +3,7 @@ import SteamTotp from 'steam-totp';
 import { Bot } from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
-import GameUpdateDAO, { GameUpdate } from './dao/GameUpdateDAO.js';
+import GameUpdateDAO, { GameUpdate, StoredGameMessage } from './dao/GameUpdateDAO.js';
 import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, SiblingMatch } from './dao/GameHistoryDAO.js';
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
@@ -21,6 +21,9 @@ const MATCH_IDLE_MS = Number(process.env.MATCH_IDLE_MS) || 10 * 60 * 1000;
 
 // How often the idle-match sweep runs. Overridable for tests.
 const MATCH_SWEEP_MS = Number(process.env.MATCH_SWEEP_MS) || 60 * 1000;
+
+// How long a game message is kept up to date. Past that its presence marker is stripped.
+const GAME_UPDATE_LIVE_MS = 6 * 60 * 60 * 1000;
 
 // How recently a match must have been announced for a later-finalising player of the same match
 // to be grouped into (and edit) that existing message rather than posting a fresh one. Players'
@@ -249,6 +252,7 @@ class SteamService {
         // following reset to close it).
         this.matchSweepInterval = setInterval(() => {
             this.sweepIdleMatches().catch(err => console.error('Error sweeping idle matches:', err));
+            this.stripExpiredGameMessages().catch(err => console.error('Error stripping expired game messages:', err));
         }, MATCH_SWEEP_MS);
     }
 
@@ -468,7 +472,7 @@ class SteamService {
             const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
 
             const now = new Date();
-            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+            const sixHoursAgo = new Date(now.getTime() - GAME_UPDATE_LIVE_MS);
 
             // The live message doubles as the session's scoreboard: matches that finished during
             // its lifetime are listed above the current game state. A fresh message starts a
@@ -1012,6 +1016,36 @@ class SteamService {
         }
     }
 
+    private async stripExpiredGameMessages(): Promise<void> {
+        const expired: StoredGameMessage[] = await this.gameUpdateDao.getGameUpdatesBefore(new Date(Date.now() - GAME_UPDATE_LIVE_MS));
+        for (const message of expired) {
+            const marker: string | undefined = [PRESENCE_EMOJI.playing, PRESENCE_EMOJI.online, PRESENCE_EMOJI.offline]
+                .find(emoji => message.text.text.includes(`${emoji} `));
+            if (!marker) {
+                continue;
+            }
+            const at: number = message.text.text.indexOf(`${marker} `);
+            const removed: number = marker.length + 1;
+            const text: Formatted = {
+                text: message.text.text.slice(0, at) + message.text.text.slice(at + removed),
+                entities: message.text.entities.map(e => e.offset > at ? { ...e, offset: e.offset - removed } : e)
+            };
+            const done: boolean = await this.bot.api.editMessageText({ ...messageText(text), chat_id: message.chat_id, message_id: message.message_id })
+                .then(() => true)
+                .catch((err: Error) => {
+                    // Retrying these would never succeed.
+                    if (/message is not modified|message to edit not found|message can't be edited/.test(err.message ?? '')) {
+                        return true;
+                    }
+                    console.error(`Failed to strip presence marker from message ${message.message_id} in chat ${message.chat_id}:`, err);
+                    return false;
+                });
+            if (done) {
+                await this.gameUpdateDao.setGameMessageText({ ...message, text });
+            }
+        }
+    }
+
     // Is ANY of the user's mapped Steam accounts currently playing CS2? A user may register
     // several Steam IDs, so a non-CS2 update from one doesn't mean they've stopped playing.
     async isAnyAccountPlayingCS2(tgUserId: number): Promise<boolean> {
@@ -1078,7 +1112,7 @@ class SteamService {
 
             // If message is too old (> 6 hours), ignore
             const now = new Date();
-            const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+            const sixHoursAgo = new Date(now.getTime() - GAME_UPDATE_LIVE_MS);
             if (new Date(lastUpdate.timestamp) < sixHoursAgo) {
                 return;
             }
