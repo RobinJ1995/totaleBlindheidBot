@@ -1019,13 +1019,13 @@ class SteamService {
     private async stripExpiredGameMessages(): Promise<void> {
         const expired: StoredGameMessage[] = await this.gameUpdateDao.getGameUpdatesBefore(new Date(Date.now() - GAME_UPDATE_LIVE_MS));
         for (const message of expired) {
-            const marker: string | undefined = [PRESENCE_EMOJI.playing, PRESENCE_EMOJI.online, PRESENCE_EMOJI.offline]
-                .find(emoji => message.text.text.includes(`${emoji} `));
-            if (!marker) {
+            // The marker starts its line; an emoji inside the name or details must not match.
+            const match = new RegExp(`^(${PRESENCE_EMOJI.playing}|${PRESENCE_EMOJI.online}|${PRESENCE_EMOJI.offline}) `, 'm').exec(message.text.text);
+            if (!match) {
                 continue;
             }
-            const at: number = message.text.text.indexOf(`${marker} `);
-            const removed: number = marker.length + 1;
+            const at: number = match.index;
+            const removed: number = match[0].length;
             const text: Formatted = {
                 text: message.text.text.slice(0, at) + message.text.text.slice(at + removed),
                 entities: message.text.entities.map(e => e.offset > at ? { ...e, offset: e.offset - removed } : e)
