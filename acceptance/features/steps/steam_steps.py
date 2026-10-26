@@ -226,6 +226,25 @@ def step_steam_message_edited(context: Context, chat_id: int, expected: str) -> 
     )
 
 
+@when("the Steam message's live window has passed")
+def step_steam_message_window_passed(context: Context) -> None:
+    helpers.age_game_updates(7)
+
+
+@then('the Steam message in chat {chat_id:d} is edited to drop its presence marker, keeping "{name}" bold')
+def step_steam_message_marker_stripped(context: Context, chat_id: int, name: str) -> None:
+    markers = ("🟢", "🟡", "🔴")
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    while time.time() < deadline:
+        for m in helpers.get_outbox(chat_id):
+            if (m["method"] == "editMessageText" and "is playing Counter-Strike" in m["text"]
+                    and not any(marker in m["text"] for marker in markers)):
+                assert name in helpers.bold_texts(m), f"Expected {name!r} bold in {m['text']!r}"
+                return
+        time.sleep(helpers.POLL_INTERVAL)
+    raise AssertionError(f"No edit dropping the presence marker reached chat {chat_id}")
+
+
 @then('chat {chat_id:d} eventually receives a new Steam message containing "{expected}"')
 def step_chat_receives_new_steam(context: Context, chat_id: int, expected: str) -> None:
     # Poll for a fresh sendMessage (e.g. the end-of-game notification), which may arrive a

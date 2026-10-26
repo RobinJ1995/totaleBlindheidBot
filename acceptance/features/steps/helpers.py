@@ -70,6 +70,16 @@ def wait_for_db(timeout: int = 90) -> None:
     raise RuntimeError(f"Timed out waiting for MariaDB schema: {last_err}")
 
 
+def age_game_updates(hours: int) -> None:
+    """Backdate every Steam game message, as if it was sent `hours` earlier than it was."""
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE game_update SET timestamp = timestamp - INTERVAL %s HOUR", (hours,))
+    finally:
+        conn.close()
+
+
 def age_tagged_messages(hours: int) -> None:
     """Backdate every tracked message, as if it was sent `hours` earlier than it was."""
     conn = db_conn()
@@ -202,6 +212,19 @@ def text_links(message: Dict[str, Any]) -> List[Tuple[str, str]]:
         (utf16[e["offset"] * 2:(e["offset"] + e["length"]) * 2].decode("utf-16-le"), e["url"])
         for e in entities
         if e.get("type") == "text_link"
+    ]
+
+
+def bold_texts(message: Dict[str, Any]) -> List[str]:
+    """Return the text covered by each bold entity of a recorded outbox message."""
+    entities: Any = message.get("params", {}).get("entities") or []
+    if isinstance(entities, str):
+        entities = json.loads(entities)
+    utf16: bytes = message["text"].encode("utf-16-le")
+    return [
+        utf16[e["offset"] * 2:(e["offset"] + e["length"]) * 2].decode("utf-16-le")
+        for e in entities
+        if e.get("type") == "bold"
     ]
 
 

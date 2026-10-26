@@ -89,3 +89,16 @@ Feature: Steam game-presence updates
     When Steam mappings are refreshed
     And Steam reports user "76561198000000020" playing CS2
     Then no Steam message is posted to chat 2002
+
+  Scenario: a game message's presence marker is stripped once it's no longer kept up to date
+    Given a chat with id 2008
+    And a user with id 5908 and first name "Tester"
+    When the user sends "/steam_user_id 76561198000000080"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000080"
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000000080" playing CS2 on map "Inferno"
+    Then chat 2008 receives a Steam message containing "is playing Counter-Strike"
+    When Steam reports user "76561198000000080" stopped playing
+    Then the Steam message in chat 2008 is edited to contain "🔴"
+    When the Steam message's live window has passed
+    Then the Steam message in chat 2008 is edited to drop its presence marker, keeping "Gamer" bold
