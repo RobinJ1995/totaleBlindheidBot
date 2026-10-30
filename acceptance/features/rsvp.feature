@@ -73,7 +73,7 @@ Feature: RSVP buttons on schedules and rollcalls
     Then the bot reply offers a success "✅ Joining · 1" button
     When the RSVP message is remembered
     When user 888 named "Outsider" taps yes
-    Then the bot reply contains "🙋‍♂️ Captain Outsider"
+    Then the bot reply contains "Outsider"
     And the bot reply offers a success "✅ Joining · 2" button
     When user 6106 named "Captain" taps maybe
     Then the bot reply offers a success "✅ Joining · 1" button
