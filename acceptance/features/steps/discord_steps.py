@@ -191,3 +191,15 @@ def _wait_for_discord_edit(context: Context, matches: Any, description: str) -> 
 @then('the remembered Discord message is edited to contain "(?P<text>[^"]+)"')
 def step_discord_edited_contains(context: Context, text: str) -> None:
     _wait_for_discord_edit(context, lambda m: text in m["content"], f"to contain {text!r}")
+
+
+@then('the remembered Discord message is edited to contain "(?P<text>[^"]+)" without buttons')
+def step_discord_edited_without_buttons(context: Context, text: str) -> None:
+    _wait_for_discord_edit(context, lambda m: text in m["content"] and not helpers.discord_button_labels(m), f"to contain {text!r} without buttons")
+
+
+@when("the scheduled rollcall's time has come")
+def step_schedule_due(context: Context) -> None:
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.due_scheduled_rollcalls()

@@ -92,6 +92,16 @@ def age_tagged_messages(hours: int) -> None:
         conn.close()
 
 
+def due_scheduled_rollcalls() -> None:
+    """Backdate every scheduled rollcall so the scheduler fires it on its next check."""
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE rollcall_schedule SET trigger_at = NOW() - INTERVAL 1 MINUTE")
+    finally:
+        conn.close()
+
+
 def reset_db() -> None:
     """Truncate every application-data table so each run starts from a clean DAO state."""
     conn = db_conn()

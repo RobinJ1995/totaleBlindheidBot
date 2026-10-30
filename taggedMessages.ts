@@ -132,20 +132,23 @@ const retireRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
     await rsvpDao.deleteRsvpList(rsvp_id);
 });
 
-// When a schedule fires, the rollcall message takes over the shared RSVP list. Retire the
-// now-stale confirmation message and detach it so only the rollcall stays live.
+// When a schedule fires, the rollcall messages take over the shared RSVP list. Retire the
+// now-stale confirmation messages and detach them so only the rollcall stays live.
 const closeScheduleConfirmation = (bot: Bot, rsvp_id?: number): Promise<void> => {
     if (!rsvp_id) {
         return Promise.resolve();
     }
     return withLock(rsvpLockKey(rsvp_id), async () => {
         const list: RsvpList | undefined = await rsvpDao.getRsvpList(rsvp_id);
-        const confirmation: RsvpMessageRef | undefined = list?.messages.find(m => m.keyboard === 'schedule');
-        if (!list || !confirmation) {
+        const confirmations: RsvpMessageRef[] = list?.messages.filter(m => m.keyboard === 'schedule') ?? [];
+        if (!list || confirmations.length === 0) {
             return;
         }
-        await retireRsvpMessage(bot, list, confirmation, await rsvpGroups(list));
-        await rsvpDao.removeRsvpMessage(rsvp_id, confirmation);
+        const groups = await rsvpGroups(list);
+        await Promise.all(confirmations.map(async confirmation => {
+            await retireRsvpMessage(bot, list, confirmation, groups);
+            await rsvpDao.removeRsvpMessage(rsvp_id, confirmation);
+        }));
     });
 };
 
