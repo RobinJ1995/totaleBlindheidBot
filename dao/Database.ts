@@ -79,30 +79,36 @@ const migrateDropCurrentMatch = async (conn: PoolConnection): Promise<void> => {
     }
 };
 
+const tableExists = async (conn: PoolConnection, table: string): Promise<boolean> => {
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS tbl FROM information_schema.TABLES ' +
+        ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table',
+        { table }
+    );
+    return Number(rows[0]?.tbl) > 0;
+};
+
+const columnExists = async (conn: PoolConnection, table: string, column: string): Promise<boolean> => {
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+        ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column',
+        { table, column }
+    );
+    return Number(rows[0]?.col) > 0;
+};
+
 // One-off, idempotent migration: add the columns that back grouped end-of-game announcements
 // (game_history.player_name and .message_id) to databases created before they existed. CREATE
 // TABLE IF NOT EXISTS won't alter an existing table, so add each column when it's missing.
 // Portable across MariaDB/MySQL (no ADD COLUMN IF NOT EXISTS).
 const migrateGameHistoryAnnouncementColumns = async (conn: PoolConnection): Promise<void> => {
-    const columnExists = async (column: string): Promise<boolean> => {
-        const [rows] = await conn.query<RowDataPacket[]>(
-            'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
-            ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column',
-            { table: 'game_history', column }
-        );
-        return Number(rows[0]?.col) > 0;
-    };
-    const [tblRows] = await conn.query<RowDataPacket[]>(
-        'SELECT COUNT(*) AS tbl FROM information_schema.TABLES ' +
-        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_history'"
-    );
-    if (Number(tblRows[0]?.tbl) === 0) {
+    if (!(await tableExists(conn, 'game_history'))) {
         return;
-    } else if (!(await columnExists('player_name'))) {
+    } else if (!(await columnExists(conn, 'game_history', 'player_name'))) {
         console.log('Adding game_history.player_name for grouped end-of-game announcements.');
         await conn.query('ALTER TABLE game_history ADD COLUMN player_name VARCHAR(255) NULL');
     }
-    if (!(await columnExists('message_id'))) {
+    if (!(await columnExists(conn, 'game_history', 'message_id'))) {
         console.log('Adding game_history.message_id for grouped end-of-game announcements.');
         await conn.query('ALTER TABLE game_history ADD COLUMN message_id BIGINT NULL');
     }
@@ -135,6 +141,17 @@ const migrateEntitiesColumns = async (conn: PoolConnection): Promise<void> => {
     }
 };
 
+// One-off, idempotent migration: github_state.etag backs conditional polling (If-None-Match),
+// so databases created before it existed need the column added in place.
+const migrateGithubStateEtagColumn = async (conn: PoolConnection): Promise<void> => {
+    if (!(await tableExists(conn, 'github_state'))) {
+        return;
+    } else if (!(await columnExists(conn, 'github_state', 'etag'))) {
+        console.log('Adding github_state.etag for conditional GitHub API requests.');
+        await conn.query('ALTER TABLE github_state ADD COLUMN etag VARCHAR(255) NULL');
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -144,6 +161,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateDropCurrentMatch(conn);
         await migrateGameHistoryAnnouncementColumns(conn);
         await migrateEntitiesColumns(conn);
+        await migrateGithubStateEtagColumn(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }
