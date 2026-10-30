@@ -45,3 +45,12 @@ Feature: schedule command
       | 4010    | 5410    | UTC+2    | +02:00 | GMT+2      |
       | 4011    | 5411    | UTC-5    | -05:00 | GMT-5      |
       | 4012    | 5412    | UTC      | UTC    | UTC        |
+
+  Scenario: the scheduled time is a date-time so each reader sees it in their own timezone
+    Given a chat with id 4020
+    And a user with id 5420 and first name "Tester"
+    When the user sends "/timezone UTC+2"
+    Then the bot replies "Your timezone has been set to +02:00"
+    When the user sends "/schedule 3 hours"
+    Then the bot reply shows "GMT+2" as a "wt" date-time 3 hours ahead
+    And the bot reply shows "in 3 hours" as a "r" date-time 3 hours ahead

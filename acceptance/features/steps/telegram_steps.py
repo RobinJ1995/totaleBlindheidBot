@@ -189,6 +189,16 @@ def step_reply_links(context: Context, text: str, url: str) -> None:
     assert (text, url) in links, f"Expected {text!r} linked to {url!r}, got {links}"
 
 
+@then('the bot reply shows "(?P<text>[^"]*)" as a "(?P<fmt>[^"]*)" date-time (?P<hours>\\d+) hours ahead')
+def step_reply_date_time(context: Context, text: str, fmt: str, hours: str) -> None:
+    expected: float = time.time() + int(hours) * 3600
+    date_times: List[Tuple[str, int, str]] = helpers.date_times(_latest_message(context))
+    assert any(
+        text in covered and f == fmt and abs(unix_time - expected) < 120
+        for covered, unix_time, f in date_times
+    ), f"Expected {text!r} as a {fmt!r} date-time {hours} hours ahead, got {date_times}"
+
+
 @then('the bot reply offers a "(?P<label>[^"]*)" button')
 def step_reply_offers_button(context: Context, label: str) -> None:
     message: Dict[str, Any] = _latest_message(context)

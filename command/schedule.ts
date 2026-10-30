@@ -1,4 +1,5 @@
 import { Bot, Message } from 'node-telegram-bot-api';
+import { DateTime } from 'luxon';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { parseTime } from '../timeUtils.js';
 import UserDAO from '../dao/UserDAO.js';
@@ -6,7 +7,7 @@ import ScheduleDAO from '../dao/ScheduleDAO.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { formatError } from '../utils.js';
-import { asFormatted, Formatted, messageText } from '../format.js';
+import { dateTime, fmt, Formatted, messageText } from '../format.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
 import { presenceMarkers, withTags } from '../presence.js';
 import { retireRsvpList, trackTaggedMessage } from '../taggedMessages.js';
@@ -68,6 +69,10 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                         timeZoneName: 'short'
                     });
 
+                    // Measured from the rounded lead time so "3 hours" doesn't come out as "in 2 hours".
+                    const scheduled: DateTime = DateTime.fromJSDate(scheduledTime);
+                    const relative: string = scheduled.toRelative({ base: scheduled.minus({ minutes: Math.round(diffMinutes) }) })!;
+
                     // Seed the initiator into the "yes" list.
                     const entries: Record<string, RsvpEntry> = {};
                     if (msg.from) {
@@ -79,8 +84,8 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                     // mention line is baked in here so it records who was pinged when scheduled.
                     // Its 🟢/🟡/🔴/😶‍🌫️ presence markers are kept up to date for a while and then
                     // stripped, so the stored base leaves them out.
-                    const heading: string = `Rollcall scheduled for ${timeString}`;
-                    const head: Formatted = asFormatted(tagged.length ? `${heading}\n` : heading);
+                    const heading: Formatted = fmt`Rollcall scheduled for ${dateTime(timeString, scheduledTime, 'wt')} (${dateTime(relative, scheduledTime, 'r')})`;
+                    const head: Formatted = tagged.length ? fmt`${heading}\n` : heading;
                     const base: Formatted = withTags(head, tagged);
 
                     return bot.api.sendMessage({
