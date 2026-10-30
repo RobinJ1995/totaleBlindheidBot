@@ -45,11 +45,9 @@ export const isRateLimitRejection = (status: number, headers: HeaderBag, body?: 
     // 429 has no other meaning in GitHub's API: it is always "too many requests".
     if (status === 429) {
         return true;
-    }
-    if (status !== 403) {
+    } else if (status !== 403) {
         return false;
-    }
-    if (headers.get('retry-after') !== null || headers.get('x-ratelimit-remaining') === '0') {
+    } else if (headers.get('retry-after') !== null || headers.get('x-ratelimit-remaining') === '0') {
         return true;
     }
     // A bare 403 is rate limiting only when it says so. Other 403s (bad credentials,

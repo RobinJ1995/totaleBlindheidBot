@@ -115,9 +115,7 @@ class GitHubService {
         // for 304.
         if (res.status === 304) {
             return null;
-        }
-
-        if (!res.ok) {
+        } else if (!res.ok) {
             // Secondary limits can arrive with no timing headers at all, identifiable
             // only by the message body. Reading it is free here — the error path has
             // no other use for it.
