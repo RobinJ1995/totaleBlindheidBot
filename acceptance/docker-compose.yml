@@ -37,6 +37,19 @@ services:
       timeout: 3s
       retries: 20
 
+  discord-mock:
+    build:
+      context: ./discord_mock
+    stop_grace_period: 1s
+    environment:
+      DISCORD_MOCK_GATEWAY_URL: ws://discord-mock:8084
+      DISCORD_APPLICATION_ID: "990000000000000000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/test/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   bot:
     build:
       context: ..
@@ -91,6 +104,7 @@ services:
       TELEGRAM_MOCK_URL: http://telegram-mock:8081
       STEAM_CONTROL_URL: http://bot:9100
       GITHUB_MOCK_URL: http://github-mock:8082
+      DISCORD_MOCK_URL: http://discord-mock:8083
       MARIADB_HOST: mariadb
       MARIADB_PORT: "3306"
       MARIADB_USER: root
@@ -100,6 +114,8 @@ services:
       telegram-mock:
         condition: service_healthy
       github-mock:
+        condition: service_healthy
+      discord-mock:
         condition: service_healthy
       bot:
         condition: service_healthy

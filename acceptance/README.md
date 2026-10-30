@@ -14,6 +14,7 @@ out — with all external dependencies stubbed.
 | `mariadb`       | MariaDB backing the bot's DAO (application data) and the steam-user session (`STEAM_STORAGE_BACKEND=database`). |
 | `steam_mock`    | Drop-in fake `steam-user` (mounted over `node_modules/steam-user`) with an HTTP control channel to trigger Steam events. |
 | `github-mock`   | Fake GitHub REST API (the bot polls it via `GITHUB_API_BASE_URL`); tests push commits to drive the notification flow. |
+| `discord-mock`  | Fake Discord: the REST API subset the bot uses plus a gateway WebSocket that the real discord.js connects to (`DISCORD_API_BASE_URL`). Tests define servers/channels, speak as Discord users and read the bot's posts from an outbox. |
 | `behave`        | Runs the feature suite and asserts on the bot's behaviour.           |
 
 The bot needs no source changes beyond honouring `TELEGRAM_API_BASE_URL` (so it can
@@ -39,6 +40,7 @@ acceptance/
   behave.ini
   requirements.txt
   telegram_mock/          # mock Telegram Bot API (Flask)
+  discord_mock/           # mock Discord REST API + gateway WebSocket
   steam_mock/             # fake steam-user + control server
   features/
     *.feature             # one feature file per bot command/behaviour
@@ -56,3 +58,7 @@ acceptance/
 
 Steam-driven behaviour (game presence, Steam Guard) is triggered via the steam mock's
 control endpoints (`/steam/user`, `/steam/steamguard`, ...) on the `bot` container.
+
+Discord-driven behaviour works the same way: behave defines servers, injects messages,
+invokes slash commands and button taps through the mock's `/test/*` endpoints, and reads
+back what the bot posted. Both mocks also serve the bytes behind injected media.
