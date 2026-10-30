@@ -227,3 +227,16 @@ CREATE TABLE IF NOT EXISTS game_history_coplayer (
         REFERENCES game_history (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+
+-- A Discord channel relayed to and from a Telegram group; a channel belongs to at most one group.
+-- Relayed messages go through the webhook (under the author's name) when the bot could create one.
+CREATE TABLE IF NOT EXISTS chat_link (
+    discord_channel_id VARCHAR(32) NOT NULL,
+    discord_guild_id   VARCHAR(32) NOT NULL,
+    telegram_chat_id   BIGINT      NOT NULL,
+    webhook_id         VARCHAR(32) NULL,
+    webhook_token      VARCHAR(255) NULL,
+    linked_at          DATETIME(3) NOT NULL,
+    PRIMARY KEY (discord_channel_id),
+    KEY idx_chat_link_chat (telegram_chat_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

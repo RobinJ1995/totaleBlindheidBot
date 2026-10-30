@@ -10,6 +10,7 @@ import RsvpDAO from './dao/RsvpDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
+import DiscordService from './discord/DiscordService.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
 import { Rsvp } from './dao/RsvpDAO.js';
@@ -30,6 +31,7 @@ import steamGuardHandler from './command/steam_guard.js';
 import gameHistoryHandler from './command/game_history.js';
 import statsHandler from './command/stats.js';
 import githubNotifyHandler from './command/github_notify.js';
+import linkChatHandler from './command/link_chat.js';
 import deleteMatchRecordHandler, { handleDeleteMatchCallback, CALLBACK_PREFIX as DELETE_MATCH_CALLBACK_PREFIX } from './command/admin/delete_match_record.js';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
@@ -117,6 +119,8 @@ if (steamEnabled) {
 // GitHub Service (public repo, no auth required)
 const githubService: GitHubService = new GitHubService(bot);
 
+const discordService: DiscordService | null = process.env.DISCORD_BOT_TOKEN ? new DiscordService() : null;
+
 // Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
 const POLLING_RESTART_DELAY_MS = 5000;
 const startPolling = (): void => {
@@ -135,6 +139,7 @@ ensureSchema()
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
+        discordService?.start();
         startTaggedMessageSweep(bot);
         startPolling();
     })
@@ -165,6 +170,9 @@ router.route('wingman', wingmanHandler, {
 });
 router.route('github_notify', githubNotifyHandler, {
     helpText: 'Enable or disable GitHub commit notifications for this chat (on/off).'
+});
+router.route('link_chat', linkChatHandler, {
+    helpText: 'Admin: relay this group to and from a Discord channel: /link_chat <channel id>.'
 });
 
 if (steamEnabled) {

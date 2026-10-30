@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 import requests
-from behave.model import Scenario
+from behave.model import Scenario, Step
 from behave.runner import Context
 
 # Make the helpers module (under steps/) importable here, the same way behave
@@ -63,3 +63,12 @@ def before_scenario(context: Context, scenario: Scenario) -> None:
     # Message id captured by the "the RSVP message is remembered" step, so later button
     # taps can target a specific message even after newer messages arrive.
     context.rsvp_message_id = None
+
+
+def before_step(context: Context, step: Step) -> None:
+    # Baseline for the "Discord channel ... receives" steps.
+    if step.step_type == "when":
+        counts: dict = {}
+        for message in helpers.discord_outbox():
+            counts[message["channel_id"]] = counts.get(message["channel_id"], 0) + 1
+        context.discord_baselines = counts

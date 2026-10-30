@@ -82,10 +82,16 @@ services:
       GITHUB_API_BASE_URL: http://github-mock:8082
       GITHUB_REPO: acceptance/repo
       GITHUB_POLL_INTERVAL_MS: "1000"
+      # The Discord side talks to the fake Discord (REST + gateway) instead of discord.com.
+      DISCORD_BOT_TOKEN: test-discord-token
+      DISCORD_APPLICATION_ID: "990000000000000000"
+      DISCORD_API_BASE_URL: http://discord-mock:8083/api
     depends_on:
       telegram-mock:
         condition: service_healthy
       github-mock:
+        condition: service_healthy
+      discord-mock:
         condition: service_healthy
       mariadb:
         condition: service_healthy
