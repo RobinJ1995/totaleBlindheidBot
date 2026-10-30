@@ -15,12 +15,25 @@ const RSVP_EMOJI: Record<Rsvp, string> = {
     no: '🙅‍♂️'
 };
 
+// Colour-code the buttons: green to join, blue for maybe, red to opt out.
+const BUTTON_STYLE: Record<Rsvp, string> = {
+    yes: 'success',
+    maybe: 'primary',
+    no: 'danger'
+};
+
+// "✅ Joining · 3": the yes button gets a tick, and every button shows how many picked it once
+// anyone has.
+const buttonLabel = (kind: RsvpKeyboardKind, value: Rsvp, count: number): string =>
+    `${value === 'yes' ? '✅ ' : ''}${LABELS[kind][value]}${count > 0 ? ` · ${count}` : ''}`;
+
 // Build the inline keyboard for a message. The callback data is the same regardless
 // of the keyboard kind; only the visible labels differ.
-const keyboard = (kind: RsvpKeyboardKind): InlineKeyboardMarkup => ({
+const keyboard = (kind: RsvpKeyboardKind, groups: Record<Rsvp, string[]>): InlineKeyboardMarkup => ({
     inline_keyboard: [
         (['yes', 'maybe', 'no'] as Rsvp[]).map(value => ({
-            text: LABELS[kind][value],
+            text: buttonLabel(kind, value, groups[value].length),
+            style: BUTTON_STYLE[value],
             callback_data: `rsvp:${value}`
         }))
     ]
