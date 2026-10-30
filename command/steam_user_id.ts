@@ -1,8 +1,9 @@
 import { Bot, CallbackQuery, Message } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
-import UserDAO from '../dao/UserDAO.js';
+import UserDAO, { userDisplayName } from '../dao/UserDAO.js';
 import { formatError } from '../utils.js';
 import { messageText, Part } from '../format.js';
+import { notFoundMessage, parseDiscordRef, resolveDiscordUser } from '../discord/users.js';
 
 const dao = new UserDAO();
 
@@ -36,9 +37,10 @@ const setForUser = (user_id: number, name: string, idsArg: string, reply: (text:
 export default (bot: Bot, msg: ExtendedMessage): void => {
     const [first = '', ...rest] = msg.command.argumentTokens;
     const mention = msg.entities?.find(e => e.type === 'text_mention' && e.user);
+    const discord_username: string | undefined = parseDiscordRef(first);
     const admin: boolean = isAdmin(msg.from?.id);
 
-    if (mention?.user || first.startsWith('@')) {
+    if (mention?.user || first.startsWith('@') || discord_username !== undefined) {
         if (!admin) {
             msg.reply(ADMIN_ONLY);
             return;
@@ -46,9 +48,13 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         const reply = (text: Part) => msg.reply(text);
         const done: Promise<unknown> = mention?.user
             ? dao.fromTelegram(mention.user).then(user => setForUser(user.id, mention.user!.first_name, msg.text!.slice(mention.offset + mention.length), reply))
-            : dao.getUserIdByUsername(first.slice(1)).then((user_id): Promise<unknown> => user_id === undefined
-                ? msg.reply(`I don't know ${first}.`)
-                : setForUser(user_id, first, rest.join(' '), reply));
+            : discord_username !== undefined
+                ? resolveDiscordUser(msg.chat.id, discord_username).then((user): Promise<unknown> => user === undefined
+                    ? msg.reply(notFoundMessage(discord_username))
+                    : setForUser(user.id, userDisplayName(user), rest.join(' '), reply))
+                : dao.getUserIdByUsername(first.slice(1)).then((user_id): Promise<unknown> => user_id === undefined
+                    ? msg.reply(`I don't know ${first}.`)
+                    : setForUser(user_id, first, rest.join(' '), reply));
         done.catch((err: Error) => msg.reply(formatError(err)));
         return;
     } else if (admin && msg.command.argument === '') {

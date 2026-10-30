@@ -179,6 +179,21 @@ const migrateTelegramUserToUser = async (conn: PoolConnection): Promise<void> =>
     )));
 };
 
+// One-off migration for user tables created before discord_name existed.
+const migrateDiscordNameColumn = async (conn: PoolConnection): Promise<void> => {
+    if (!(await tableExists(conn, 'user'))) {
+        return;
+    }
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'discord_name'"
+    );
+    if (Number(rows[0]?.col) === 0) {
+        console.log('Adding user.discord_name.');
+        await conn.query('ALTER TABLE user ADD COLUMN discord_name VARCHAR(255) NULL AFTER username');
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -189,6 +204,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateGameHistoryAnnouncementColumns(conn);
         await migrateEntitiesColumns(conn);
         await migrateTelegramUserToUser(conn);
+        await migrateDiscordNameColumn(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

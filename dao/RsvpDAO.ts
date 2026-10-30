@@ -38,7 +38,7 @@ class RsvpDAO {
             return undefined;
         }
         const [entryRows] = await conn.query<RowDataPacket[]>(
-            'SELECT e.user_id, e.rsvp, u.name, u.username, u.discord_username FROM rsvp_entry e ' +
+            'SELECT e.user_id, e.rsvp, u.name, u.username, u.discord_name, u.discord_username FROM rsvp_entry e ' +
             'JOIN user u ON u.id = e.user_id WHERE e.rsvp_list_id = :id',
             { id: rsvp_id }
         );
@@ -54,6 +54,7 @@ class RsvpDAO {
                     id: Number(row.user_id),
                     name: row.name ?? undefined,
                     username: row.username ?? undefined,
+                    discord_name: row.discord_name ?? undefined,
                     discord_username: row.discord_username ?? undefined
                 }),
                 username: row.username ?? undefined,

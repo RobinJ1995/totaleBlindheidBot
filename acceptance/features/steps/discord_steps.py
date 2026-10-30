@@ -35,6 +35,11 @@ def step_discord_server_lacking(context: Context, guild_id: str, name: str, chan
     helpers.discord_define_guild(guild_id, name, [{"id": channel_id, "name": channel, "deny": deny}])
 
 
+@given('a Discord server "(?P<guild_id>\\d+)" named "(?P<name>[^"]*)" with channel "(?P<channel_id>\\d+)" named "(?P<channel>[^"]*)" and member "(?P<username>[^"]*)" named "(?P<member>[^"]*)" with id "(?P<user_id>\\d+)"')
+def step_discord_server_with_member(context: Context, guild_id: str, name: str, channel_id: str, channel: str, username: str, member: str, user_id: str) -> None:
+    helpers.discord_define_guild(guild_id, name, [{"id": channel_id, "name": channel}], members=[_author(username, member, user_id)])
+
+
 @given('the user is an admin of the chat')
 def step_user_is_admin(context: Context) -> None:
     helpers.make_admin(context.chat_id, context.user["id"])

@@ -10,6 +10,7 @@ import {
     WebhookClient
 } from 'discord.js';
 import ChatLinkDAO, { ChatLink } from '../dao/ChatLinkDAO.js';
+import { DiscordIdentity } from '../dao/UserDAO.js';
 import { splitMessage } from './markdown.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
@@ -120,6 +121,17 @@ class DiscordService {
             channel_name: channel.name,
             can_manage_webhooks: !!permissions?.has(PermissionFlagsBits.ManageWebhooks)
         };
+    }
+
+    // members.search matches on prefix, so filter down to the exact username.
+    async findMember(guild_id: string, username: string): Promise<DiscordIdentity | undefined> {
+        const guild = this.client.guilds.cache.get(guild_id) ?? await this.client.guilds.fetch(guild_id).catch(() => undefined);
+        if (!guild) {
+            return undefined;
+        }
+        const members = await guild.members.search({ query: username, limit: 25 });
+        const member = members.find(m => m.user.username.toLowerCase() === username.toLowerCase());
+        return member ? { id: member.user.id, username: member.user.username, global_name: member.user.globalName } : undefined;
     }
 
     async createWebhook(channel_id: string): Promise<Webhook | undefined> {

@@ -1,11 +1,25 @@
 import { Bot, Message as TelegramMessage } from 'node-telegram-bot-api';
 import { Message as DiscordMessage } from 'discord.js';
 import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
+import UserDAO from './dao/UserDAO.js';
 import DiscordService from './discord/DiscordService.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
 import { bold, fmt, messageText } from './format.js';
 
 const chatLinkDao = new ChatLinkDAO();
+const userDao = new UserDAO();
+
+export const recordDiscordSender = async (message: DiscordMessage, link: ChatLink): Promise<void> => {
+    if (message.author.bot) {
+        return;
+    }
+    const user = await userDao.fromDiscord({
+        id: message.author.id,
+        username: message.author.username,
+        global_name: message.author.globalName
+    });
+    await userDao.addUserChat(user.id, link.telegram_chat_id);
+};
 
 const telegramName = (from: TelegramMessage['from']): string =>
     [from?.first_name, from?.last_name].filter(Boolean).join(' ') || from?.username || 'someone';
