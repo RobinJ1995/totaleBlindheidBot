@@ -196,6 +196,14 @@ def step_reply_offers_button(context: Context, label: str) -> None:
     assert label in labels, f"Expected a {label!r} button, got {labels}"
 
 
+@then('the bot reply offers a (?P<style>success|primary|danger) "(?P<label>[^"]*)" button')
+def step_reply_offers_styled_button(context: Context, style: str, label: str) -> None:
+    message: Dict[str, Any] = _latest_message(context)
+    styles: Dict[Optional[str], Optional[str]] = helpers.button_styles(message)
+    assert label in styles, f"Expected a {label!r} button, got {list(styles)}"
+    assert styles[label] == style, f"Expected the {label!r} button to be {style}, got {styles[label]}"
+
+
 # ---------------------------------------------------------------------------
 # RSVP inline-button taps (callback queries)
 # ---------------------------------------------------------------------------
