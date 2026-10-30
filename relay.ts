@@ -5,10 +5,12 @@ import UserDAO from './dao/UserDAO.js';
 import DiscordService from './discord/DiscordService.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
 import { bold, fmt, Formatted, messageText } from './format.js';
-import { downloadTelegramFile, RelayFile, telegramMedia, TelegramMedia } from './media.js';
+import { discordMedia, downloadTelegramFile, downloadUrl, RelayFile, sendTelegramFile, telegramMedia, TelegramMedia, TelegramSendKind } from './media.js';
 
 const chatLinkDao = new ChatLinkDAO();
 const userDao = new UserDAO();
+
+const TELEGRAM_CAPTION_LIMIT = 1024;
 
 export const recordDiscordSender = async (message: DiscordMessage, link: ChatLink): Promise<void> => {
     if (message.author.bot) {
@@ -58,18 +60,45 @@ export const relayFromTelegram = async (bot: Bot, msg: TelegramMessage): Promise
 
 export const relayFromDiscord = async (bot: Bot, message: DiscordMessage, link: ChatLink): Promise<void> => {
     const discord: DiscordService | null = DiscordService.instance;
-    if (!discord || !message.content) {
+    if (!discord) {
+        return;
+    }
+    const media = discordMedia(message);
+    if (!message.content && media.files.length === 0 && media.placeholders.length === 0) {
         return;
     }
     const author: string = message.member?.displayName ?? message.author.displayName;
     // cleanContent has user and channel mentions spelled out as names.
-    await bot.api.sendMessage({
-        chat_id: link.telegram_chat_id,
-        ...messageText(fmt`${bold(`${author}:`)} ${message.cleanContent}`)
-    }).catch((err: Error) => console.error(`Could not relay Discord message ${message.id} to Telegram chat ${link.telegram_chat_id}:`, err));
+    const text: string = [...media.placeholders, message.cleanContent].filter(Boolean).join(' ');
 
+    const downloads = await Promise.all(media.files.map(async file => {
+        try {
+            return { file: await downloadUrl(file.url, file.name, file.contentType), kind: file.kind };
+        } catch (err) {
+            console.error(`Could not download Discord attachment ${file.url}:`, err);
+            return undefined;
+        }
+    }));
+    const downloaded: { file: RelayFile; kind: TelegramSendKind }[] = downloads.filter((d): d is { file: RelayFile; kind: TelegramSendKind } => d !== undefined);
+    const files: RelayFile[] = downloaded.map(d => d.file);
+
+    try {
+        const telegramText: Formatted = text ? fmt`${bold(`${author}:`)} ${text}` : bold(`${author}:`);
+        // The text rides as the first file's caption when it fits.
+        let caption: Formatted | undefined = telegramText;
+        if (files.length === 0 || telegramText.text.length > TELEGRAM_CAPTION_LIMIT) {
+            await bot.api.sendMessage({ chat_id: link.telegram_chat_id, ...messageText(telegramText) });
+            caption = files.length > 0 ? bold(`${author}:`) : undefined;
+        }
+        await downloaded.reduce<Promise<unknown>>((sending, { file, kind }, i) =>
+            sending.then(() => sendTelegramFile(bot, link.telegram_chat_id, kind, file, i === 0 ? caption : bold(`${author}:`))), Promise.resolve());
+    } catch (err) {
+        console.error(`Could not relay Discord message ${message.id} to Telegram chat ${link.telegram_chat_id}:`, err);
+    }
+
+    const content: string = [...media.placeholders, message.content].filter(Boolean).join(' ');
     const others: ChatLink[] = (await chatLinkDao.getLinks(link.telegram_chat_id))
         .filter(other => other.discord_channel_id !== link.discord_channel_id);
-    await Promise.all(others.map(other => discord.relay(other, author, message.content).catch((err: Error) =>
+    await Promise.all(others.map(other => discord.relay(other, author, content, files).catch((err: Error) =>
         console.error(`Could not relay Discord message ${message.id} to Discord channel ${other.discord_channel_id}:`, err))));
 };

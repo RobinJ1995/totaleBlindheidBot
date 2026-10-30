@@ -81,7 +81,9 @@ class DiscordService {
 
     constructor() {
         this.restOptions = {
-            ...(process.env.DISCORD_API_BASE_URL ? { api: process.env.DISCORD_API_BASE_URL } : {})
+            ...(process.env.DISCORD_API_BASE_URL ? { api: process.env.DISCORD_API_BASE_URL } : {}),
+            // The media proxy serves animated stickers.
+            ...(process.env.DISCORD_CDN_BASE_URL ? { cdn: process.env.DISCORD_CDN_BASE_URL, mediaProxy: process.env.DISCORD_CDN_BASE_URL } : {})
         };
         this.client = new Client({
             intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],

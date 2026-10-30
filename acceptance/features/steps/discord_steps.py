@@ -248,6 +248,28 @@ def step_schedule_due(context: Context) -> None:
     helpers.due_scheduled_rollcalls()
 
 
+import base64
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends (?P<kind>an image|a gif|a video|a file) "(?P<filename>[^"]*)" saying "(?P<text>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_sends_file(context: Context, username: str, name: str, user_id: str, kind: str, filename: str, text: str, channel_id: str) -> None:
+    content_type: str = {"an image": "image/png", "a gif": "image/gif", "a video": "video/mp4", "a file": "application/pdf"}[kind]
+    attachment: Dict[str, Any] = {
+        "filename": filename, "content_type": content_type,
+        "data_base64": base64.b64encode(b"bytes-of-" + filename.encode()).decode(),
+    }
+    _inject(context, channel_id, text, _author(username, name, user_id), attachments=[attachment])
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends a sticker "(?P<sticker>[^"]*)" in (?P<fmt>PNG|GIF|Lottie) format in channel "(?P<channel_id>\\d+)"')
+def step_discord_sends_sticker(context: Context, username: str, name: str, user_id: str, sticker: str, fmt: str, channel_id: str) -> None:
+    format_type: int = {"PNG": 1, "GIF": 4, "Lottie": 3}[fmt]
+    content_type: str = {"PNG": "image/png", "GIF": "image/gif", "Lottie": "application/json"}[fmt]
+    spec: Dict[str, Any] = {"id": f"7{abs(hash(sticker)) % 10**17:017d}", "name": sticker, "format_type": format_type,
+                            "content_type": content_type, "data_base64": base64.b64encode(b"sticker-" + sticker.encode()).decode()}
+    _inject(context, channel_id, "", _author(username, name, user_id), stickers=[spec])
+
+
 @then('Discord channel "(?P<channel_id>\\d+)" receives a file "(?P<filename>[^"]*)" from "(?P<name>[^"]*)" with text "(?P<text>[^"]*)"')
 def step_channel_receives_file(context: Context, channel_id: str, filename: str, name: str, text: str) -> None:
     new: List[Dict[str, Any]] = _new_messages(context, channel_id)

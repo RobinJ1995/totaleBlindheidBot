@@ -32,3 +32,24 @@ Feature: relaying photos, files and stickers between Telegram and Discord
   Scenario: voice messages are noted, not relayed
     When the user sends a voice message
     Then Discord channel "81011" receives "[voice message]" from "Tester"
+
+  Scenario: a Discord image reaches Telegram as a photo and the other channel as a file
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends an image "cat.png" saying "look" in channel "81011"
+    Then the bot sends a photo "cat.png" with caption "Alice: look"
+    And Discord channel "81021" receives a file "cat.png" from "Alice" with text "look"
+
+  Scenario: Discord gifs, videos and other files are sent the way Telegram shows them best
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a gif "dance.gif" saying "" in channel "81011"
+    Then the bot sends an animation "dance.gif" with caption "Alice:"
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a video "clip.mp4" saying "" in channel "81011"
+    Then the bot sends a video "clip.mp4" with caption "Alice:"
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a file "rules.pdf" saying "read me" in channel "81011"
+    Then the bot sends a document "rules.pdf" with caption "Alice: read me"
+
+  Scenario: Discord stickers reach Telegram as images, Lottie ones as a note
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a sticker "wave" in PNG format in channel "81011"
+    Then the bot sends a photo "wave.png" with caption "Alice:"
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a sticker "party" in GIF format in channel "81011"
+    Then the bot sends an animation "party.gif" with caption "Alice:"
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a sticker "dance" in Lottie format in channel "81011"
+    Then the bot replies "Alice: (sticker: dance)"

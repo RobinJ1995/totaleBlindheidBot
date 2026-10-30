@@ -136,6 +136,39 @@ def bot_api(token: str, method: str) -> Response:
                 "text": text,
             },
         })
+    elif method in ("sendPhoto", "sendVideo", "sendAnimation", "sendDocument", "sendAudio"):
+        field = {
+            "sendPhoto": "photo", "sendVideo": "video", "sendAnimation": "animation",
+            "sendDocument": "document", "sendAudio": "audio",
+        }[method]
+        storage = request.files.get(field)
+        with _lock:
+            message_id = _next_message_id
+            _next_message_id += 1
+            chat_id = params.get("chat_id")
+            caption = params.get("caption", "")
+            entry: Dict[str, Any] = {
+                "method": method,
+                "chat_id": str(chat_id) if chat_id is not None else None,
+                "message_id": message_id,
+                "text": caption,
+                "params": {k: v for k, v in params.items()},
+            }
+            if storage is not None:
+                data = storage.read()
+                entry["file"] = {"filename": storage.filename, "size": len(data), "content_type": storage.content_type}
+            else:
+                entry["file"] = {"reference": params.get(field)}
+            _outbox.append(entry)
+        return jsonify({
+            "ok": True,
+            "result": {
+                "message_id": message_id,
+                "date": 0,
+                "chat": {"id": _maybe_int(chat_id), "type": "group"},
+                "caption": caption,
+            },
+        })
     elif method == "getFile":
         with _lock:
             stored = _files.get(str(params.get("file_id")))

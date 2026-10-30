@@ -88,6 +88,7 @@ services:
       DISCORD_BOT_TOKEN: test-discord-token
       DISCORD_APPLICATION_ID: "990000000000000000"
       DISCORD_API_BASE_URL: http://discord-mock:8083/api
+      DISCORD_CDN_BASE_URL: http://discord-mock:8083/cdn
     depends_on:
       telegram-mock:
         condition: service_healthy
