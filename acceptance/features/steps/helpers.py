@@ -175,6 +175,38 @@ def inject_message(
     return resp.json()
 
 
+def register_file(file_id: str, content: Optional[bytes], content_type: Optional[str] = None) -> None:
+    """Register the bytes behind a Telegram file_id (None: a file too big for the bot to download)."""
+    import base64
+    body: Dict[str, Any] = {"file_id": file_id, "content_type": content_type}
+    if content is not None:
+        body["content_base64"] = base64.b64encode(content).decode()
+    requests.post(f"{TELEGRAM_MOCK_URL}/test/files", json=body, timeout=5).raise_for_status()
+
+
+def inject_media(
+    chat_id: int, user: Dict[str, Any], media: Dict[str, Any], caption: Optional[str] = None
+) -> Dict[str, Any]:
+    """Queue a message carrying media (e.g. {"photo": [...]}, {"document": {...}}) and a caption."""
+    message: Dict[str, Any] = {
+        "message_id": int(time.time() * 1000) % 1000000,
+        "date": int(time.time()),
+        "chat": {"id": int(chat_id), "type": "group", "title": f"Group {chat_id}"},
+        "from": {
+            "id": int(user["id"]),
+            "is_bot": False,
+            "first_name": user.get("first_name", "Tester"),
+            "username": user.get("username", "tester"),
+        },
+        **media,
+    }
+    if caption is not None:
+        message["caption"] = caption
+    resp = requests.post(f"{TELEGRAM_MOCK_URL}/test/inject", json=message, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def inject_callback(
     data: str, chat_id: int, user: Dict[str, Any], message_id: int
 ) -> Dict[str, Any]:

@@ -282,3 +282,69 @@ def step_tap_answered_with(context: Context, expected: str) -> None:
     answers: List[Dict[str, Any]] = helpers.wait_for_callback_answer(context.cb_baseline)
     texts: List[Optional[str]] = [a.get("text") for a in answers]
     assert expected in texts, f"Expected a callback answer {expected!r}, got {texts}"
+
+
+# ---------------------------------------------------------------------------
+# Media (relayed to and from Discord)
+# ---------------------------------------------------------------------------
+
+def _send_media(context: Context, media: Dict[str, Any], caption: Optional[str] = None) -> None:
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.inject_media(context.chat_id, context.user, media, caption)
+
+
+def _file_id(context: Context, name: str) -> str:
+    return f"file-{context.chat_id}-{name}"
+
+
+@when('the user sends a photo "(?P<name>[^"]*)" with caption "(?P<caption>[^"]*)"')
+def step_user_sends_photo(context: Context, name: str, caption: str) -> None:
+    file_id: str = _file_id(context, name)
+    helpers.register_file(file_id, b"\xff\xd8photo-bytes", "image/jpeg")
+    sizes = [
+        {"file_id": file_id + "-small", "file_unique_id": "u1", "width": 90, "height": 90, "file_size": 100},
+        {"file_id": file_id, "file_unique_id": "u2", "width": 800, "height": 600, "file_size": 14},
+    ]
+    _send_media(context, {"photo": sizes}, caption)
+
+
+@when('the user sends a document "(?P<name>[^"]*)"')
+def step_user_sends_document(context: Context, name: str) -> None:
+    file_id: str = _file_id(context, name)
+    helpers.register_file(file_id, b"%PDF-document-bytes", "application/pdf")
+    _send_media(context, {"document": {"file_id": file_id, "file_unique_id": "u3", "file_name": name, "mime_type": "application/pdf", "file_size": 19}})
+
+
+@when('the user sends a document "(?P<name>[^"]*)" of (?P<mb>\\d+) MB')
+def step_user_sends_big_document(context: Context, name: str, mb: str) -> None:
+    file_id: str = _file_id(context, name)
+    helpers.register_file(file_id, None)
+    _send_media(context, {"document": {"file_id": file_id, "file_unique_id": "u4", "file_name": name, "file_size": int(mb) * 1024 * 1024}})
+
+
+@when('the user sends a static sticker')
+def step_user_sends_static_sticker(context: Context) -> None:
+    file_id: str = _file_id(context, "sticker.webp")
+    helpers.register_file(file_id, b"RIFF-webp-bytes", "image/webp")
+    _send_media(context, {"sticker": {
+        "file_id": file_id, "file_unique_id": "u5", "type": "regular", "width": 512, "height": 512,
+        "is_animated": False, "is_video": False, "emoji": "🙂", "file_size": 15,
+    }})
+
+
+@when('the user sends an animated sticker "(?P<emoji>[^"]*)"')
+def step_user_sends_animated_sticker(context: Context, emoji: str) -> None:
+    file_id: str = _file_id(context, "sticker.tgs")
+    helpers.register_file(file_id, b"tgs-bytes", "application/x-tgsticker")
+    _send_media(context, {"sticker": {
+        "file_id": file_id, "file_unique_id": "u6", "type": "regular", "width": 512, "height": 512,
+        "is_animated": True, "is_video": False, "emoji": emoji, "file_size": 9,
+    }})
+
+
+@when('the user sends a voice message')
+def step_user_sends_voice(context: Context) -> None:
+    file_id: str = _file_id(context, "voice.ogg")
+    helpers.register_file(file_id, b"OggS-voice-bytes", "audio/ogg")
+    _send_media(context, {"voice": {"file_id": file_id, "file_unique_id": "u7", "duration": 3, "file_size": 16}})

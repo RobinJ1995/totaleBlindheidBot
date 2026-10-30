@@ -44,6 +44,9 @@ _members: Dict[Any, str] = {}
 
 _users: Dict[str, Dict[str, Any]] = {}
 
+# Files behind injected media, by file_id; one registered with a size but no data is "too big".
+_files: Dict[str, Dict[str, Any]] = {}
+
 
 def _reset() -> None:
     # NOTE: _next_update_id is deliberately NOT reset. The bot's long-poll
@@ -56,6 +59,7 @@ def _reset() -> None:
     _callback_answers = []
     _members.clear()
     _users.clear()
+    _files.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +136,22 @@ def bot_api(token: str, method: str) -> Response:
                 "text": text,
             },
         })
+    elif method == "getFile":
+        with _lock:
+            stored = _files.get(str(params.get("file_id")))
+        if stored is None:
+            return jsonify({"ok": False, "error_code": 400, "description": "Bad Request: file not found"})
+        elif stored.get("data") is None:
+            return jsonify({"ok": False, "error_code": 400, "description": "Bad Request: file is too big"})
+        return jsonify({
+            "ok": True,
+            "result": {
+                "file_id": params.get("file_id"),
+                "file_unique_id": params.get("file_id"),
+                "file_size": len(stored["data"]),
+                "file_path": f"files/{params.get('file_id')}",
+            },
+        })
     elif method == "answerCallbackQuery":
         with _lock:
             _callback_answers.append({
@@ -160,6 +180,15 @@ def bot_api(token: str, method: str) -> Response:
 
     # deleteWebhook and anything else the library happens to call.
     return jsonify({"ok": True, "result": True})
+
+
+@app.route("/file/bot<token>/files/<file_id>", methods=["GET"])
+def file_download(token: str, file_id: str) -> Response:
+    with _lock:
+        stored = _files.get(file_id)
+    if stored is None or stored.get("data") is None:
+        return Response(status=404)
+    return Response(stored["data"], content_type=stored.get("content_type") or "application/octet-stream")
 
 
 def _maybe_int(value: Any) -> Any:
@@ -196,6 +225,18 @@ def inject() -> Response:
         _updates_available.notify_all()
         update_id = update["update_id"]
     return jsonify({"ok": True, "update_id": update_id})
+
+
+@app.route("/test/files", methods=["POST"])
+def register_file() -> Response:
+    """Register the bytes behind a file_id used in an injected media message. Without content,
+    getFile reports the file as too big."""
+    import base64
+    body = request.get_json(force=True) or {}
+    with _lock:
+        data = base64.b64decode(body["content_base64"]) if body.get("content_base64") is not None else None
+        _files[str(body["file_id"])] = {"data": data, "content_type": body.get("content_type")}
+    return jsonify({"ok": True})
 
 
 @app.route("/test/chat-members", methods=["POST"])
