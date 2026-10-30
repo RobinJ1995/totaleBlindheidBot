@@ -39,10 +39,10 @@ interface ParsedMention {
     display: string;
 }
 
-// A rotation player is stored either as `[Name](tg://user?id=123)` (text mention, has an id)
+// A rotation player is stored either as `[Name](user:123)` (text mention, has the Telegram user id)
 // or as a plain `@username` string. Extract what we can to match against button tappers.
 const parseMention = (mention: string): ParsedMention => {
-    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(user:(\d+)\)$/);
     if (match) {
         return { id: Number(match[2]), display: match[1] };
     } else if (mention.startsWith('@')) {
@@ -58,7 +58,7 @@ const displayName = (name: string): string => name.replace('@', '@​');
 
 // Build a pingable mention for the tag line from a stored rotation entry.
 const mentionText = (mention: string): Part => {
-    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(user:(\d+)\)$/);
     if (match) {
         return link(match[1], `tg://user?id=${match[2]}`);
     }
