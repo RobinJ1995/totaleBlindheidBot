@@ -24,7 +24,7 @@ MARIADB_DATABASE: str = os.environ.get("MARIADB_DATABASE", "totaleblindheidbot")
 
 # Every application-data table; truncated between runs to start from a clean DAO state.
 _APP_TABLES: List[str] = [
-    "telegram_user", "user_settings", "user_steam_id", "user_chat", "chat_settings",
+    "user", "user_settings", "user_steam_id", "user_chat", "chat_settings",
     "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule", "tagged_message",
     "github_state", "game_update", "steam_storage",
     "presence_event", "match_stream_cursor", "game_history_coplayer", "game_history",
@@ -59,7 +59,7 @@ def wait_for_db(timeout: int = 90) -> None:
             conn = db_conn()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("SHOW TABLES LIKE 'telegram_user'")
+                    cur.execute("SHOW TABLES LIKE 'user'")
                     if cur.fetchone():
                         return
             finally:

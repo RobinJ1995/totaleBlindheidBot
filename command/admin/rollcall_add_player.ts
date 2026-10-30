@@ -2,8 +2,10 @@ import { Bot, MessageEntity } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import { formatError } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
+import UserDAO from '../../dao/UserDAO.js';
 
 const dao = new RollcallPlayerDAO();
+const userDao = new UserDAO();
 
 export default (bot: Bot, msg: ExtendedMessage): void => {
     const args: string[] = msg.command?.argumentTokens || [];
@@ -20,23 +22,23 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         return;
     }
 
-    const players: string[] = args.map((arg, i) => {
+    Promise.all(args.map(async (arg, i) => {
         const mention = mentions[i];
         if (mention?.type === 'text_mention' && mention.user) {
-            return `[${arg}](user:${mention.user.id})`;
+            const user = await userDao.fromTelegram(mention.user);
+            return `[${arg}](user:${user.id})`;
         }
         return arg;
-    });
-
-    dao.getRollcallPlayerUsernames(msg.chat.id)
-        .then((existingPlayers: string[]) => {
-            players.forEach(player => {
-                if (existingPlayers.includes(player)) {
-                    throw new Error(`Player ${player} is already in the rollcall.`);
-                }
-            });
-        })
-        .then(() => Promise.all(players.map(player => dao.addRollcallPlayer(msg.chat.id, player))))
+    }))
+        .then((players: string[]) => dao.getRollcallPlayerUsernames(msg.chat.id)
+            .then((existingPlayers: string[]) => {
+                players.forEach(player => {
+                    if (existingPlayers.includes(player)) {
+                        throw new Error(`Player ${player} is already in the rollcall.`);
+                    }
+                });
+            })
+            .then(() => Promise.all(players.map(player => dao.addRollcallPlayer(msg.chat.id, player)))))
         .then(() => msg.reply(`Added ${args.length} players to rollcall.`))
         .catch((err: Error) => msg.reply(formatError(err)));
 }

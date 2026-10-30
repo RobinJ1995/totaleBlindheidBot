@@ -460,7 +460,11 @@ class SteamService {
             return cached.name || null;
         }
         try {
-            const member = await this.bot.api.getChatMember({ chat_id: chatId, user_id: tgUserId });
+            const telegram_id: number | undefined = (await this.userDao.getUser(tgUserId))?.telegram_id;
+            if (telegram_id === undefined) {
+                return null;
+            }
+            const member = await this.bot.api.getChatMember({ chat_id: chatId, user_id: telegram_id });
             // Use the username without the @ prefix so it doesn't trigger a mention notification
             const name = member.user.first_name || member.user.username || '';
             this.telegramNameCache[cacheKey] = { name, fetchedAt: Date.now() };

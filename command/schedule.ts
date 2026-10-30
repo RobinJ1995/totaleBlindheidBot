@@ -9,7 +9,7 @@ import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { formatError } from '../utils.js';
 import { dateTime, fmt, Formatted, messageText } from '../format.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
-import { presenceMarkers, withTags } from '../presence.js';
+import { mentionUsers, presenceMarkers, withTags } from '../presence.js';
 import { retireRsvpList, trackTaggedMessage } from '../taggedMessages.js';
 
 const userDao = new UserDAO();
@@ -24,7 +24,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         return;
     }
 
-    const user_id: number = msg.from?.id || 0;
+    const user_id: number = msg.user.id;
     userDao.getUserTimezone(user_id)
         .then((timezone: string) => {
             const scheduledTime: Date | null = parseTime(argument, new Date(), timezone);
@@ -56,8 +56,9 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                 })
                 .then(() => scheduleDao.setScheduledRollcall(chat_id, scheduledTime))
                 .then(() => rollcallPlayerDao.getRollcallPlayerUsernames(chat_id))
-                .then((rotation: string[]) => presenceMarkers(rotation).then(markers => ({ rotation, markers })))
-                .then(({ rotation, markers }) => {
+                .then((rotation: string[]) => Promise.all([mentionUsers(rotation), presenceMarkers(rotation)])
+                    .then(([users, markers]) => ({ rotation, users, markers })))
+                .then(({ rotation, users, markers }) => {
                     const timeString: string = scheduledTime.toLocaleString('en-GB', {
                         timeZone: timezone,
                         year: 'numeric',
@@ -75,9 +76,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
 
                     // Seed the initiator into the "yes" list.
                     const entries: Record<string, RsvpEntry> = {};
-                    if (msg.from) {
-                        entries[msg.from.id] = entryFromUser(msg.from, 'yes');
-                    }
+                    entries[user_id] = entryFromUser(msg.user, 'yes');
 
                     const { groups, tagged } = resolve(rotation, entries);
                     // Like a rollcall, the schedule tags the whole rotation up front. The
@@ -86,11 +85,11 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                     // stripped, so the stored base leaves them out.
                     const heading: Formatted = fmt`Rollcall scheduled for ${dateTime(timeString, scheduledTime, 'wt')} (${dateTime(relative, scheduledTime, 'r')})`;
                     const head: Formatted = tagged.length ? fmt`${heading}\n` : heading;
-                    const base: Formatted = withTags(head, tagged);
+                    const base: Formatted = withTags(head, tagged, users);
 
                     return bot.api.sendMessage({
                         chat_id,
-                        ...messageText(renderMessage(withTags(head, tagged, markers), groups)),
+                        ...messageText(renderMessage(withTags(head, tagged, users, markers), groups)),
                         reply_parameters: { message_id: msg.message_id },
                         reply_markup: keyboard('schedule')
                     }).then((sent: Message) => {

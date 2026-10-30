@@ -1,15 +1,18 @@
 import SteamService, { Presence, PRESENCE_EMOJI } from './SteamService.js';
-import UserDAO from './dao/UserDAO.js';
+import UserDAO, { User } from './dao/UserDAO.js';
 import { fmt, Formatted, join } from './format.js';
 import { mentionText, parseMention } from './rsvp.js';
 
 const userDao = new UserDAO();
 
-// The Telegram user id behind a rotation mention, if it can be resolved.
+// The user id behind a rotation mention, if it can be resolved.
 const mentionUserId = async (mention: string): Promise<number | undefined> => {
     const parsed = parseMention(mention);
     return parsed.id ?? (parsed.username ? await userDao.getUserIdByUsername(parsed.username) : undefined);
 };
+
+const mentionUsers = (rotation: string[]): Promise<Record<number, User>> =>
+    userDao.getUsers(rotation.map(mention => parseMention(mention).id).filter((id): id is number => id !== undefined));
 
 // Map each rotation mention to its Steam presence marker, for prefixing the tag line of rollcalls
 // and schedules. Players without a resolvable Telegram id get no marker, and the map is empty when
@@ -42,7 +45,7 @@ const presenceMarkers = async (rotation: string[]): Promise<Record<string, strin
 
 // Append the tag line to `head`, prefixing each tag with its presence marker (keyed by rotation
 // mention string) when one is given. `head` carries whatever separates it from the tag line.
-const withTags = (head: Formatted, tags: string[], markers: Record<string, string> = {}): Formatted =>
-    fmt`${head}${join(tags.map(tag => markers[tag] ? fmt`${markers[tag]}${mentionText(tag)}` : mentionText(tag)), ' ')}`;
+const withTags = (head: Formatted, tags: string[], users: Record<number, User>, markers: Record<string, string> = {}): Formatted =>
+    fmt`${head}${join(tags.map(tag => markers[tag] ? fmt`${markers[tag]}${mentionText(tag, users)}` : mentionText(tag, users)), ' ')}`;
 
-export { mentionUserId, presenceMarkers, withTags };
+export { mentionUserId, mentionUsers, presenceMarkers, withTags };

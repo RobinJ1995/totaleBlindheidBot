@@ -1,5 +1,8 @@
 import { ExtendedMessage } from '../MessageRouter.js';
 import GameHistoryDAO, { ChatPlayer } from '../dao/GameHistoryDAO.js';
+import UserDAO from '../dao/UserDAO.js';
+
+const userDao = new UserDAO();
 
 // The user whose history a command should look at.
 export interface PlayerTarget {
@@ -9,7 +12,7 @@ export interface PlayerTarget {
     name?: string;
 }
 
-// A tapped Telegram mention (text_mention), which carries the target user id directly.
+// A tapped Telegram mention (text_mention), resolved to the target's user id.
 export interface MentionRef {
     user_id: number;
     name: string;
@@ -63,14 +66,15 @@ export const matchPlayerArgument = (
 };
 
 // The tapped mention (if any) attached to the command, with its display text as the name.
-export const textMention = (msg: ExtendedMessage): MentionRef | undefined => {
+export const textMention = async (msg: ExtendedMessage): Promise<MentionRef | undefined> => {
     const entity = (msg.entities || []).find(e => e.type === 'text_mention' && e.user);
     if (!entity?.user) {
         return undefined;
     }
     const argument = msg.command?.argument?.trim();
+    const user = await userDao.fromTelegram(entity.user);
     return {
-        user_id: entity.user.id,
+        user_id: user.id,
         name: argument || entity.user.first_name || String(entity.user.id)
     };
 };
@@ -79,19 +83,19 @@ export const textMention = (msg: ExtendedMessage): MentionRef | undefined => {
 // replies with the reason itself when the reference matches nothing or is ambiguous, so callers can
 // simply bail out on null.
 export const resolvePlayerTarget = async (dao: GameHistoryDAO, msg: ExtendedMessage): Promise<PlayerTarget | null> => {
-    const mention = textMention(msg);
+    const mention = await textMention(msg);
     const argument = msg.command?.argument ?? '';
 
     // No player named at all: the common case, so skip the roster lookup entirely.
     if (!mention && argument.trim() === '') {
-        return { user_id: msg.from!.id };
+        return { user_id: msg.user.id };
     }
 
     const players = mention ? [] : await dao.getChatPlayers(msg.chat.id);
     const match = matchPlayerArgument(players, argument, mention);
     switch (match.kind) {
         case 'self':
-            return { user_id: msg.from!.id };
+            return { user_id: msg.user.id };
         case 'player':
             return { user_id: match.user_id, name: match.name };
         case 'none':

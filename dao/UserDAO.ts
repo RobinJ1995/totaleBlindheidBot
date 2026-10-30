@@ -1,6 +1,20 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
+
+export interface User {
+    id: number;
+    telegram_id?: number;
+    discord_id?: string;  // a snowflake, beyond JS number precision
+    name?: string;             // Telegram display name (first name)
+    username?: string;         // Telegram @username, without the @
+    discord_username?: string; // Discord's unique username
+}
+
+export interface TelegramIdentity {
+    id: number;
+    first_name?: string;
+    username?: string;
+}
 
 export interface UserSettings {
     steam_ids?: string[];
@@ -14,7 +28,58 @@ export interface ChatUser {
     username?: string;
 }
 
+const USER_COLUMNS = 'id, telegram_id, discord_id, name, username, discord_username';
+
+const userFromRow = (row: RowDataPacket): User => ({
+    id: Number(row.id),
+    telegram_id: row.telegram_id == null ? undefined : Number(row.telegram_id),
+    discord_id: row.discord_id == null ? undefined : String(row.discord_id),
+    name: row.name ?? undefined,
+    username: row.username ?? undefined,
+    discord_username: row.discord_username ?? undefined
+});
+
+export const userDisplayName = (user: User): string =>
+    user.name || user.username || user.discord_username || String(user.id);
+
 class UserDAO {
+    fromTelegram(from: TelegramIdentity): Promise<User> {
+        return withTransaction(conn => this.fromTelegramWith(conn, from));
+    }
+
+    async fromTelegramWith(conn: PoolConnection, from: TelegramIdentity): Promise<User> {
+        // LAST_INSERT_ID(id) makes insertId carry the existing row's id on the duplicate path.
+        await conn.query<ResultSetHeader>(
+            'INSERT INTO user (telegram_id, name, username) VALUES (:telegram_id, :name, :username) ' +
+            'ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), ' +
+            'name = COALESCE(VALUES(name), name), username = COALESCE(VALUES(username), username)',
+            { telegram_id: from.id, name: from.first_name || null, username: from.username || null }
+        );
+        const [rows] = await conn.query<RowDataPacket[]>(
+            `SELECT ${USER_COLUMNS} FROM user WHERE telegram_id = :telegram_id`,
+            { telegram_id: from.id }
+        );
+        return userFromRow(rows[0]);
+    }
+
+    async getUser(id: number): Promise<User | undefined> {
+        const rows = await query<RowDataPacket[]>(`SELECT ${USER_COLUMNS} FROM user WHERE id = :id`, { id });
+        return rows.length > 0 ? userFromRow(rows[0]) : undefined;
+    }
+
+    async getUsers(ids: number[]): Promise<Record<number, User>> {
+        const result: Record<number, User> = {};
+        const distinct = [...new Set(ids)];
+        if (distinct.length === 0) {
+            return result;
+        }
+        const rows = await query<RowDataPacket[]>(`SELECT ${USER_COLUMNS} FROM user WHERE id IN (?)`, [distinct]);
+        rows.map(userFromRow).forEach(user => {
+            result[user.id] = user;
+        });
+        return result;
+    }
+
     async getUserSettings(user_id: number): Promise<UserSettings> {
         const [settingsRows, steamRows] = await Promise.all([
             query<RowDataPacket[]>('SELECT timezone FROM user_settings WHERE user_id = :user_id', { user_id }),
@@ -36,7 +101,7 @@ class UserDAO {
             query<RowDataPacket[]>('SELECT user_id, timezone FROM user_settings'),
             query<RowDataPacket[]>(
                 'SELECT s.user_id, s.steam_id, u.username FROM user_steam_id s ' +
-                'LEFT JOIN telegram_user u ON u.user_id = s.user_id'
+                'LEFT JOIN user u ON u.id = s.user_id'
             )
         ]);
         const result: Record<string, UserSettings> = {};
@@ -61,7 +126,6 @@ class UserDAO {
     setSteamUserId(user_id: number, steam_id: string | string[]): Promise<void> {
         const steamIds: string[] = Array.isArray(steam_id) ? steam_id : [steam_id];
         return withTransaction(async conn => {
-            await ensureTelegramUser(conn, user_id);
             await conn.query('DELETE FROM user_steam_id WHERE user_id = :user_id', { user_id });
             for (const sid of steamIds) {
                 await conn.query(
@@ -78,50 +142,40 @@ class UserDAO {
     }
 
     setUserTimezone(user_id: number, timezone: string): Promise<void> {
-        return withTransaction(async conn => {
-            await ensureTelegramUser(conn, user_id);
-            await conn.query(
-                'INSERT INTO user_settings (user_id, timezone) VALUES (:user_id, :timezone) ' +
-                'ON DUPLICATE KEY UPDATE timezone = VALUES(timezone)',
-                { user_id, timezone }
-            );
-        });
+        return query<ResultSetHeader>(
+            'INSERT INTO user_settings (user_id, timezone) VALUES (:user_id, :timezone) ' +
+            'ON DUPLICATE KEY UPDATE timezone = VALUES(timezone)',
+            { user_id, timezone }
+        ).then(() => undefined);
     }
 
-    // name/username are captured opportunistically from the sender so the telegram_user row carries
-    // them (ensureTelegramUser only overwrites with non-empty values). Without this the column stays
-    // NULL for users who only ever go through the Steam flow, which would break @username lookups in
-    // /stats and /game_history.
-    addUserChat(user_id: number, chat_id: number, name?: string, username?: string): Promise<boolean> {
-        return withTransaction(async conn => {
-            await ensureTelegramUser(conn, user_id, name, username);
-            const [res] = await conn.query<ResultSetHeader>(
-                'INSERT IGNORE INTO user_chat (user_id, chat_id) VALUES (:user_id, :chat_id)',
-                { user_id, chat_id }
-            );
-            return res.affectedRows === 1;
-        });
+    async addUserChat(user_id: number, chat_id: number): Promise<boolean> {
+        const res = await query<ResultSetHeader>(
+            'INSERT IGNORE INTO user_chat (user_id, chat_id) VALUES (:user_id, :chat_id)',
+            { user_id, chat_id }
+        );
+        return res.affectedRows === 1;
     }
 
-    // Resolve an @username (without the @) to a Telegram user id via the recorded telegram_user rows.
+    // Resolve an @username (without the @) to a user id via the recorded user rows.
     // Usernames aren't unique there (a stale handle survives until its old owner sets a new one, and
     // may since have been taken by someone else), so an ambiguous handle resolves to nobody.
     async getUserIdByUsername(username: string): Promise<number | undefined> {
-        const rows = await query<RowDataPacket[]>('SELECT user_id FROM telegram_user WHERE username = :username LIMIT 2', { username });
-        return rows.length === 1 ? Number(rows[0].user_id) : undefined;
+        const rows = await query<RowDataPacket[]>('SELECT id FROM user WHERE username = :username LIMIT 2', { username });
+        return rows.length === 1 ? Number(rows[0].id) : undefined;
     }
 
     async getChatUsers(chat_id: number): Promise<ChatUser[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT uc.user_id, u.name, u.username FROM user_chat uc ' +
-            'LEFT JOIN telegram_user u ON u.user_id = uc.user_id ' +
+            `SELECT uc.user_id, ${USER_COLUMNS} FROM user_chat uc ` +
+            'LEFT JOIN user u ON u.id = uc.user_id ' +
             'WHERE uc.chat_id = :chat_id',
             { chat_id }
         );
         return rows
             .map(row => ({
                 user_id: Number(row.user_id),
-                name: row.name || row.username || String(row.user_id),
+                name: row.id == null ? String(row.user_id) : userDisplayName(userFromRow(row)),
                 username: row.username ?? undefined
             }))
             .sort((a, b) => a.name.localeCompare(b.name));

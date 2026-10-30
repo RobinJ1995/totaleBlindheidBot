@@ -1,13 +1,21 @@
 -- Schema for totaleBlindheidBot application data (MariaDB / MySQL).
 -- Applied idempotently at startup and by the migration script.
--- Telegram chat/user/message ids are signed BIGINT (group chats are negative).
+-- Telegram chat/message ids are signed BIGINT (group chats are negative).
 -- Timestamps are DATETIME(3) in UTC; mysql2 maps them to/from JS Date.
 
-CREATE TABLE IF NOT EXISTS telegram_user (
-    user_id  BIGINT       NOT NULL,
-    name     VARCHAR(255) NULL,
-    username VARCHAR(255) NULL,
-    PRIMARY KEY (user_id)
+-- A person on Telegram, Discord or both. `id` is the bot's own user id, referenced by every other
+-- table; rows migrated from telegram_user keep their Telegram id as `id`.
+CREATE TABLE IF NOT EXISTS user (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    telegram_id      BIGINT       NULL,
+    discord_id       VARCHAR(32)  NULL,
+    name             VARCHAR(255) NULL,
+    username         VARCHAR(255) NULL,
+    discord_username VARCHAR(255) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_user_telegram (telegram_id),
+    UNIQUE KEY uq_user_discord (discord_id),
+    CONSTRAINT chk_user_platform CHECK (telegram_id IS NOT NULL OR discord_id IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_settings (
@@ -15,7 +23,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     timezone VARCHAR(64) NULL,
     PRIMARY KEY (user_id),
     CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_steam_id (
@@ -24,7 +32,7 @@ CREATE TABLE IF NOT EXISTS user_steam_id (
     PRIMARY KEY (user_id, steam_id),
     KEY idx_user_steam_id_steam (steam_id),
     CONSTRAINT fk_user_steam_id_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_chat (
@@ -32,7 +40,7 @@ CREATE TABLE IF NOT EXISTS user_chat (
     chat_id BIGINT NOT NULL,
     PRIMARY KEY (user_id, chat_id),
     CONSTRAINT fk_user_chat_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS chat_settings (
@@ -51,7 +59,7 @@ CREATE TABLE IF NOT EXISTS rollcall_player (
     PRIMARY KEY (id),
     KEY idx_rollcall_player_chat (chat_id),
     CONSTRAINT fk_rollcall_player_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE SET NULL
+        REFERENCES user (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS rsvp_list (
@@ -71,7 +79,7 @@ CREATE TABLE IF NOT EXISTS rsvp_entry (
     CONSTRAINT fk_rsvp_entry_list FOREIGN KEY (rsvp_list_id)
         REFERENCES rsvp_list (id) ON DELETE CASCADE,
     CONSTRAINT fk_rsvp_entry_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS rsvp_message (
@@ -112,7 +120,7 @@ CREATE TABLE IF NOT EXISTS rollcall_schedule (
     PRIMARY KEY (id),
     KEY idx_rollcall_schedule_chat (chat_id),
     CONSTRAINT fk_rollcall_schedule_initiator FOREIGN KEY (initiator_id)
-        REFERENCES telegram_user (user_id) ON DELETE SET NULL
+        REFERENCES user (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Single-row state for the one polled GitHub repo.
@@ -139,7 +147,7 @@ CREATE TABLE IF NOT EXISTS game_update (
     PRIMARY KEY (id),
     KEY idx_game_update_chat_user (chat_id, user_id),
     CONSTRAINT fk_game_update_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- steam-user library persistence when STEAM_STORAGE_BACKEND=database.
@@ -156,8 +164,8 @@ CREATE TABLE IF NOT EXISTS steam_storage (
 -- mutating a single current-state row, so one flaky tick can't irreversibly split or merge
 -- a match. Keyed per Steam account — the observed fact is account-level; chats only come in
 -- when a finished match is fanned out to game_history/announcements. user_id carries the
--- steam→telegram mapping at observation time; no FK so the hot-path append never has to
--- ensure a telegram_user row. Pruned past a TTL, but never past a stream's cursor.
+-- steam→user mapping at observation time; no FK so the hot-path append never has to
+-- ensure a user row. Pruned past a TTL, but never past a stream's cursor.
 CREATE TABLE IF NOT EXISTS presence_event (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     steam_id    VARCHAR(32)  NOT NULL,
@@ -206,7 +214,7 @@ CREATE TABLE IF NOT EXISTS game_history (
     KEY idx_game_history_chat_user (chat_id, user_id),
     KEY idx_game_history_grouping (chat_id, ended_at),
     CONSTRAINT fk_game_history_user FOREIGN KEY (user_id)
-        REFERENCES telegram_user (user_id) ON DELETE CASCADE
+        REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Co-players recorded against a finished match. name is a point-in-time snapshot.

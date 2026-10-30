@@ -135,6 +135,50 @@ const migrateEntitiesColumns = async (conn: PoolConnection): Promise<void> => {
     }
 };
 
+const tableExists = async (conn: PoolConnection, table: string): Promise<boolean> => {
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS tbl FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table',
+        { table }
+    );
+    return Number(rows[0]?.tbl) > 0;
+};
+
+// One-off migration: telegram_user becomes user. Foreign keys are dropped around the rename
+// because their target column is renamed.
+const migrateTelegramUserToUser = async (conn: PoolConnection): Promise<void> => {
+    if (await tableExists(conn, 'user') || !(await tableExists(conn, 'telegram_user'))) {
+        return;
+    }
+    console.log('Migrating telegram_user to user (platform-neutral user ids).');
+
+    const [fks] = await conn.query<RowDataPacket[]>(
+        'SELECT k.TABLE_NAME AS tbl, k.CONSTRAINT_NAME AS name, k.COLUMN_NAME AS col, r.DELETE_RULE AS on_delete ' +
+        'FROM information_schema.KEY_COLUMN_USAGE k ' +
+        'JOIN information_schema.REFERENTIAL_CONSTRAINTS r ' +
+        '  ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME ' +
+        "WHERE k.CONSTRAINT_SCHEMA = DATABASE() AND k.REFERENCED_TABLE_NAME = 'telegram_user'"
+    );
+    await Promise.all(fks.map(fk => conn.query(`ALTER TABLE ${fk.tbl} DROP FOREIGN KEY ${fk.name}`)));
+
+    await conn.query('RENAME TABLE telegram_user TO user');
+    await conn.query(
+        'ALTER TABLE user ' +
+        'CHANGE COLUMN user_id id BIGINT NOT NULL AUTO_INCREMENT, ' +
+        'ADD COLUMN telegram_id BIGINT NULL AFTER id, ' +
+        'ADD COLUMN discord_id VARCHAR(32) NULL AFTER telegram_id, ' +
+        'ADD COLUMN discord_username VARCHAR(255) NULL AFTER username, ' +
+        'ADD UNIQUE KEY uq_user_telegram (telegram_id), ' +
+        'ADD UNIQUE KEY uq_user_discord (discord_id)'
+    );
+    await conn.query('UPDATE user SET telegram_id = id');
+    await conn.query('ALTER TABLE user ADD CONSTRAINT chk_user_platform CHECK (telegram_id IS NOT NULL OR discord_id IS NOT NULL)');
+
+    await Promise.all(fks.map(fk => conn.query(
+        `ALTER TABLE ${fk.tbl} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.col}) ` +
+        `REFERENCES user (id) ON DELETE ${fk.on_delete}`
+    )));
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -144,6 +188,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateDropCurrentMatch(conn);
         await migrateGameHistoryAnnouncementColumns(conn);
         await migrateEntitiesColumns(conn);
+        await migrateTelegramUserToUser(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }
