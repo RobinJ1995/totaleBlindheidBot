@@ -33,3 +33,10 @@ Feature: GitHub commit notifications
     When GitHub rejects the next 2 requests with a rate limit and retry-after 2
     And a commit "l1m1ted" with message "Survived the rate limit" is pushed to GitHub
     Then chat 7003 receives a GitHub notification containing "Survived the rate limit"
+
+  # Kept last: a secondary limit carries no timing headers, so the bot falls back to
+  # a minutes-long wait that would starve any scenario running after it.
+  Scenario: a secondary rate limit with no timing headers also stops the polling
+    Given the bot has established its GitHub baseline
+    When GitHub rejects the next request with a secondary rate limit
+    Then the bot stops polling GitHub

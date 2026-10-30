@@ -19,14 +19,22 @@ test('a 403 with an exhausted quota is a rate-limit rejection', () => {
     assert.equal(isRateLimitRejection(403, headers({ 'x-ratelimit-remaining': '0' })), true);
 });
 
-test('a 429 with retry-after is a rate-limit rejection', () => {
+test('a 429 is always a rate-limit rejection, headers or not', () => {
+    // GitHub uses 429 for nothing else, and secondary limits may omit both headers.
     assert.equal(isRateLimitRejection(429, headers({ 'retry-after': '60' })), true);
+    assert.equal(isRateLimitRejection(429, headers({})), true);
+});
+
+test('a headerless secondary limit is recognised from the response body', () => {
+    const body = '{"message": "You have exceeded a secondary rate limit. Please wait a few minutes."}';
+    assert.equal(isRateLimitRejection(403, headers({}), body), true);
 });
 
 test('a 403 with quota to spare is some other refusal, not a rate limit', () => {
     // e.g. a private repo or a bad token: backing off for an hour would be wrong.
     assert.equal(isRateLimitRejection(403, headers({ 'x-ratelimit-remaining': '4999' })), false);
     assert.equal(isRateLimitRejection(403, headers({})), false);
+    assert.equal(isRateLimitRejection(403, headers({}), '{"message": "Bad credentials"}'), false);
 });
 
 test('non-403/429 failures are never rate limits', () => {
@@ -64,6 +72,19 @@ test('unparseable or missing headers fall back to a fixed backoff', () => {
     assert.equal(rateLimitBackoffMs(headers({ 'retry-after': 'soon' }), NOW), 60_000);
     assert.equal(rateLimitBackoffMs(headers({ 'retry-after': '' }), NOW), 60_000);
     assert.equal(rateLimitBackoffMs(headers({ 'retry-after': '0' }), NOW), 60_000);
+});
+
+test('a headerless rejection backs off exponentially while it keeps failing', () => {
+    // GitHub's documented handling for secondary limits that say nothing about timing.
+    assert.equal(rateLimitBackoffMs(headers({}), NOW, 1), 60_000);
+    assert.equal(rateLimitBackoffMs(headers({}), NOW, 2), 120_000);
+    assert.equal(rateLimitBackoffMs(headers({}), NOW, 3), 240_000);
+    // ...and still stops at the window length rather than growing without bound.
+    assert.equal(rateLimitBackoffMs(headers({}), NOW, 99), 60 * 60 * 1000);
+});
+
+test('escalation never overrides a time GitHub actually gave us', () => {
+    assert.equal(rateLimitBackoffMs(headers({ 'retry-after': '30' }), NOW, 5), 30_000);
 });
 
 test('a healthy quota produces no warning', () => {

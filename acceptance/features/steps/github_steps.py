@@ -38,6 +38,18 @@ def step_github_rate_limit(context: Context, count: int, retry_after: int) -> No
     helpers.github_reject_requests(count, retry_after)
 
 
+@when('GitHub rejects the next request with a secondary rate limit')
+def step_github_secondary_limit(context: Context) -> None:
+    # A secondary limit may carry neither retry-after nor an exhausted counter, so
+    # the message body is the only thing identifying it.
+    helpers.github_reject_requests(1, secondary=True)
+
+
+@then('the bot stops polling GitHub')
+def step_github_polling_stopped(context: Context) -> None:
+    helpers.wait_for_github_polling_to_stop()
+
+
 @when('the GitHub request counters are reset')
 def step_github_reset_stats(context: Context) -> None:
     helpers.github_reset_stats()

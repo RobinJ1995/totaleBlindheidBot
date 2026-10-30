@@ -38,20 +38,38 @@ const numericHeader = (headers: HeaderBag, name: string): number | null => {
  * as opposed to any other 403 (missing token, private repo, blocked user agent).
  *
  * Primary limits zero out the remaining counter; secondary limits answer with a
- * retry-after instead. Both arrive as 403 or 429.
+ * retry-after — or, per GitHub's docs, with neither header and only a message body
+ * saying so. Both kinds arrive as 403 or 429.
  */
-export const isRateLimitRejection = (status: number, headers: HeaderBag): boolean => {
-    if (status !== 403 && status !== 429) {
+export const isRateLimitRejection = (status: number, headers: HeaderBag, body?: string): boolean => {
+    // 429 has no other meaning in GitHub's API: it is always "too many requests".
+    if (status === 429) {
+        return true;
+    }
+    if (status !== 403) {
         return false;
     }
-    return headers.get('retry-after') !== null || headers.get('x-ratelimit-remaining') === '0';
+    if (headers.get('retry-after') !== null || headers.get('x-ratelimit-remaining') === '0') {
+        return true;
+    }
+    // A bare 403 is rate limiting only when it says so. Other 403s (bad credentials,
+    // private repo) must keep failing loudly rather than putting the poller to sleep.
+    return body !== undefined && /\brate limit\b/i.test(body);
 };
 
 /**
  * How long to hold off before the next request, honouring retry-after first (GitHub
- * documents it as authoritative) and falling back to the reset timestamp.
+ * documents it as authoritative), then the reset timestamp.
+ *
+ * `consecutiveRateLimits` only matters when a rejection carries neither header: GitHub
+ * asks for at least a minute in that case, growing while the failures continue, and
+ * warns that hammering a limit risks the integration being banned.
  */
-export const rateLimitBackoffMs = (headers: HeaderBag, now: number): number => {
+export const rateLimitBackoffMs = (
+    headers: HeaderBag,
+    now: number,
+    consecutiveRateLimits: number = 1
+): number => {
     const clamp = (ms: number): number => Math.min(Math.max(ms, 0), MAX_BACKOFF_MS);
 
     const retryAfter = numericHeader(headers, 'retry-after');
@@ -69,7 +87,8 @@ export const rateLimitBackoffMs = (headers: HeaderBag, now: number): number => {
         }
     }
 
-    return FALLBACK_BACKOFF_MS;
+    // 2 ** large is Infinity, which clamp folds back to the cap.
+    return clamp(FALLBACK_BACKOFF_MS * 2 ** Math.max(0, consecutiveRateLimits - 1));
 };
 
 /**
