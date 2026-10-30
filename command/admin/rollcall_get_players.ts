@@ -2,6 +2,7 @@ import { Bot } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import { formatError } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
+import { displayName, parseMention } from '../../mention.js';
 
 const dao = new RollcallPlayerDAO();
 
@@ -11,11 +12,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
             if (players.length === 0) {
                 msg.reply('No players in the rollcall.');
             } else {
-                msg.reply(`Players in rollcall:\n${players.map((p: string) => {
-                    const match: RegExpMatchArray | null = p.match(/^\[(.*)\]\(user:\d+\)$/);
-                    const displayName: string = match ? match[1] : p;
-                    return displayName.replace('@', '@\u200B');
-                }).map(p => `- ${p}`).join('\n')}`);
+                msg.reply(`Players in rollcall:\n${players.map((p: string) => `- ${displayName(parseMention(p).display)}`).join('\n')}`);
             }
         })
         .catch((err: Error) => msg.reply(formatError(err)));

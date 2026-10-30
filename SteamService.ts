@@ -8,7 +8,7 @@ import GameHistoryDAO, { GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, Si
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { bold, fmt, Formatted, messageText, sameFormatted } from './format.js';
-import { parseMention } from './rsvp.js';
+import { parseMention } from './mention.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
     segmentStream, findCoPlayers, deriveRounds, parseRawScore as parseRawScoreFn,

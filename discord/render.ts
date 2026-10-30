@@ -1,7 +1,8 @@
 import { User } from '../dao/UserDAO.js';
 import { Formatted } from '../format.js';
+import { parseMention } from '../mention.js';
 import { Rsvp } from '../dao/RsvpDAO.js';
-import { parseMention, renderLists } from '../rsvp.js';
+import { renderLists } from '../rsvp.js';
 import { toDiscordMarkdown } from './markdown.js';
 
 const discordMention = (mention: string, users: Record<number, User>): string => {
