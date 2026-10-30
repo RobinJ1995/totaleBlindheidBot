@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { withDiscordTags } from '../discord/render.js';
+import { renderDiscordMessage, withDiscordTags } from '../discord/render.js';
 import { asFormatted } from '../format.js';
 import { User } from '../dao/UserDAO.js';
 
@@ -13,4 +13,9 @@ const users: Record<number, User> = {
 test('the tag line pings people on Discord and names the rest', () => {
     const line = withDiscordTags(asFormatted('Go!\n'), ['[Alice](user:1)', '[Bob](user:2)', '[Carol](user:3)', '@dave', 'Eve_H'], users);
     assert.equal(line, 'Go!\nAlice <@123456789012345678> <@223456789012345678> @dave Eve\\_H');
+});
+
+test('the RSVP lists follow the base, escaped for Discord', () => {
+    assert.equal(renderDiscordMessage('Go!\nAlice', { yes: ['Alice'], maybe: [], no: ['x_y'] }), 'Go!\nAlice\n\n🙋‍♂️ Alice\n🙅‍♂️ x\\_y');
+    assert.equal(renderDiscordMessage('Go!\nAlice', { yes: [], maybe: [], no: [] }), 'Go!\nAlice');
 });

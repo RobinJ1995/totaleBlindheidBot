@@ -67,7 +67,7 @@ setInterval(() => {
                 const scheduledTime: Date = schedule.time;
                 if (scheduledTime <= now) {
                     console.log(`Executing scheduled rollcall for chat ${chat_id}`);
-                    executeRollcall(bot, parseInt(chat_id), { rsvp_id: schedule.rsvp_id })
+                    executeRollcall(bot, { chat_id: parseInt(chat_id) }, { rsvp_id: schedule.rsvp_id })
                         .then(() => closeScheduleConfirmation(bot, schedule.rsvp_id))
                         .catch((err: Error) => console.error(`Error executing scheduled rollcall for ${chat_id}:`, err))
                         .finally(() => scheduleDao.removeScheduledRollcall(Number(chat_id)));

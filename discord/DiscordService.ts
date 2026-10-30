@@ -171,6 +171,14 @@ class DiscordService {
         );
     }
 
+    async editMessage(channel_id: string, message_id: string, content: string): Promise<void> {
+        const channel = await this.fetchGuildTextChannel(channel_id);
+        if (!channel) {
+            throw new Error(`Discord channel ${channel_id} is not reachable.`);
+        }
+        await channel.messages.edit(message_id, { content: splitMessage(content)[0], allowedMentions: { parse: ['users'] } });
+    }
+
     async relay(link: ChatLink, author: string, content: string): Promise<void> {
         if (link.webhook_id && link.webhook_token) {
             const webhook = this.webhookClient({ id: link.webhook_id, token: link.webhook_token });

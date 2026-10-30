@@ -83,13 +83,17 @@ CREATE TABLE IF NOT EXISTS rsvp_entry (
         REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- A message showing an RSVP list: in the list's Telegram chat, or a copy in a linked Discord channel
+-- (channel_id set, base_text as Discord markdown). message_id is text to fit Discord snowflakes.
 CREATE TABLE IF NOT EXISTS rsvp_message (
-    rsvp_list_id  BIGINT NOT NULL,
-    message_id    BIGINT NOT NULL,
-    base_text     TEXT   NOT NULL,
-    base_entities TEXT   NULL,
+    rsvp_list_id  BIGINT      NOT NULL,
+    platform      ENUM('telegram','discord') NOT NULL DEFAULT 'telegram',
+    channel_id    VARCHAR(32) NULL,
+    message_id    VARCHAR(32) NOT NULL,
+    base_text     TEXT        NOT NULL,
+    base_entities TEXT        NULL,
     keyboard      ENUM('schedule','rollcall') NOT NULL,
-    PRIMARY KEY (rsvp_list_id, message_id),
+    PRIMARY KEY (rsvp_list_id, platform, message_id),
     KEY idx_rsvp_message_message (message_id),
     CONSTRAINT fk_rsvp_message_list FOREIGN KEY (rsvp_list_id)
         REFERENCES rsvp_list (id) ON DELETE CASCADE

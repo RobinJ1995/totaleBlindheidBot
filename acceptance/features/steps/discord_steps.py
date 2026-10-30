@@ -1,5 +1,6 @@
 """Steps for the Discord side: defining servers, speaking as Discord users, asserting on what the bot
 posted there. The Telegram side of the same scenarios uses telegram_steps.py."""
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from behave import given, when, then, use_step_matcher
@@ -147,3 +148,30 @@ def step_channel_receives_bot_first_line(context: Context, channel_id: str) -> N
     options: List[str] = [row["quote"] for row in context.table]
     new: List[Dict[str, Any]] = _bot_messages(_new_messages(context, channel_id, _is_bot_message))
     assert any(m["content"].split("\n")[0] in options for m in new), f"Expected a bot message starting with one of {options} in channel {channel_id}, got {_describe(new)}"
+
+
+@when('the latest bot message in Discord channel "(?P<channel_id>\\d+)" is remembered')
+def step_remember_discord_message(context: Context, channel_id: str) -> None:
+    posted: List[Dict[str, Any]] = _bot_messages(helpers.discord_outbox(channel_id))
+    assert posted, f"No bot message exists in channel {channel_id} to remember"
+    context.discord_remembered = {"channel_id": channel_id, "message_id": posted[-1]["message_id"]}
+
+
+def _wait_for_discord_edit(context: Context, matches: Any, description: str) -> None:
+    remembered: Dict[str, str] = context.discord_remembered
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    edits: List[Dict[str, Any]] = []
+    while time.time() < deadline:
+        edits = [
+            m for m in helpers.discord_outbox(remembered["channel_id"])
+            if m["method"] == "editMessage" and m["message_id"] == remembered["message_id"]
+        ]
+        if any(matches(m) for m in edits):
+            return
+        time.sleep(helpers.POLL_INTERVAL)
+    raise AssertionError(f"The remembered Discord message was never edited {description}; edits: {_describe(edits)}")
+
+
+@then('the remembered Discord message is edited to contain "(?P<text>[^"]+)"')
+def step_discord_edited_contains(context: Context, text: str) -> None:
+    _wait_for_discord_edit(context, lambda m: text in m["content"], f"to contain {text!r}")
