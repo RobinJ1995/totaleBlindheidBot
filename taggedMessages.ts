@@ -87,7 +87,7 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
         const base: Formatted = tagged && isLive(tagged)
             ? withTags(tagged.head, tagged.tags, await presenceMarkers(tagged.tags))
             : ref.base;
-        await editText(bot, list.chat_id, ref.message_id, renderMessage(base, groups), keyboard(ref.keyboard, groups));
+        await editText(bot, list.chat_id, ref.message_id, renderMessage(base, groups), keyboard(ref.keyboard));
     }));
 });
 

@@ -87,7 +87,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                         chat_id,
                         ...messageText(renderMessage(withTags(head, tagged, markers), groups)),
                         reply_parameters: { message_id: msg.message_id },
-                        reply_markup: keyboard('schedule', groups)
+                        reply_markup: keyboard('schedule')
                     }).then((sent: Message) => {
                         return trackTaggedMessage(sent, head, tagged, true).then(() => rsvpDao.createRsvpList({
                             chat_id,

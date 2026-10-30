@@ -54,7 +54,7 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
             // reply_parameters is only set for user-triggered rollcalls; scheduled ones
             // (no originating message) omit it entirely.
             ...(opts.reply_to_message_id ? { reply_parameters: { message_id: opts.reply_to_message_id } } : {}),
-            reply_markup: keyboard('rollcall', groups)
+            reply_markup: keyboard('rollcall')
         }).then((sent: Message) => {
             const ref = { message_id: sent.message_id, base, keyboard: 'rollcall' as const };
             const attach = (): Promise<unknown> => (existing && opts.rsvp_id)

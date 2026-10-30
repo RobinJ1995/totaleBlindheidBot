@@ -21,16 +21,12 @@ const BUTTON_STYLE: Record<Rsvp, string> = {
     no: 'danger'
 };
 
-// e.g. "✅ Joining · 3"; the count is left out while it's 0.
-const buttonLabel = (kind: RsvpKeyboardKind, value: Rsvp, count: number): string =>
-    `${value === 'yes' ? '✅ ' : ''}${LABELS[kind][value]}${count > 0 ? ` · ${count}` : ''}`;
-
 // Build the inline keyboard for a message. The callback data is the same regardless
 // of the keyboard kind; only the visible labels differ.
-const keyboard = (kind: RsvpKeyboardKind, groups: Record<Rsvp, string[]>): InlineKeyboardMarkup => ({
+const keyboard = (kind: RsvpKeyboardKind): InlineKeyboardMarkup => ({
     inline_keyboard: [
         (['yes', 'maybe', 'no'] as Rsvp[]).map(value => ({
-            text: buttonLabel(kind, value, groups[value].length),
+            text: LABELS[kind][value],
             style: BUTTON_STYLE[value],
             callback_data: `rsvp:${value}`
         }))
