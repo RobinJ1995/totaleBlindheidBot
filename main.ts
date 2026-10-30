@@ -32,6 +32,7 @@ import gameHistoryHandler from './command/game_history.js';
 import statsHandler from './command/stats.js';
 import githubNotifyHandler from './command/github_notify.js';
 import linkChatHandler from './command/link_chat.js';
+import unlinkChatHandler from './command/unlink_chat.js';
 import deleteMatchRecordHandler, { handleDeleteMatchCallback, CALLBACK_PREFIX as DELETE_MATCH_CALLBACK_PREFIX } from './command/admin/delete_match_record.js';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
@@ -173,6 +174,9 @@ router.route('github_notify', githubNotifyHandler, {
 });
 router.route('link_chat', linkChatHandler, {
     helpText: 'Admin: relay this group to and from a Discord channel: /link_chat <channel id>.'
+});
+router.route('unlink_chat', unlinkChatHandler, {
+    helpText: 'Admin: stop relaying to a Discord channel (/unlink_chat <channel id>), or to all of them (no id).'
 });
 
 if (steamEnabled) {

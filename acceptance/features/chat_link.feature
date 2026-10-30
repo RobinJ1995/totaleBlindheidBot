@@ -64,3 +64,37 @@ Feature: linking Discord channels to a Telegram group
     And a Discord server "7008" named "Plain Server" with channel "70081" named "general" where the bot lacks "Manage Webhooks"
     When the user sends "/link_chat 70081"
     Then the bot replies "Linked to #general on Plain Server. I can't manage webhooks there, so relayed messages will be posted by me with the sender's name in front."
+
+  Scenario: unlinking one channel
+    Given a chat with id 7009
+    And a user with id 7109 and first name "Admin"
+    And the user is an admin of the chat
+    And a Discord server "7009" named "Test Server" with channel "70091" named "general"
+    And Discord channel "70091" is linked to the chat
+    When the user sends "/unlink_chat 70091"
+    Then the bot replies "Unlinked Discord channel 70091."
+    And Discord channel "70091" receives a bot message containing "no longer linked"
+    And the relay webhook of channel "70091" is gone
+    When the user sends "/unlink_chat 70091"
+    Then the bot replies "That channel is not linked to this group."
+
+  Scenario: unlinking without an id unlinks every channel
+    Given a chat with id 7010
+    And a user with id 7110 and first name "Admin"
+    And the user is an admin of the chat
+    And a Discord server "7010" named "Server One" with channel "70101" named "general"
+    And a Discord server "7011" named "Server Two" with channel "70111" named "cs"
+    And Discord channel "70101" is linked to the chat
+    And Discord channel "70111" is linked to the chat
+    When the user sends "/unlink_chat"
+    Then the bot replies "Unlinked 2 Discord channels."
+    And Discord channel "70101" receives a bot message containing "no longer linked"
+    And Discord channel "70111" receives a bot message containing "no longer linked"
+    When the user sends "/unlink_chat"
+    Then the bot replies "No Discord channels are linked to this group."
+
+  Scenario: only an admin can unlink
+    Given a chat with id 7012
+    And a user with id 7112 and first name "Member"
+    When the user sends "/unlink_chat"
+    Then the bot replies "Only a group admin can link or unlink Discord channels."

@@ -61,3 +61,9 @@ def step_channel_receives_bot_containing(context: Context, channel_id: str, text
 def step_channel_receives_nothing(context: Context, channel_id: str) -> None:
     new: List[Dict[str, Any]] = helpers.discord_expect_no_new(channel_id, _baseline(context, channel_id))
     assert not new, f"Expected nothing in channel {channel_id}, got {[(m['method'], m['content']) for m in new]}"
+
+
+@then('the relay webhook of channel "(?P<channel_id>\\d+)" is gone')
+def step_webhook_gone(context: Context, channel_id: str) -> None:
+    webhooks: List[Dict[str, Any]] = helpers.discord_webhooks()
+    assert not any(w["channel_id"] == channel_id for w in webhooks), f"A webhook still exists for channel {channel_id}"
