@@ -228,6 +228,23 @@ def bold_texts(message: Dict[str, Any]) -> List[str]:
     ]
 
 
+def date_times(message: Dict[str, Any]) -> List[Tuple[str, int, str]]:
+    """Return (covered text, unix_time, format) for each date_time entity of a recorded outbox message."""
+    entities: Any = message.get("params", {}).get("entities") or []
+    if isinstance(entities, str):
+        entities = json.loads(entities)
+    utf16: bytes = message["text"].encode("utf-16-le")
+    return [
+        (
+            utf16[e["offset"] * 2:(e["offset"] + e["length"]) * 2].decode("utf-16-le"),
+            e["unix_time"],
+            e["date_time_format"],
+        )
+        for e in entities
+        if e.get("type") == "date_time"
+    ]
+
+
 def button_labels(message: Dict[str, Any]) -> List[str]:
     markup: Dict[str, Any] = reply_markup(message)
     return [

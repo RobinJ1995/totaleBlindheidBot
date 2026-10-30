@@ -43,6 +43,10 @@ export const bold = (content: Part): Formatted => wrap(content, { type: 'bold' }
 
 export const link = (content: Part, url: string): Formatted => wrap(content, { type: 'text_link', url });
 
+// Rendered in each reader's own timezone; `content` is the fallback for clients that can't.
+export const dateTime = (content: Part, date: Date, format: string): Formatted =>
+    wrap(content, { type: 'date_time', unix_time: Math.floor(date.getTime() / 1000), date_time_format: format });
+
 // The text/entities fields of a sendMessage or editMessageText call.
 export const messageText = (part: Part): { text: string, entities?: MessageEntity[] } => {
     const { text, entities } = asFormatted(part);
