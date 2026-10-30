@@ -9,22 +9,34 @@ export interface CommandContext {
     argumentTokens: string[];
 }
 
-export interface ExtendedMessage extends Message {
-    reply: (text: Part) => Promise<Message>;
-    command: CommandContext;
-    // The sender's user row (the bot's own id, not the Telegram id).
+// What a command handler gets, whichever platform the command came from.
+export interface Command {
+    platform: 'telegram';
+    chat_id: number;
+    // The sender's user row (the bot's own id, not a platform id).
     user: User;
+    command: CommandContext;
+    reply: (text: Part) => Promise<unknown>;
+    telegram?: Message;
 }
 
-export type CommandHandler = (bot: Bot, msg: ExtendedMessage) => void | Promise<void> | Promise<any> | any;
+export interface ExtendedMessage extends Message, Command {
+    telegram: Message;
+    reply: (text: Part) => Promise<Message>;
+}
+
+export type CommandHandler<T extends Command = Command> = (bot: Bot, cmd: T) => void | Promise<void> | Promise<any> | any;
 
 // Returns true when it consumed the message.
 export type ReplyHandler = (bot: Bot, msg: Message) => boolean;
 
-interface Route {
+export interface RouteOptions {
+    helpText?: string;
+}
+
+interface Route extends RouteOptions {
     command: string;
-    handler: CommandHandler;
-    [key: string]: any;
+    handler: CommandHandler<any>;
 }
 
 class MessageRouter {
@@ -42,7 +54,7 @@ class MessageRouter {
         this._replyHandlers.push(handler);
     }
 
-    route(command: string, handler: CommandHandler, etc: any = {}): void {
+    route(command: string, handler: CommandHandler<any>, etc: RouteOptions = {}): void {
         this._routes.push({
             command,
             handler,
@@ -68,7 +80,9 @@ class MessageRouter {
         }
 
         const extendedMsg = msg as ExtendedMessage;
-
+        extendedMsg.platform = 'telegram';
+        extendedMsg.chat_id = msg.chat.id;
+        extendedMsg.telegram = msg;
         extendedMsg.reply = (text: Part) => this._bot.api.sendMessage({
             chat_id: msg.chat.id,
             ...messageText(text),
