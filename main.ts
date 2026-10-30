@@ -11,7 +11,7 @@ import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import DiscordService from './discord/DiscordService.js';
-import { relayFromTelegram } from './relay.js';
+import { relayFromDiscord, relayFromTelegram } from './relay.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
 import { Rsvp } from './dao/RsvpDAO.js';
@@ -122,6 +122,7 @@ if (steamEnabled) {
 const githubService: GitHubService = new GitHubService(bot);
 
 const discordService: DiscordService | null = process.env.DISCORD_BOT_TOKEN ? new DiscordService() : null;
+discordService?.onMessage((message, link) => relayFromDiscord(bot, message, link));
 
 // Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
 const POLLING_RESTART_DELAY_MS = 5000;

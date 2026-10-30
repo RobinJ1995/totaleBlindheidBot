@@ -20,6 +20,33 @@ Feature: relaying messages between a Telegram group and its Discord channels
     When the user sends "we play at nine" with "nine" in bold
     Then Discord channel "80011" receives "we play at **nine**" from "Tester"
 
+  Scenario: a Discord message reaches Telegram and the other channels
+    When Discord user "alice" named "Alice" with id "801001" says "count me in" in channel "80011"
+    Then the bot replies "Alice: count me in"
+    And the bot reply has "Alice:" in bold
+    And Discord channel "80021" receives "count me in" from "Alice"
+    And Discord channel "80011" receives nothing
+
+  Scenario: Discord mentions are relayed as names
+    When Discord user "alice" named "Alice" with id "801001" says "<@801002000000000002> you coming?" in channel "80011" mentioning user "801002000000000002" named "Bob"
+    Then the bot replies "Alice: @Bob you coming?"
+
+  Scenario: the bot does not relay its own Discord messages
+    When the bot itself says "Linked!" in Discord channel "80011"
+    Then the bot sends no reply
+    And Discord channel "80021" receives nothing
+
+  Scenario: the bot does not relay what its own webhooks posted
+    When the relay webhook of channel "80011" posts "hello from Telegram"
+    Then the bot sends no reply
+    And Discord channel "80021" receives nothing
+
+  Scenario: a message in an unlinked channel goes nowhere
+    Given a Discord server "8003" named "Elsewhere" with channel "80031" named "random"
+    When Discord user "carol" named "Carol" with id "801003" says "hi?" in channel "80031"
+    Then the bot sends no reply
+    And Discord channel "80011" receives nothing
+
   Scenario: a Telegram group without links sends nothing to Discord
     Given a chat with id 8009
     And a user with id 8109 and first name "Loner"
@@ -31,3 +58,5 @@ Feature: relaying messages between a Telegram group and its Discord channels
     And Discord channel "80041" is linked to the chat
     When the user sends "no webhooks here"
     Then Discord channel "80041" receives "no webhooks here" posted by the bot as "Tester"
+    When Discord user "dave" named "Dave" with id "801004" says "fine by me" in channel "80011"
+    Then Discord channel "80041" receives "fine by me" posted by the bot as "Dave"

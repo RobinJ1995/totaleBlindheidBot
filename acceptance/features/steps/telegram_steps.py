@@ -195,6 +195,12 @@ def step_reply_links(context: Context, text: str, url: str) -> None:
     assert (text, url) in links, f"Expected {text!r} linked to {url!r}, got {links}"
 
 
+@then('the bot reply has "(?P<text>[^"]*)" in bold')
+def step_reply_bold(context: Context, text: str) -> None:
+    bolds: List[str] = helpers.bold_texts(_latest_message(context))
+    assert text in bolds, f"Expected {text!r} in bold, got {bolds}"
+
+
 @then('the bot reply shows "(?P<text>[^"]*)" as a "(?P<fmt>[^"]*)" date-time (?P<hours>\\d+) hours ahead')
 def step_reply_date_time(context: Context, text: str, fmt: str, hours: str) -> None:
     expected: float = time.time() + int(hours) * 3600
