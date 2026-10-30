@@ -52,6 +52,12 @@ def step_user_sends(context: Context, text: str) -> None:
     _send(context, text, context.user)
 
 
+@when('the user sends "(?P<text>[^"]*)" with "(?P<word>[^"]*)" in bold')
+def step_user_sends_bold(context: Context, text: str, word: str) -> None:
+    entity: Dict[str, Any] = {"type": "bold", "offset": text.index(word), "length": len(word)}
+    _send(context, text, context.user, entities=[entity])
+
+
 @when('user (?P<user_id>\\d+) sends "(?P<text>[^"]*)"')
 def step_specific_user_sends(context: Context, user_id: str, text: str) -> None:
     uid: int = int(user_id)

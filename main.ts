@@ -11,6 +11,7 @@ import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import DiscordService from './discord/DiscordService.js';
+import { relayFromTelegram } from './relay.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
 import { Rsvp } from './dao/RsvpDAO.js';
@@ -248,6 +249,7 @@ bot.on('message', (ctx: Context) => {
                     .catch((err: Error) => console.error('Error adding user chat:', err));
             }
             router.handle(msg, user);
+            relayFromTelegram(bot, msg).catch((err: Error) => console.error('Error relaying Telegram message:', err));
         })
         .catch((err: Error) => console.error('Error recording message sender:', err));
 });

@@ -50,6 +50,23 @@ def step_channel_linked(context: Context, channel_id: str) -> None:
     helpers.discord_wait_for_new(channel_id, discord_baseline)
 
 
+@then('Discord channel "(?P<channel_id>\\d+)" receives "(?P<text>[^"]*)" from "(?P<name>[^"]*)"')
+def step_channel_receives_from(context: Context, channel_id: str, text: str, name: str) -> None:
+    """A relayed message: posted through the channel's webhook under the author's name."""
+    new: List[Dict[str, Any]] = _new_messages(context, channel_id)
+    hits = [m for m in new if m["method"] == "executeWebhook" and m["username"] == name and m["content"] == text]
+    assert hits, f"Expected {text!r} from {name!r} in channel {channel_id}, got {[(m['method'], m['username'], m['content']) for m in new]}"
+
+
+@then('Discord channel "(?P<channel_id>\\d+)" receives "(?P<text>[^"]*)" posted by the bot as "(?P<name>[^"]*)"')
+def step_channel_receives_as_bot(context: Context, channel_id: str, text: str, name: str) -> None:
+    """A relayed message where no webhook is available: the bot posts it with the name in front."""
+    new: List[Dict[str, Any]] = _new_messages(context, channel_id)
+    expected: str = f"**{name}:** {text}"
+    hits = [m for m in new if m["method"] == "createMessage" and m["content"] == expected]
+    assert hits, f"Expected a bot message {expected!r} in channel {channel_id}, got {[(m['method'], m['content']) for m in new]}"
+
+
 @then('Discord channel "(?P<channel_id>\\d+)" receives a bot message containing "(?P<text>[^"]+)"')
 def step_channel_receives_bot_containing(context: Context, channel_id: str, text: str) -> None:
     new: List[Dict[str, Any]] = _new_messages(context, channel_id)
