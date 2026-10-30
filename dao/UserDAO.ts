@@ -5,6 +5,7 @@ import { ensureTelegramUser } from './telegramUser.js';
 export interface UserSettings {
     steam_ids?: string[];
     timezone?: string;
+    username?: string;
 }
 
 export interface ChatUser {
@@ -33,7 +34,10 @@ class UserDAO {
     async getAllUserSettings(): Promise<Record<string, UserSettings>> {
         const [settingsRows, steamRows] = await Promise.all([
             query<RowDataPacket[]>('SELECT user_id, timezone FROM user_settings'),
-            query<RowDataPacket[]>('SELECT user_id, steam_id FROM user_steam_id')
+            query<RowDataPacket[]>(
+                'SELECT s.user_id, s.steam_id, u.username FROM user_steam_id s ' +
+                'LEFT JOIN telegram_user u ON u.user_id = s.user_id'
+            )
         ]);
         const result: Record<string, UserSettings> = {};
         for (const row of settingsRows) {
@@ -47,6 +51,9 @@ class UserDAO {
             const key = String(row.user_id);
             result[key] = result[key] || {};
             (result[key].steam_ids = result[key].steam_ids || []).push(String(row.steam_id));
+            if (row.username) {
+                result[key].username = row.username;
+            }
         }
         return result;
     }

@@ -292,6 +292,7 @@ class SteamService {
             const settings = await this.userDao.getAllUserSettings();
             const newMappings: Record<string, number> = {};
             const steamIds: string[] = [];
+            const nonFriends: string[] = [];
             for (const [tgId, data] of Object.entries<UserSettings>(settings)) {
                 const sids = data.steam_ids || [];
                 for (const steamId of sids) {
@@ -299,9 +300,12 @@ class SteamService {
                     steamIds.push(steamId);
 
                     if (this.friendsListLoaded && this.client.myFriends && this.client.myFriends[steamId] !== SteamUser.EFriendRelationship.Friend) {
-                        console.warn(`Tracked user ${tgId} (Steam ID: ${steamId}) is NOT a friend of the bot account. Updates might not work.`);
+                        nonFriends.push(data.username ? `${tgId}(${data.username}):${steamId}` : `${tgId}:${steamId}`);
                     }
                 }
+            }
+            if (nonFriends.length > 0) {
+                console.warn(`${nonFriends.length} tracked Steam account(s) are NOT friends of the bot account; updates might not work: ${nonFriends.join(', ')}`);
             }
             this.steamToTelegram = newMappings;
             console.log(`Updated user mappings. Tracking ${steamIds.length} Steam users: ${steamIds.join(', ')}`);
