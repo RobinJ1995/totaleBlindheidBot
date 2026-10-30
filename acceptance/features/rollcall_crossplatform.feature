@@ -11,12 +11,30 @@ Feature: rollcalls and wingman calls across Telegram and Discord
     And Discord channel "100011" is linked to the chat
     And Discord channel "100021" is linked to the chat
 
+  Scenario: linked servers offer the cross-platform commands as slash commands
+    Then Discord server "10001" offers the slash commands "rollcall, schedule, cancel, wingman"
+    And Discord server "10002" offers the slash commands "rollcall, schedule, cancel, wingman"
+
   Scenario: a Telegram rollcall is posted in every linked channel with its buttons
     When the user sends "/rollcall"
     Then the bot reply offers a "Joining" button
     And the bot reply contains "🙋‍♂️ Captain"
     And Discord channel "100011" receives a bot message containing "🙋‍♂️ Captain" with buttons "Joining, Maybe/Later, No"
     And Discord channel "100021" receives a bot message containing "🙋‍♂️ Captain" with buttons "Joining, Maybe/Later, No"
+
+  Scenario: a Discord rollcall reaches Telegram and the other channel
+    When Discord user "alice" named "Alice" with id "100010000000000002" runs "/rollcall" in channel "100011"
+    Then the bot reply first line is one of
+      | quote                                                  |
+      | Are we rushin' in, or are we going' sneaky-beaky like? |
+      | Bingo, bango, bongo, bish, bash, bosh!                 |
+      | Easy peasy, lemon squeezy!                             |
+      | Grab your gear and let's go!                           |
+      | RUSH B DON'T STOP                                      |
+    And the bot reply contains "🙋‍♂️ Alice"
+    And the bot reply offers a "Joining" button
+    And Discord channel "100011" receives a bot message containing "🙋‍♂️ Alice" with buttons "Joining, Maybe/Later, No"
+    And Discord channel "100021" receives a bot message containing "🙋‍♂️ Alice" with buttons "Joining, Maybe/Later, No"
 
   Scenario: a tap on Discord updates every copy
     When the user sends "/rollcall"
@@ -60,6 +78,27 @@ Feature: rollcalls and wingman calls across Telegram and Discord
     And Discord channel "100021" receives a bot message containing "<@100010000000000001>" with buttons "Joining, Maybe/Later, No"
     When the user sends "/rollcall_remove_player discord:erin_cs"
     Then the bot replies "Poof! They're gone!"
+
+  Scenario: a wingman call from Discord reaches everyone
+    When Discord user "alice" named "Alice" with id "100010000000000002" runs "/wingman" in channel "100021"
+    Then the bot reply first line is one of
+      | quote                                     |
+      | Be my wingman!                            |
+      | Be my wingman yo!                         |
+      | Let's score some!                         |
+      | I'm a single pringle and ready to mingle! |
+    And Discord channel "100021" receives a bot message whose first line is one of
+      | quote                                     |
+      | Be my wingman!                            |
+      | Be my wingman yo!                         |
+      | Let's score some!                         |
+      | I'm a single pringle and ready to mingle! |
+    And Discord channel "100011" receives a bot message whose first line is one of
+      | quote                                     |
+      | Be my wingman!                            |
+      | Be my wingman yo!                         |
+      | Let's score some!                         |
+      | I'm a single pringle and ready to mingle! |
 
   Scenario: a wingman call from Telegram reaches the channels
     When the user sends "/wingman"

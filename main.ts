@@ -5,14 +5,16 @@ import consoleStamp from 'console-stamp';
 (consoleStamp as unknown as (console: Console, options?: object) => void)(console);
 
 import { Bot, CallbackQuery, Context, Message } from 'node-telegram-bot-api';
-import { ButtonInteraction, MessageFlags } from 'discord.js';
+import { ButtonInteraction, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import ScheduleDAO from './dao/ScheduleDAO.js';
 import RsvpDAO from './dao/RsvpDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
-import DiscordService from './discord/DiscordService.js';
-import { ChatLink } from './dao/ChatLinkDAO.js';
+import DiscordService, { SlashCommand } from './discord/DiscordService.js';
+import { toDiscordMarkdown } from './discord/markdown.js';
+import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
+import { asFormatted, Part } from './format.js';
 import { recordDiscordSender, relayFromDiscord, relayFromTelegram } from './relay.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
@@ -126,8 +128,24 @@ if (steamEnabled) {
 const githubService: GitHubService = new GitHubService(bot);
 
 const discordService: DiscordService | null = process.env.DISCORD_BOT_TOKEN ? new DiscordService() : null;
+const chatLinkDao = new ChatLinkDAO();
 discordService?.onMessage(recordDiscordSender);
 discordService?.onMessage((message, link) => relayFromDiscord(bot, message, link));
+
+// The interaction must be acknowledged quickly; a broadcasting handler's channel copy becomes
+// that answer, anything said after it a follow-up.
+const handleDiscordCommand = async (interaction: ChatInputCommandInteraction, link: ChatLink): Promise<void> => {
+    await interaction.deferReply();
+    const user = await userDao.fromDiscord({ id: interaction.user.id, username: interaction.user.username, global_name: interaction.user.globalName });
+    await userDao.addUserChat(user.id, link.telegram_chat_id);
+    const reply = (text: Part): Promise<unknown> => interaction.replied
+        ? interaction.followUp({ content: toDiscordMarkdown(asFormatted(text)) })
+        : interaction.editReply({ content: toDiscordMarkdown(asFormatted(text)) });
+    await router.handleDiscord(interaction, link, user, reply);
+    if (!interaction.replied) {
+        await interaction.deleteReply().catch(() => undefined);
+    }
+};
 
 const handleDiscordButton = async (interaction: ButtonInteraction, link: ChatLink): Promise<void> => {
     if (!interaction.customId.startsWith('rsvp:')) {
@@ -151,7 +169,22 @@ const handleDiscordButton = async (interaction: ButtonInteraction, link: ChatLin
     }
 };
 
+discordService?.onCommand(handleDiscordCommand);
 discordService?.onButton(handleDiscordButton);
+
+const registerAllDiscordCommands = async (): Promise<void> => {
+    if (!discordService) {
+        return;
+    }
+    discordService.setSlashCommands(router.discordRoutes.map((route): SlashCommand => ({
+        name: route.command,
+        description: route.helpText ?? route.command,
+        argument: route.discord?.argument
+    })));
+    const guilds: string[] = [...new Set((await chatLinkDao.getAllLinks()).map(link => link.discord_guild_id))];
+    await Promise.all(guilds.map(guild_id => discordService.registerCommands(guild_id)
+        .catch((err: Error) => console.error(`Could not register slash commands in Discord server ${guild_id}:`, err))));
+};
 
 // Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
 const POLLING_RESTART_DELAY_MS = 5000;
@@ -171,7 +204,7 @@ ensureSchema()
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
-        discordService?.start();
+        discordService?.start(registerAllDiscordCommands);
         startTaggedMessageSweep(bot);
         startPolling();
     })
@@ -186,19 +219,23 @@ router.route('hi', hiHandler, {
     helpText: 'Craving that small talk, are you?'
 });
 router.route('rollcall', rollcallHandler, {
-    helpText: 'Anyone wanna play?'
+    helpText: 'Anyone wanna play?',
+    discord: {}
 });
 router.route('schedule', scheduleHandler, {
-    helpText: 'Schedule a rollcall for a specific time.'
+    helpText: 'Schedule a rollcall for a specific time.',
+    discord: { argument: { name: 'time', description: 'When, e.g. "in 2 hours", "21:00" or "tomorrow 20:30".' } }
 });
 router.route('cancel', cancelHandler, {
-    helpText: 'Cancel a scheduled rollcall.'
+    helpText: 'Cancel a scheduled rollcall.',
+    discord: {}
 });
 router.route('timezone', timezoneHandler, {
     helpText: 'Set or view your timezone for rollcall scheduling.'
 });
 router.route('wingman', wingmanHandler, {
-    helpText: 'Looking for a wingman?'
+    helpText: 'Looking for a wingman?',
+    discord: {}
 });
 router.route('github_notify', githubNotifyHandler, {
     helpText: 'Enable or disable GitHub commit notifications for this chat (on/off).'

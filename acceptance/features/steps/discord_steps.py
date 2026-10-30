@@ -143,6 +143,33 @@ def _describe(messages: List[Dict[str, Any]]) -> List[Any]:
     return [(m["method"], m["content"], helpers.discord_button_labels(m)) for m in messages]
 
 
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" runs "/(?P<command>[a-z_]+)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_runs(context: Context, username: str, name: str, user_id: str, command: str, channel_id: str) -> None:
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.discord_run_command(channel_id, _author(username, name, user_id), command)
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" runs "/(?P<command>[a-z_]+)" with (?P<option>[a-z]+) "(?P<value>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_runs_with(context: Context, username: str, name: str, user_id: str, command: str, option: str, value: str, channel_id: str) -> None:
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.discord_run_command(channel_id, _author(username, name, user_id), command, {"name": option, "value": value})
+
+
+@then('Discord server "(?P<guild_id>\\d+)" offers the slash commands "(?P<names>[^"]*)"')
+def step_slash_commands(context: Context, guild_id: str, names: str) -> None:
+    expected: List[str] = sorted(n.strip() for n in names.split(","))
+    registered: List[str] = sorted(helpers.discord_commands().get(guild_id, []))
+    assert registered == expected, f"Expected slash commands {expected} in server {guild_id}, got {registered}"
+
+
+@then('Discord channel "(?P<channel_id>\\d+)" receives a bot message starting with "(?P<text>[^"]+)"')
+def step_channel_receives_bot_starting(context: Context, channel_id: str, text: str) -> None:
+    new: List[Dict[str, Any]] = _bot_messages(_new_messages(context, channel_id, _is_bot_message))
+    assert any(m["content"].startswith(text) for m in new), f"Expected a bot message starting with {text!r} in channel {channel_id}, got {_describe(new)}"
+
+
 @then('Discord channel "(?P<channel_id>\\d+)" receives a bot message containing "(?P<text>[^"]+)" with buttons "(?P<labels>[^"]*)"')
 def step_channel_receives_bot_with_buttons(context: Context, channel_id: str, text: str, labels: str) -> None:
     expected: List[str] = [l.strip() for l in labels.split(",")]
@@ -196,6 +223,22 @@ def step_discord_edited_contains(context: Context, text: str) -> None:
 @then('the remembered Discord message is edited to contain "(?P<text>[^"]+)" without buttons')
 def step_discord_edited_without_buttons(context: Context, text: str) -> None:
     _wait_for_discord_edit(context, lambda m: text in m["content"] and not helpers.discord_button_labels(m), f"to contain {text!r} without buttons")
+
+
+@then('the Discord tap is answered with "(?P<text>[^"]+)"')
+def step_discord_tap_answered(context: Context, text: str) -> None:
+    remembered: Dict[str, str] = context.discord_remembered
+    deadline: float = time.time() + helpers.REPLY_TIMEOUT
+    answers: List[str] = []
+    while time.time() < deadline:
+        answers = [
+            m["content"] for m in helpers.discord_outbox(remembered["channel_id"])
+            if m["method"] == "interactionCallback" and m["params"].get("type") == 4
+        ]
+        if text in answers:
+            return
+        time.sleep(helpers.POLL_INTERVAL)
+    raise AssertionError(f"Expected the tap to be answered with {text!r}, got {answers}")
 
 
 @when("the scheduled rollcall's time has come")
