@@ -10,6 +10,8 @@ const LABELS: Record<RsvpKeyboardKind, Record<Rsvp, string>> = {
     rollcall: { yes: 'Joining', maybe: 'Maybe/Later', no: 'No' }
 };
 
+export const rsvpLabels = (kind: RsvpKeyboardKind): Record<Rsvp, string> => LABELS[kind];
+
 const RSVP_EMOJI: Record<Rsvp, string> = {
     yes: '🙋‍♂️',
     maybe: '🤷‍♂️',

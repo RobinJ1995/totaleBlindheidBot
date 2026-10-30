@@ -143,6 +143,14 @@ def _describe(messages: List[Dict[str, Any]]) -> List[Any]:
     return [(m["method"], m["content"], helpers.discord_button_labels(m)) for m in messages]
 
 
+@then('Discord channel "(?P<channel_id>\\d+)" receives a bot message containing "(?P<text>[^"]+)" with buttons "(?P<labels>[^"]*)"')
+def step_channel_receives_bot_with_buttons(context: Context, channel_id: str, text: str, labels: str) -> None:
+    expected: List[str] = [l.strip() for l in labels.split(",")]
+    new: List[Dict[str, Any]] = _bot_messages(_new_messages(context, channel_id, _is_bot_message))
+    hits = [m for m in new if text in m["content"] and helpers.discord_button_labels(m) == expected]
+    assert hits, f"Expected a bot message containing {text!r} with buttons {expected} in channel {channel_id}, got {_describe(new)}"
+
+
 @then('Discord channel "(?P<channel_id>\\d+)" receives a bot message whose first line is one of')
 def step_channel_receives_bot_first_line(context: Context, channel_id: str) -> None:
     options: List[str] = [row["quote"] for row in context.table]
@@ -155,6 +163,14 @@ def step_remember_discord_message(context: Context, channel_id: str) -> None:
     posted: List[Dict[str, Any]] = _bot_messages(helpers.discord_outbox(channel_id))
     assert posted, f"No bot message exists in channel {channel_id} to remember"
     context.discord_remembered = {"channel_id": channel_id, "message_id": posted[-1]["message_id"]}
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" taps "(?P<custom_id>[^"]*)" on the remembered Discord message')
+def step_discord_taps(context: Context, username: str, name: str, user_id: str, custom_id: str) -> None:
+    remembered: Dict[str, str] = context.discord_remembered
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.discord_tap_button(remembered["channel_id"], _author(username, name, user_id), remembered["message_id"], custom_id)
 
 
 def _wait_for_discord_edit(context: Context, matches: Any, description: str) -> None:

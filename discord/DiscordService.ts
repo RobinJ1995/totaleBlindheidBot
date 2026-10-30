@@ -1,8 +1,14 @@
 import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonInteraction,
+    ButtonStyle,
     Client,
     GatewayIntentBits,
     GuildTextBasedChannel,
+    Interaction,
     Message,
+    MessageFlags,
     PermissionFlagsBits,
     PermissionsBitField,
     RESTOptions,
@@ -12,6 +18,8 @@ import {
 import ChatLinkDAO, { ChatLink } from '../dao/ChatLinkDAO.js';
 import { DiscordIdentity } from '../dao/UserDAO.js';
 import { splitMessage } from './markdown.js';
+import { Rsvp } from '../dao/RsvpDAO.js';
+import { RsvpKeyboardKind, rsvpLabels } from '../rsvp.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
 const REQUIRED_PERMISSIONS: { flag: bigint; name: string }[] = [
@@ -38,6 +46,16 @@ const sanitizeWebhookName = (name: string): string =>
     name.replace(/discord/gi, 'disc0rd').replace(/clyde/gi, 'c1yde').slice(0, 80) || 'someone';
 
 export type DiscordMessageHandler = (message: Message, link: ChatLink) => Promise<void>;
+export type DiscordButtonHandler = (interaction: ButtonInteraction, link: ChatLink) => Promise<void>;
+
+export const rsvpComponents = (kind: RsvpKeyboardKind): ActionRowBuilder<ButtonBuilder>[] => [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+        (['yes', 'maybe', 'no'] as Rsvp[]).map(value => new ButtonBuilder()
+            .setCustomId(`rsvp:${value}`)
+            .setLabel(rsvpLabels(kind)[value])
+            .setStyle(ButtonStyle.Secondary))
+    )
+];
 
 class DiscordService {
     public static instance: DiscordService | null = null;
@@ -47,6 +65,7 @@ class DiscordService {
     private chatLinkDao: ChatLinkDAO = new ChatLinkDAO();
     private webhookClients: Map<string, WebhookClient> = new Map();
     private messageHandlers: DiscordMessageHandler[] = [];
+    private buttonHandlers: DiscordButtonHandler[] = [];
 
     constructor() {
         this.restOptions = {
@@ -61,6 +80,9 @@ class DiscordService {
         this.client.on('messageCreate', (message: Message) => {
             this.handleMessage(message).catch((err: Error) => console.error('Error handling Discord message:', err));
         });
+        this.client.on('interactionCreate', (interaction: Interaction) => {
+            this.handleInteraction(interaction).catch((err: Error) => console.error('Error handling Discord interaction:', err));
+        });
         DiscordService.instance = this;
     }
 
@@ -70,6 +92,22 @@ class DiscordService {
 
     onMessage(handler: DiscordMessageHandler): void {
         this.messageHandlers.push(handler);
+    }
+
+    onButton(handler: DiscordButtonHandler): void {
+        this.buttonHandlers.push(handler);
+    }
+
+    private async handleInteraction(interaction: Interaction): Promise<void> {
+        if (!interaction.isButton()) {
+            return;
+        }
+        const link: ChatLink | undefined = interaction.channelId ? await this.chatLinkDao.getLinkByChannel(interaction.channelId) : undefined;
+        if (!link) {
+            await interaction.reply({ content: 'This channel is not linked to a Telegram group.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+        await Promise.all(this.buttonHandlers.map(handler => handler(interaction, link)));
     }
 
     private async handleMessage(message: Message): Promise<void> {
@@ -157,26 +195,36 @@ class DiscordService {
         return client;
     }
 
-    // Returns the id of the last message sent.
-    async sendAsBot(channel_id: string, content: string): Promise<string> {
+    // Returns the id of the last message sent; buttons, if any, go on that one.
+    async sendAsBot(channel_id: string, content: string, components?: ActionRowBuilder<ButtonBuilder>[]): Promise<string> {
         const channel = await this.fetchGuildTextChannel(channel_id);
         if (!channel) {
             throw new Error(`Discord channel ${channel_id} is not reachable.`);
         }
-        return splitMessage(content).reduce(
-            (sending: Promise<string>, chunk: string) => sending
-                .then(() => channel.send({ content: chunk, allowedMentions: { parse: ['users'] } }))
+        const chunks: string[] = splitMessage(content);
+        return chunks.reduce(
+            (sending: Promise<string>, chunk: string, i: number) => sending
+                .then(() => channel.send({
+                    content: chunk,
+                    allowedMentions: { parse: ['users'] },
+                    ...(components && i === chunks.length - 1 ? { components } : {})
+                }))
                 .then(sent => sent.id),
             Promise.resolve('')
         );
     }
 
-    async editMessage(channel_id: string, message_id: string, content: string): Promise<void> {
+    // An empty components list takes any buttons away.
+    async editMessage(channel_id: string, message_id: string, content: string, components?: ActionRowBuilder<ButtonBuilder>[]): Promise<void> {
         const channel = await this.fetchGuildTextChannel(channel_id);
         if (!channel) {
             throw new Error(`Discord channel ${channel_id} is not reachable.`);
         }
-        await channel.messages.edit(message_id, { content: splitMessage(content)[0], allowedMentions: { parse: ['users'] } });
+        await channel.messages.edit(message_id, {
+            content: splitMessage(content)[0],
+            allowedMentions: { parse: ['users'] },
+            ...(components ? { components } : {})
+        });
     }
 
     async relay(link: ChatLink, author: string, content: string): Promise<void> {
