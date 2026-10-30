@@ -12,7 +12,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                 msg.reply('No players in the rollcall.');
             } else {
                 msg.reply(`Players in rollcall:\n${players.map((p: string) => {
-                    const match: RegExpMatchArray | null = p.match(/^\[(.*)\]\(tg:\/\/user\?id=\d+\)$/);
+                    const match: RegExpMatchArray | null = p.match(/^\[(.*)\]\(user:\d+\)$/);
                     const displayName: string = match ? match[1] : p;
                     return displayName.replace('@', '@\u200B');
                 }).map(p => `- ${p}`).join('\n')}`);

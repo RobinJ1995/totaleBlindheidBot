@@ -23,7 +23,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
     const players: string[] = args.map((arg, i) => {
         const mention = mentions[i];
         if (mention?.type === 'text_mention' && mention.user) {
-            return `[${arg}](tg://user?id=${mention.user.id})`;
+            return `[${arg}](user:${mention.user.id})`;
         }
         return arg;
     });

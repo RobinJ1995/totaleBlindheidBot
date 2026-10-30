@@ -17,7 +17,7 @@ class RollcallPlayerDAO {
     // Reconstruct the legacy rotation mention string from a normalised player row.
     private _playerMention(row: RollcallPlayerRow): string {
         if (row.user_id !== null) {
-            return `[${row.display_name ?? ''}](tg://user?id=${row.user_id})`;
+            return `[${row.display_name ?? ''}](user:${row.user_id})`;
         } else if (row.username !== null) {
             return `@${row.username}`;
         }
@@ -26,7 +26,7 @@ class RollcallPlayerDAO {
 
     // Parse a rotation mention string into its normalised columns.
     private _parsePlayer(input: string): { user_id: number | null; username: string | null; display_name: string | null } {
-        const match = input.match(/^\[(.*)\]\(tg:\/\/user\?id=(\d+)\)$/);
+        const match = input.match(/^\[(.*)\]\(user:(\d+)\)$/);
         if (match) {
             return { user_id: Number(match[2]), username: null, display_name: match[1] };
         } else if (input.startsWith('@')) {
