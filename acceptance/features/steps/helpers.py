@@ -237,6 +237,16 @@ def button_labels(message: Dict[str, Any]) -> List[str]:
     ]
 
 
+def button_styles(message: Dict[str, Any]) -> Dict[Optional[str], Optional[str]]:
+    """Map each inline button's label to its style (None when unstyled)."""
+    markup: Dict[str, Any] = reply_markup(message)
+    return {
+        button.get("text"): button.get("style")
+        for row in markup.get("inline_keyboard", [])
+        for button in row
+    }
+
+
 def get_callback_answers() -> List[Dict[str, Any]]:
     resp = requests.get(f"{TELEGRAM_MOCK_URL}/test/callback-answers", timeout=5)
     resp.raise_for_status()

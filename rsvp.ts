@@ -15,12 +15,19 @@ const RSVP_EMOJI: Record<Rsvp, string> = {
     no: '🙅‍♂️'
 };
 
+const BUTTON_STYLE: Record<Rsvp, string> = {
+    yes: 'success',
+    maybe: 'primary',
+    no: 'danger'
+};
+
 // Build the inline keyboard for a message. The callback data is the same regardless
 // of the keyboard kind; only the visible labels differ.
 const keyboard = (kind: RsvpKeyboardKind): InlineKeyboardMarkup => ({
     inline_keyboard: [
         (['yes', 'maybe', 'no'] as Rsvp[]).map(value => ({
             text: LABELS[kind][value],
+            style: BUTTON_STYLE[value],
             callback_data: `rsvp:${value}`
         }))
     ]

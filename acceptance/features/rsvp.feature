@@ -1,7 +1,8 @@
 Feature: RSVP buttons on schedules and rollcalls
   Schedule confirmations and rollcalls carry inline RSVP buttons. The whole rotation is
   tagged up front, players start uncategorised, and they move between the 🙋‍♂️/🤷‍♂️/🙅‍♂️
-  lists as they tap. Each scenario uses a distinct chat so the per-chat state stays isolated.
+  lists as they tap. The buttons are coloured green (yes), blue (maybe) and red (no). Each
+  scenario uses a distinct chat so the per-chat state stays isolated.
 
   Scenario: a schedule tags the whole rotation but pre-categorises nobody
     Given a chat with id 6001
@@ -13,9 +14,9 @@ Feature: RSVP buttons on schedules and rollcalls
     And the bot reply links "Alice" to "tg://user?id=777"
     And the bot reply contains "🙋‍♂️ Captain"
     And the bot reply does not contain "🤷‍♂️"
-    And the bot reply offers a "I'm in" button
-    And the bot reply offers a "Maybe" button
-    And the bot reply offers a "No" button
+    And the bot reply offers a success "I'm in" button
+    And the bot reply offers a primary "Maybe" button
+    And the bot reply offers a danger "No" button
 
   Scenario: tapping moves a player between the RSVP lists
     Given a chat with id 6002
@@ -27,6 +28,7 @@ Feature: RSVP buttons on schedules and rollcalls
     When the RSVP message is remembered
     When user 777 named "Alice" taps maybe
     Then the bot reply contains "🤷‍♂️ Alice"
+    And the bot reply offers a primary "Maybe" button
     When user 777 named "Alice" taps no
     Then the bot reply contains "🙅‍♂️ Alice"
     And the bot reply does not contain "🤷‍♂️"
@@ -35,9 +37,9 @@ Feature: RSVP buttons on schedules and rollcalls
     Given a chat with id 6003
     And a user with id 6103 and first name "Captain"
     When the user sends "/rollcall"
-    Then the bot reply offers a "Joining" button
-    And the bot reply offers a "Maybe/Later" button
-    And the bot reply offers a "No" button
+    Then the bot reply offers a success "Joining" button
+    And the bot reply offers a primary "Maybe/Later" button
+    And the bot reply offers a danger "No" button
     And the bot reply contains "🙋‍♂️ Captain"
 
   Scenario: tapping a cancelled schedule's message reports an expired RSVP
