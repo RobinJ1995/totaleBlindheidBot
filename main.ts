@@ -60,7 +60,7 @@ const rsvpDao = new RsvpDAO();
 const userDao = new UserDAO();
 const steamEnabled = !!(process.env.STEAM_USERNAME && process.env.STEAM_PASSWORD);
 
-// Scheduler
+const SCHEDULE_CHECK_MS = Number(process.env.SCHEDULE_CHECK_MS) || 30000;
 setInterval(() => {
     scheduleDao.getScheduledRollcalls()
         .then(schedules => {
@@ -77,7 +77,7 @@ setInterval(() => {
             }
         })
         .catch((err: Error) => console.error('Error checking schedules:', err));
-}, 30000);
+}, SCHEDULE_CHECK_MS);
 
 const handleRsvpCallback = (query: CallbackQuery): void => {
     const data: string | undefined = query.data;
