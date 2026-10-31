@@ -125,3 +125,25 @@ def step_channel_receives_nothing(context: Context, channel_id: str) -> None:
 def step_webhook_gone(context: Context, channel_id: str) -> None:
     webhooks: List[Dict[str, Any]] = helpers.discord_webhooks()
     assert not any(w["channel_id"] == channel_id for w in webhooks), f"A webhook still exists for channel {channel_id}"
+
+
+BOT_MESSAGE_METHODS = ("createMessage", "editReply", "followUp", "interactionReply")
+
+
+def _is_bot_message(message: Dict[str, Any]) -> bool:
+    return message["method"] in BOT_MESSAGE_METHODS
+
+
+def _bot_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [m for m in messages if _is_bot_message(m)]
+
+
+def _describe(messages: List[Dict[str, Any]]) -> List[Any]:
+    return [(m["method"], m["content"], helpers.discord_button_labels(m)) for m in messages]
+
+
+@then('Discord channel "(?P<channel_id>\\d+)" receives a bot message whose first line is one of')
+def step_channel_receives_bot_first_line(context: Context, channel_id: str) -> None:
+    options: List[str] = [row["quote"] for row in context.table]
+    new: List[Dict[str, Any]] = _bot_messages(_new_messages(context, channel_id, _is_bot_message))
+    assert any(m["content"].split("\n")[0] in options for m in new), f"Expected a bot message starting with one of {options} in channel {channel_id}, got {_describe(new)}"
