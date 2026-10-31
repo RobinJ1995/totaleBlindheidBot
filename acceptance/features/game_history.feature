@@ -81,18 +81,19 @@ Feature: CS2 game history
   Scenario: co-players in the same match are recorded
     Given a chat with id 2106
     When user 5930 sends "/steam_user_id 76561198000000930"
-    Then the bot reply contains "76561198000000930"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000930"
     When user 5931 sends "/steam_user_id 76561198000000931"
-    Then the bot reply contains "76561198000000931"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000000931"
     When Steam mappings are refreshed
     And Steam reports user "76561198000000930" playing CS2 with score "5-3" on map "Inferno"
     And Steam reports user "76561198000000931" playing CS2 with score "5-3" on map "Inferno"
     And Steam reports user "76561198000000930" playing CS2 with score "6-3" on map "Inferno"
     And Steam reports user "76561198000000931" stopped playing
     And Steam reports user "76561198000000930" stopped playing
-    Then chat 2106 eventually receives a new Steam message containing "won a game"
+    Then chat 2106 eventually receives a new Steam message "🏆 Gamer and Gamer won a game on Inferno (Competitive): 6️⃣-3️⃣"
+    And the Steam message in chat 2106 is edited to "🏆 Gamer and Gamer won a game on Inferno (Competitive): 5️⃣-3️⃣"
     When user 5930 sends "/game_history"
-    Then the bot reply contains "with"
+    Then the bot replies "🏆 Inferno · Competitive · 6-3 · with Gamer"
 
   Scenario: a user with no history is told so
     Given a chat with id 2107
