@@ -1,6 +1,6 @@
 """Steps for driving the mocked Steam layer via its control server."""
 import time
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from behave import when, then, use_step_matcher
 from behave.runner import Context
@@ -210,20 +210,24 @@ def step_chat_received_count(context: Context, chat_id: int, count: int, expecte
     )
 
 
-@then('the Steam message in chat {chat_id:d} is edited to contain "{expected}"')
-def step_steam_message_edited(context: Context, chat_id: int, expected: str) -> None:
+def _wait_for_method(chat_id: int, method: str, matches: Callable[[str], bool], description: str) -> None:
     deadline: float = time.time() + helpers.REPLY_TIMEOUT
     while time.time() < deadline:
         outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
-        edits: List[Dict[str, Any]] = [
-            m for m in outbox if m["method"] == "editMessageText" and expected in m["text"]
-        ]
-        if edits:
+        if any(m["method"] == method and matches(m["text"]) for m in outbox):
             return
         time.sleep(helpers.POLL_INTERVAL)
-    raise AssertionError(
-        f"No editMessageText containing {expected!r} reached chat {chat_id}"
-    )
+    raise AssertionError(f"No {method} {description} reached chat {chat_id}")
+
+
+@then('the Steam message in chat {chat_id:d} is edited to contain "{expected}"')
+def step_steam_message_edited(context: Context, chat_id: int, expected: str) -> None:
+    _wait_for_method(chat_id, "editMessageText", lambda text: expected in text, f"containing {expected!r}")
+
+
+@then('the Steam message in chat {chat_id:d} is edited to "{expected}"')
+def step_steam_message_edited_to(context: Context, chat_id: int, expected: str) -> None:
+    _wait_for_method(chat_id, "editMessageText", lambda text: text == expected, f"reading {expected!r}")
 
 
 @when("the Steam message's live window has passed")
@@ -249,18 +253,12 @@ def step_steam_message_marker_stripped(context: Context, chat_id: int, name: str
 def step_chat_receives_new_steam(context: Context, chat_id: int, expected: str) -> None:
     # Poll for a fresh sendMessage (e.g. the end-of-game notification), which may arrive a
     # few seconds after an unrelated edit has already grown the outbox.
-    deadline: float = time.time() + helpers.REPLY_TIMEOUT
-    while time.time() < deadline:
-        outbox: List[Dict[str, Any]] = helpers.get_outbox(chat_id)
-        sends: List[Dict[str, Any]] = [
-            m for m in outbox if m["method"] == "sendMessage" and expected in m["text"]
-        ]
-        if sends:
-            return
-        time.sleep(helpers.POLL_INTERVAL)
-    raise AssertionError(
-        f"No sendMessage containing {expected!r} reached chat {chat_id}"
-    )
+    _wait_for_method(chat_id, "sendMessage", lambda text: expected in text, f"containing {expected!r}")
+
+
+@then('chat {chat_id:d} eventually receives a new Steam message "{expected}"')
+def step_chat_receives_new_steam_exact(context: Context, chat_id: int, expected: str) -> None:
+    _wait_for_method(chat_id, "sendMessage", lambda text: text == expected, f"reading {expected!r}")
 
 
 @then('the Steam Guard callback received code "{code}"')
