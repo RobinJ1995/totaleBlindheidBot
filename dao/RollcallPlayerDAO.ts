@@ -1,9 +1,8 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { checkNotEmpty } from '../utils.js';
-import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
+import { query } from './Database.js';
 
-// A rollcall roster row. A player is identified by a Telegram user id (text mention),
+// A rollcall roster row. A player is identified by a user id (text mention),
 // an @username, or just a display name, depending on how the admin added them.
 interface RollcallPlayerRow extends RowDataPacket {
     id: number;
@@ -48,16 +47,10 @@ class RollcallPlayerDAO {
 
     addRollcallPlayer(chat_id: number, username: string): Promise<number> {
         const parsed = this._parsePlayer(checkNotEmpty(username));
-        return withTransaction(async conn => {
-            if (parsed.user_id !== null) {
-                await ensureTelegramUser(conn, parsed.user_id);
-            }
-            const [res] = await conn.query<ResultSetHeader>(
-                'INSERT INTO rollcall_player (chat_id, user_id, username, display_name) VALUES (:chat_id, :user_id, :username, :display_name)',
-                { chat_id: Number(checkNotEmpty(chat_id)), user_id: parsed.user_id, username: parsed.username, display_name: parsed.display_name }
-            );
-            return res.insertId;
-        });
+        return query<ResultSetHeader>(
+            'INSERT INTO rollcall_player (chat_id, user_id, username, display_name) VALUES (:chat_id, :user_id, :username, :display_name)',
+            { chat_id: Number(checkNotEmpty(chat_id)), user_id: parsed.user_id, username: parsed.username, display_name: parsed.display_name }
+        ).then(res => res.insertId);
     }
 
     removeRollcallPlayer(chat_id: number, username: string): Promise<boolean> {

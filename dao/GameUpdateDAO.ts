@@ -1,6 +1,5 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
 import { Formatted } from '../format.js';
 
 export interface GameUpdate {
@@ -45,7 +44,6 @@ class GameUpdateDAO {
 
     setGameUpdate(chat_id: number, user_id: number, message_id: number, text: Formatted, info: any = {}): Promise<void> {
         return withTransaction(async conn => {
-            await ensureTelegramUser(conn, user_id);
             await conn.query('DELETE FROM game_update WHERE chat_id = :chat_id AND user_id = :user_id', { chat_id, user_id });
             await conn.query(
                 'INSERT INTO game_update (chat_id, user_id, message_id, text, entities, game_id, map, status, score, timestamp) ' +

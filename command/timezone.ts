@@ -8,7 +8,7 @@ const dao = new UserDAO();
 
 export default (bot: Bot, msg: ExtendedMessage): void => {
     const argument: string | undefined = msg.command?.argument;
-    const user_id: number = msg.from?.id || 0;
+    const user_id: number = msg.user.id;
 
     if (!argument) {
         dao.getUserTimezone(user_id)

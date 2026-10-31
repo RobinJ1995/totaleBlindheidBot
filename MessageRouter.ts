@@ -1,6 +1,7 @@
 import { Bot, Message } from 'node-telegram-bot-api';
 import { formatError } from './utils.js';
 import { messageText, Part } from './format.js';
+import { User } from './dao/UserDAO.js';
 
 export interface CommandContext {
     name: string;
@@ -11,6 +12,8 @@ export interface CommandContext {
 export interface ExtendedMessage extends Message {
     reply: (text: Part) => Promise<Message>;
     command: CommandContext;
+    // The sender's user row (the bot's own id, not the Telegram id).
+    user: User;
 }
 
 export type CommandHandler = (bot: Bot, msg: ExtendedMessage) => void | Promise<void> | Promise<any> | any;
@@ -47,7 +50,7 @@ class MessageRouter {
         });
     }
 
-    handle(msg: Message): void {
+    handle(msg: Message, user: User): void {
         if (msg.reply_to_message && this._replyHandlers.some(handler => handler(this._bot, msg))) {
             return;
         } else if (!msg.text || !msg.text.startsWith('/')) {
@@ -77,6 +80,7 @@ class MessageRouter {
             argument: msg.text.substring(commandWithPrefix.length).trim(),
             argumentTokens: parts.slice(1).filter(t => t.length > 0)
         };
+        extendedMsg.user = user;
 
         try {
             route.handler(this._bot, extendedMsg);

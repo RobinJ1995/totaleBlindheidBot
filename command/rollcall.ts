@@ -1,12 +1,13 @@
-import { Bot, Message, User } from 'node-telegram-bot-api';
+import { Bot, Message } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../MessageRouter.js';
 import { pickRandom } from '../utils.js';
 import { asFormatted, bold, Formatted, messageText } from '../format.js';
 import RollcallPlayerDAO from '../dao/RollcallPlayerDAO.js';
 import RsvpDAO, { RsvpEntry } from '../dao/RsvpDAO.js';
 import { keyboard, resolve, renderMessage, entryFromUser } from '../rsvp.js';
-import { presenceMarkers, withTags } from '../presence.js';
+import { mentionUsers, presenceMarkers, withTags } from '../presence.js';
 import { trackTaggedMessage } from '../taggedMessages.js';
+import { User } from '../dao/UserDAO.js';
 
 const rollcallPlayerDao = new RollcallPlayerDAO();
 const rsvpDao = new RsvpDAO();
@@ -31,9 +32,10 @@ interface ExecuteRollcallOptions {
 const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions = {}): Promise<Message> => {
     return Promise.all([
         rollcallPlayerDao.getRollcallPlayerUsernames(chat_id)
-            .then(rotation => presenceMarkers(rotation).then(markers => ({ rotation, markers }))),
+            .then(rotation => Promise.all([mentionUsers(rotation), presenceMarkers(rotation)])
+                .then(([users, markers]) => ({ rotation, users, markers }))),
         opts.rsvp_id ? rsvpDao.getRsvpList(opts.rsvp_id) : Promise.resolve(undefined)
-    ]).then(([{ rotation, markers }, existing]) => {
+    ]).then(([{ rotation, users, markers }, existing]) => {
         // Inherit the shared list's entries when triggered by a schedule; otherwise seed
         // a fresh list with the initiator marked as joining.
         const entries: Record<string, RsvpEntry> = existing ? existing.entries : {};
@@ -46,11 +48,11 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
         // 🟢/🟡/🔴/😶‍🌫️ presence markers (in CS2 / online / offline / unlinked) are kept up to date
         // for a while and then stripped, so the stored base leaves them out.
         const head: Formatted = asFormatted(`${pickRandom(QUOTES)}\n`);
-        const base: Formatted = withTags(head, tagged);
+        const base: Formatted = withTags(head, tagged, users);
 
         return bot.api.sendMessage({
             chat_id,
-            ...messageText(renderMessage(withTags(head, tagged, markers), groups)),
+            ...messageText(renderMessage(withTags(head, tagged, users, markers), groups)),
             // reply_parameters is only set for user-triggered rollcalls; scheduled ones
             // (no originating message) omit it entirely.
             ...(opts.reply_to_message_id ? { reply_parameters: { message_id: opts.reply_to_message_id } } : {}),
@@ -68,7 +70,7 @@ const executeRollcall = (bot: Bot, chat_id: number, opts: ExecuteRollcallOptions
 export default (bot: Bot, msg: ExtendedMessage): void => {
     executeRollcall(bot, msg.chat.id, {
         reply_to_message_id: msg.message_id,
-        initiator: msg.from
+        initiator: msg.user
     }).catch((err: Error) => msg.reply(bold(err.toString())));
 };
 

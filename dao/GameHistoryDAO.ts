@@ -1,6 +1,5 @@
 import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
 
 export interface GameHistoryCoPlayer {
     tg_user_id: number;
@@ -120,7 +119,7 @@ class GameHistoryDAO {
         const rows = await query<RowDataPacket[]>(
             'SELECT h.user_id, h.player_name, u.name AS tg_name, u.username AS tg_username ' +
             'FROM game_history h ' +
-            'LEFT JOIN telegram_user u ON u.user_id = h.user_id ' +
+            'LEFT JOIN user u ON u.id = h.user_id ' +
             'WHERE h.chat_id = :chat_id ' +
             'ORDER BY h.id ASC',
             { chat_id }
@@ -161,7 +160,6 @@ class GameHistoryDAO {
     // the stream's finalisation cursor together); otherwise it runs in its own.
     addGameHistoryEntry(entry: GameHistoryEntry, existingConn?: PoolConnection): Promise<number> {
         const insert = async (conn: PoolConnection): Promise<number> => {
-            await ensureTelegramUser(conn, entry.user_id);
             const [res] = await conn.query<ResultSetHeader>(
                 'INSERT INTO game_history (chat_id, user_id, player_name, mode, map, score, started_at, ended_at) ' +
                 'VALUES (:chat_id, :user_id, :player_name, :mode, :map, :score, :started_at, :ended_at)',

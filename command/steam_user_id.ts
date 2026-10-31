@@ -45,7 +45,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         }
         const reply = (text: Part) => msg.reply(text);
         const done: Promise<unknown> = mention?.user
-            ? setForUser(mention.user.id, mention.user.first_name, msg.text!.slice(mention.offset + mention.length), reply)
+            ? dao.fromTelegram(mention.user).then(user => setForUser(user.id, mention.user!.first_name, msg.text!.slice(mention.offset + mention.length), reply))
             : dao.getUserIdByUsername(first.slice(1)).then((user_id): Promise<unknown> => user_id === undefined
                 ? msg.reply(`I don't know ${first}.`)
                 : setForUser(user_id, first, rest.join(' '), reply));
@@ -74,7 +74,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         return;
     }
 
-    const user_id: number = msg.from?.id || 0;
+    const user_id: number = msg.user.id;
     console.log(`User ${user_id} set Steam ID(s) to ${ids.join(', ')}`);
     dao.setSteamUserId(user_id, ids)
         .then(() => msg.reply(`Your Steam user ID(s) has been set to ${ids.join(', ')}`))

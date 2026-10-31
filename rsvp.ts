@@ -1,6 +1,7 @@
-import { InlineKeyboardMarkup, User } from 'node-telegram-bot-api';
+import { InlineKeyboardMarkup } from 'node-telegram-bot-api';
 import { fmt, Formatted, link, Part } from './format.js';
 import { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
+import { User, userDisplayName } from './dao/UserDAO.js';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
@@ -39,7 +40,7 @@ interface ParsedMention {
     display: string;
 }
 
-// A rotation player is stored either as `[Name](user:123)` (text mention, has the Telegram user id)
+// A rotation player is stored either as `[Name](user:123)` (text mention, has the bot's user id)
 // or as a plain `@username` string. Extract what we can to match against button tappers.
 const parseMention = (mention: string): ParsedMention => {
     const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(user:(\d+)\)$/);
@@ -57,12 +58,13 @@ const parseMention = (mention: string): ParsedMention => {
 const displayName = (name: string): string => name.replace('@', '@​');
 
 // Build a pingable mention for the tag line from a stored rotation entry.
-const mentionText = (mention: string): Part => {
-    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(user:(\d+)\)$/);
-    if (match) {
-        return link(match[1], `tg://user?id=${match[2]}`);
+const mentionText = (mention: string, users: Record<number, User>): Part => {
+    const parsed = parseMention(mention);
+    const telegram_id: number | undefined = parsed.id === undefined ? undefined : users[parsed.id]?.telegram_id;
+    if (telegram_id !== undefined) {
+        return link(parsed.display, `tg://user?id=${telegram_id}`);
     }
-    return mention;
+    return parsed.display;
 };
 
 interface ResolvedPerson {
@@ -139,11 +141,11 @@ const renderMessage = (base: Formatted, groups: Record<Rsvp, string[]>): Formatt
     return lists ? fmt`${base}\n\n${lists}` : base;
 };
 
-// Build an RSVP entry from a Telegram user (used when seeding the initiator and when
+// Build an RSVP entry from a user (used when seeding the initiator and when
 // recording a button tap).
 const entryFromUser = (user: User, rsvp: Rsvp): RsvpEntry => ({
     user_id: user.id,
-    name: user.first_name || user.username || 'someone',
+    name: userDisplayName(user),
     username: user.username,
     rsvp
 });

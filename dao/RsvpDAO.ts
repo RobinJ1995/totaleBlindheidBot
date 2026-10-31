@@ -1,7 +1,7 @@
 import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
 import { Formatted } from '../format.js';
+import { userDisplayName } from './UserDAO.js';
 
 // RSVP lists older than this are pruned on write.
 const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;
@@ -9,7 +9,7 @@ const RSVP_LIST_TTL_MS = 24 * 60 * 60 * 1000;
 export type Rsvp = 'yes' | 'maybe' | 'no';
 
 export interface RsvpEntry {
-    user_id: number;
+    user_id: number;     // the bot's user id (user.id)
     name: string;        // non-pinging display name
     username?: string;   // telegram @username (no @) for rotation matching
     rsvp: Rsvp;
@@ -38,8 +38,8 @@ class RsvpDAO {
             return undefined;
         }
         const [entryRows] = await conn.query<RowDataPacket[]>(
-            'SELECT e.user_id, e.rsvp, u.name, u.username FROM rsvp_entry e ' +
-            'JOIN telegram_user u ON u.user_id = e.user_id WHERE e.rsvp_list_id = :id',
+            'SELECT e.user_id, e.rsvp, u.name, u.username, u.discord_username FROM rsvp_entry e ' +
+            'JOIN user u ON u.id = e.user_id WHERE e.rsvp_list_id = :id',
             { id: rsvp_id }
         );
         const [messageRows] = await conn.query<RowDataPacket[]>(
@@ -50,7 +50,12 @@ class RsvpDAO {
         for (const row of entryRows) {
             entries[String(row.user_id)] = {
                 user_id: Number(row.user_id),
-                name: row.name ?? '',
+                name: userDisplayName({
+                    id: Number(row.user_id),
+                    name: row.name ?? undefined,
+                    username: row.username ?? undefined,
+                    discord_username: row.discord_username ?? undefined
+                }),
                 username: row.username ?? undefined,
                 rsvp: row.rsvp
             };
@@ -78,7 +83,6 @@ class RsvpDAO {
             );
             const rsvp_id = res.insertId;
             for (const entry of Object.values(list.entries)) {
-                await ensureTelegramUser(conn, entry.user_id, entry.name, entry.username);
                 await conn.query(
                     'INSERT INTO rsvp_entry (rsvp_list_id, user_id, rsvp) VALUES (:rsvp_id, :user_id, :rsvp)',
                     { rsvp_id, user_id: entry.user_id, rsvp: entry.rsvp }
@@ -120,7 +124,6 @@ class RsvpDAO {
             if (listRows.length === 0) {
                 return undefined;
             }
-            await ensureTelegramUser(conn, entry.user_id, entry.name, entry.username);
             await conn.query(
                 'INSERT INTO rsvp_entry (rsvp_list_id, user_id, rsvp) VALUES (:rsvp_id, :user_id, :rsvp) ' +
                 'ON DUPLICATE KEY UPDATE rsvp = VALUES(rsvp)',

@@ -1,6 +1,5 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query, withTransaction } from './Database.js';
-import { ensureTelegramUser } from './telegramUser.js';
 
 export interface ScheduledRollcall {
     time: Date;
@@ -29,9 +28,6 @@ class ScheduleDAO {
 
     setScheduledRollcall(chat_id: number, time: Date, rsvp_id?: number, initiator_id?: number): Promise<void> {
         return withTransaction(async conn => {
-            if (initiator_id !== undefined) {
-                await ensureTelegramUser(conn, initiator_id);
-            }
             // Replace any existing schedule for this chat (keeps one-per-chat behaviour).
             await conn.query('DELETE FROM rollcall_schedule WHERE chat_id = :chat_id', { chat_id });
             await conn.query(

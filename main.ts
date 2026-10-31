@@ -92,7 +92,8 @@ const handleRsvpCallback = (query: CallbackQuery): void => {
                 return bot.api.answerCallbackQuery({ callback_query_id: query.id, text: 'This RSVP has expired.' });
             }
 
-            return rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(query.from, rsvp))
+            return userDao.fromTelegram(query.from)
+                .then(user => rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(user, rsvp)))
                 .then(updated => updated ? renderRsvpList(bot, updated.rsvp_id) : undefined)
                 .then(() => bot.api.answerCallbackQuery({ callback_query_id: query.id }));
         })
@@ -220,18 +221,23 @@ router.route('rollcall_get_players', rollcallGetPlayersHandler, {
 // Don't return handler work: the poll loop awaits it before fetching the next update.
 bot.on('message', (ctx: Context) => {
     const msg: Message = ctx.message!;
-    if (steamEnabled && msg.from && msg.chat) {
-        const userId: number = msg.from.id;
-        userDao.addUserChat(userId, msg.chat.id, msg.from.first_name, msg.from.username)
-            .then((added: boolean) => {
-                if (added) {
-                    console.log(`Associated user ${userId} with chat ${msg.chat.id} for Steam updates.`);
-                }
-            })
-            .catch((err: Error) => console.error('Error adding user chat:', err));
+    if (!msg.from) {
+        return;
     }
-
-    router.handle(msg);
+    userDao.fromTelegram(msg.from)
+        .then(user => {
+            if (steamEnabled) {
+                userDao.addUserChat(user.id, msg.chat.id)
+                    .then((added: boolean) => {
+                        if (added) {
+                            console.log(`Associated user ${user.id} with chat ${msg.chat.id} for Steam updates.`);
+                        }
+                    })
+                    .catch((err: Error) => console.error('Error adding user chat:', err));
+            }
+            router.handle(msg, user);
+        })
+        .catch((err: Error) => console.error('Error recording message sender:', err));
 });
 
 bot.on('callback_query', (ctx: Context) => {

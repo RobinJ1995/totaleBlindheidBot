@@ -2,8 +2,10 @@ import { Bot, MessageEntity } from 'node-telegram-bot-api';
 import { ExtendedMessage } from '../../MessageRouter.js';
 import { formatError } from '../../utils.js';
 import RollcallPlayerDAO from '../../dao/RollcallPlayerDAO.js';
+import UserDAO from '../../dao/UserDAO.js';
 
 const dao = new RollcallPlayerDAO();
+const userDao = new UserDAO();
 
 export default (bot: Bot, msg: ExtendedMessage): void => {
     const args: string[] = msg.command?.argumentTokens || [];
@@ -20,15 +22,15 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
         return;
     }
 
-    const players: string[] = args.map((arg, i) => {
+    Promise.all(args.map(async (arg, i) => {
         const mention = mentions[i];
         if (mention?.type === 'text_mention' && mention.user) {
-            return `[${arg}](user:${mention.user.id})`;
+            const user = await userDao.fromTelegram(mention.user);
+            return `[${arg}](user:${user.id})`;
         }
         return arg;
-    });
-
-    Promise.all(players.map(player => dao.removeRollcallPlayer(msg.chat.id, player)))
+    }))
+        .then((players: string[]) => Promise.all(players.map(player => dao.removeRollcallPlayer(msg.chat.id, player))))
         .then((results: boolean[]) => {
             if (results.every(r => r === false)) {
                 msg.reply('Who are they?');

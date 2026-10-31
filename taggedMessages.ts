@@ -5,7 +5,7 @@ import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import TaggedMessageDAO, { TaggedMessage } from './dao/TaggedMessageDAO.js';
 import { Formatted, messageText } from './format.js';
 import { keyboard, renderMessage, resolve } from './rsvp.js';
-import { mentionUserId, presenceMarkers, withTags } from './presence.js';
+import { mentionUserId, mentionUsers, presenceMarkers, withTags } from './presence.js';
 
 // How long after a message is sent its presence markers are kept up to date. Once it passes,
 // the markers are stripped rather than left stale. Overridable for tests.
@@ -85,7 +85,7 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
     await Promise.all(list.messages.map(async ref => {
         const tagged: TaggedMessage | undefined = await taggedMessageDao.getTaggedMessage(list.chat_id, ref.message_id);
         const base: Formatted = tagged && isLive(tagged)
-            ? withTags(tagged.head, tagged.tags, await presenceMarkers(tagged.tags))
+            ? withTags(tagged.head, tagged.tags, await mentionUsers(tagged.tags), await presenceMarkers(tagged.tags))
             : ref.base;
         await editText(bot, list.chat_id, ref.message_id, renderMessage(base, groups), keyboard(ref.keyboard));
     }));
@@ -139,7 +139,7 @@ const refreshPlainMessage = (bot: Bot, chat_id: number, message_id: number): Pro
     withLock(messageLockKey(chat_id, message_id), async () => {
         const tagged: TaggedMessage | undefined = await taggedMessageDao.getTaggedMessage(chat_id, message_id);
         if (tagged && isLive(tagged)) {
-            await editText(bot, chat_id, message_id, withTags(tagged.head, tagged.tags, await presenceMarkers(tagged.tags)));
+            await editText(bot, chat_id, message_id, withTags(tagged.head, tagged.tags, await mentionUsers(tagged.tags), await presenceMarkers(tagged.tags)));
         }
     });
 
@@ -169,7 +169,7 @@ const stripTaggedMessage = async (bot: Bot, message: TaggedMessage): Promise<voi
     if (!message.rsvp) {
         return withLock(messageLockKey(message.chat_id, message.message_id), async () => {
             if (await taggedMessageDao.deleteTaggedMessage(message.chat_id, message.message_id)) {
-                await editText(bot, message.chat_id, message.message_id, withTags(message.head, message.tags));
+                await editText(bot, message.chat_id, message.message_id, withTags(message.head, message.tags, await mentionUsers(message.tags)));
             }
         });
     }
