@@ -34,6 +34,8 @@ import statsHandler from './command/stats.js';
 import githubNotifyHandler from './command/github_notify.js';
 import linkChatHandler from './command/link_chat.js';
 import unlinkChatHandler from './command/unlink_chat.js';
+import linkUserHandler from './command/link_user.js';
+import unlinkUserHandler from './command/unlink_user.js';
 import deleteMatchRecordHandler, { handleDeleteMatchCallback, CALLBACK_PREFIX as DELETE_MATCH_CALLBACK_PREFIX } from './command/admin/delete_match_record.js';
 import rollcallAddPlayerHandler from './command/admin/rollcall_add_player.js';
 import rollcallRemovePlayerHandler from './command/admin/rollcall_remove_player.js';
@@ -180,6 +182,12 @@ router.route('link_chat', linkChatHandler, {
 });
 router.route('unlink_chat', unlinkChatHandler, {
     helpText: 'Admin: stop relaying to a Discord channel (/unlink_chat <channel id>), or to all of them (no id).'
+});
+router.route('link_user', linkUserHandler, {
+    helpText: 'Admin: record that a Telegram user and a Discord user are the same person: /link_user @user discord:<username>.'
+});
+router.route('unlink_user', unlinkUserHandler, {
+    helpText: 'Admin: forget a Telegram user\'s Discord account: /unlink_user @user.'
 });
 
 if (steamEnabled) {
