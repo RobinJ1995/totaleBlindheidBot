@@ -5,7 +5,8 @@ import {
     PermissionFlagsBits,
     PermissionsBitField,
     RESTOptions,
-    TextChannel
+    TextChannel,
+    WebhookClient
 } from 'discord.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
@@ -98,6 +99,10 @@ class DiscordService {
         }
         const webhook = await channel.createWebhook({ name: 'Telegram relay' });
         return webhook.token ? { id: webhook.id, token: webhook.token } : undefined;
+    }
+
+    async deleteWebhook(webhook: Webhook): Promise<void> {
+        await new WebhookClient({ id: webhook.id, token: webhook.token }, { rest: this.restOptions }).delete();
     }
 
     async sendAsBot(channel_id: string, content: string): Promise<string> {
