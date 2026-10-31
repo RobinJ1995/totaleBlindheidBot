@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS user (
     discord_id       VARCHAR(32)  NULL,
     name             VARCHAR(255) NULL,
     username         VARCHAR(255) NULL,
+    discord_name     VARCHAR(255) NULL,
     discord_username VARCHAR(255) NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_user_telegram (telegram_id),

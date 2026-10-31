@@ -7,6 +7,7 @@ export interface User {
     discord_id?: string;  // a snowflake, beyond JS number precision
     name?: string;             // Telegram display name (first name)
     username?: string;         // Telegram @username, without the @
+    discord_name?: string;     // Discord display name
     discord_username?: string; // Discord's unique username
 }
 
@@ -14,6 +15,12 @@ export interface TelegramIdentity {
     id: number;
     first_name?: string;
     username?: string;
+}
+
+export interface DiscordIdentity {
+    id: string;
+    username: string;
+    global_name?: string | null;
 }
 
 export interface UserSettings {
@@ -28,7 +35,7 @@ export interface ChatUser {
     username?: string;
 }
 
-const USER_COLUMNS = 'id, telegram_id, discord_id, name, username, discord_username';
+const USER_COLUMNS = 'id, telegram_id, discord_id, name, username, discord_name, discord_username';
 
 const userFromRow = (row: RowDataPacket): User => ({
     id: Number(row.id),
@@ -36,11 +43,12 @@ const userFromRow = (row: RowDataPacket): User => ({
     discord_id: row.discord_id == null ? undefined : String(row.discord_id),
     name: row.name ?? undefined,
     username: row.username ?? undefined,
+    discord_name: row.discord_name ?? undefined,
     discord_username: row.discord_username ?? undefined
 });
 
 export const userDisplayName = (user: User): string =>
-    user.name || user.username || user.discord_username || String(user.id);
+    user.name || user.username || user.discord_name || user.discord_username || String(user.id);
 
 class UserDAO {
     fromTelegram(from: TelegramIdentity): Promise<User> {
@@ -60,6 +68,37 @@ class UserDAO {
             { telegram_id: from.id }
         );
         return userFromRow(rows[0]);
+    }
+
+    fromDiscord(from: DiscordIdentity): Promise<User> {
+        return withTransaction(conn => this.fromDiscordWith(conn, from));
+    }
+
+    async fromDiscordWith(conn: PoolConnection, from: DiscordIdentity): Promise<User> {
+        // A username that changed hands no longer names its old owner.
+        await conn.query(
+            'UPDATE user SET discord_username = NULL WHERE discord_username = :discord_username AND discord_id <> :discord_id',
+            { discord_username: from.username, discord_id: from.id }
+        );
+        await conn.query<ResultSetHeader>(
+            'INSERT INTO user (discord_id, discord_name, discord_username) VALUES (:discord_id, :discord_name, :discord_username) ' +
+            'ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), ' +
+            'discord_name = COALESCE(VALUES(discord_name), discord_name), discord_username = VALUES(discord_username)',
+            { discord_id: from.id, discord_name: from.global_name || null, discord_username: from.username }
+        );
+        const [rows] = await conn.query<RowDataPacket[]>(
+            `SELECT ${USER_COLUMNS} FROM user WHERE discord_id = :discord_id`,
+            { discord_id: from.id }
+        );
+        return userFromRow(rows[0]);
+    }
+
+    async getUserByDiscordUsername(discord_username: string): Promise<User | undefined> {
+        const rows = await query<RowDataPacket[]>(
+            `SELECT ${USER_COLUMNS} FROM user WHERE discord_username = :discord_username`,
+            { discord_username }
+        );
+        return rows.length > 0 ? userFromRow(rows[0]) : undefined;
     }
 
     async getUser(id: number): Promise<User | undefined> {
