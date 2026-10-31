@@ -348,3 +348,11 @@ def step_user_sends_voice(context: Context) -> None:
     file_id: str = _file_id(context, "voice.ogg")
     helpers.register_file(file_id, b"OggS-voice-bytes", "audio/ogg")
     _send_media(context, {"voice": {"file_id": file_id, "file_unique_id": "u7", "duration": 3, "file_size": 16}})
+
+
+@then('the bot sends an? (?P<kind>photo|video|animation|document) "(?P<name>[^"]*)" with caption "(?P<caption>[^"]*)"')
+def step_bot_sends_media(context: Context, kind: str, name: str, caption: str) -> None:
+    method: str = {"photo": "sendPhoto", "video": "sendVideo", "animation": "sendAnimation", "document": "sendDocument"}[kind]
+    new: List[Dict[str, Any]] = _new_messages(context)
+    hits = [m for m in new if m["method"] == method and m.get("file", {}).get("filename") == name and m["text"] == caption]
+    assert hits, f"Expected a {method} of {name!r} with caption {caption!r}, got {[(m['method'], m.get('file'), m['text']) for m in new]}"

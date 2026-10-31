@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Message } from 'node-telegram-bot-api';
-import { telegramMedia } from '../media.js';
+import { classifyAttachment, telegramMedia, TELEGRAM_PHOTO_LIMIT } from '../media.js';
 
 const message = (fields: Partial<Message>): Message => ({
     message_id: 1, date: 0, chat: { id: 1, type: 'group' }, ...fields
@@ -36,4 +36,13 @@ test('voice and video notes are only noted', () => {
     assert.equal(telegramMedia(message({ voice: { file_id: 'v', file_unique_id: 'x', duration: 1 } }))?.placeholder, '[voice message]');
     assert.equal(telegramMedia(message({ video_note: { file_id: 'v', file_unique_id: 'x', duration: 1, length: 1 } }))?.placeholder, '[video message]');
     assert.equal(telegramMedia(message({ text: 'plain' })), undefined);
+});
+
+test('Discord attachments are sent with the Telegram method that shows them best', () => {
+    assert.equal(classifyAttachment('a.gif', 10, 'image/gif'), 'animation');
+    assert.equal(classifyAttachment('a.GIF', 10, null), 'animation');
+    assert.equal(classifyAttachment('a.png', 10, 'image/png'), 'photo');
+    assert.equal(classifyAttachment('a.png', TELEGRAM_PHOTO_LIMIT + 1, 'image/png'), 'document');
+    assert.equal(classifyAttachment('a.mp4', 10, 'video/mp4'), 'video');
+    assert.equal(classifyAttachment('a.pdf', 10, 'application/pdf'), 'document');
 });

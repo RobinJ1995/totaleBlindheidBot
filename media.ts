@@ -1,4 +1,5 @@
-import { Bot, Message as TelegramMessage } from 'node-telegram-bot-api';
+import { Bot, InputFile, Message as TelegramMessage, MessageEntity } from 'node-telegram-bot-api';
+import { Attachment, Message as DiscordMessage, Sticker, StickerFormatType } from 'discord.js';
 import { Formatted } from './format.js';
 
 export interface RelayFile {
@@ -66,4 +67,82 @@ export const downloadTelegramFile = async (bot: Bot, file_id: string, name: stri
         throw new Error(`Downloading Telegram file ${file_id} failed: ${response.status} ${response.statusText}`);
     }
     return { name, data: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type') ?? undefined };
+};
+
+export const downloadUrl = async (url: string, name: string, contentType?: string): Promise<RelayFile> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Downloading ${url} failed: ${response.status} ${response.statusText}`);
+    }
+    return { name, data: Buffer.from(await response.arrayBuffer()), contentType: contentType ?? response.headers.get('content-type') ?? undefined };
+};
+
+export type TelegramSendKind = 'photo' | 'video' | 'animation' | 'document';
+
+export interface DiscordMedia {
+    name: string;
+    url: string;
+    size: number;
+    contentType?: string;
+    kind: TelegramSendKind;
+}
+
+export const classifyAttachment = (name: string, size: number, contentType: string | null | undefined): TelegramSendKind => {
+    const type: string = contentType ?? '';
+    if (type === 'image/gif' || name.toLowerCase().endsWith('.gif')) {
+        return 'animation';
+    } else if (type.startsWith('image/')) {
+        return size <= TELEGRAM_PHOTO_LIMIT ? 'photo' : 'document';
+    } else if (type.startsWith('video/')) {
+        return 'video';
+    }
+    return 'document';
+};
+
+export const discordMedia = (message: DiscordMessage): { files: DiscordMedia[]; placeholders: string[] } => {
+    const files: DiscordMedia[] = [];
+    const placeholders: string[] = [];
+    message.attachments.forEach((attachment: Attachment) => {
+        if (attachment.size > TELEGRAM_UPLOAD_LIMIT) {
+            placeholders.push(`${tooBig(attachment.name, attachment.size)} ${attachment.url}`);
+        } else {
+            files.push({
+                name: attachment.name,
+                url: attachment.url,
+                size: attachment.size,
+                contentType: attachment.contentType ?? undefined,
+                kind: classifyAttachment(attachment.name, attachment.size, attachment.contentType)
+            });
+        }
+    });
+    message.stickers.forEach((sticker: Sticker) => {
+        if (sticker.format === StickerFormatType.Lottie) {
+            placeholders.push(`(sticker: ${sticker.name})`);
+        } else if (sticker.format === StickerFormatType.GIF) {
+            files.push({ name: `${sticker.name}.gif`, url: sticker.url, size: 0, contentType: 'image/gif', kind: 'animation' });
+        } else {
+            files.push({ name: `${sticker.name}.png`, url: sticker.url, size: 0, contentType: 'image/png', kind: 'photo' });
+        }
+    });
+    return { files, placeholders };
+};
+
+export const sendTelegramFile = async (bot: Bot, chat_id: number, kind: TelegramSendKind, file: RelayFile, caption?: Formatted): Promise<void> => {
+    const input = new InputFile(new Uint8Array(file.data), { filename: file.name, contentType: file.contentType });
+    const text: { caption?: string; caption_entities?: MessageEntity[] } = caption && caption.text
+        ? { caption: caption.text, ...(caption.entities.length > 0 ? { caption_entities: caption.entities } : {}) }
+        : {};
+    switch (kind) {
+        case 'photo':
+            await bot.api.sendPhoto({ chat_id, photo: input, ...text });
+            break;
+        case 'video':
+            await bot.api.sendVideo({ chat_id, video: input, ...text });
+            break;
+        case 'animation':
+            await bot.api.sendAnimation({ chat_id, animation: input, ...text });
+            break;
+        default:
+            await bot.api.sendDocument({ chat_id, document: input, ...text });
+    }
 };
