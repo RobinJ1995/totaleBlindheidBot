@@ -8,6 +8,8 @@ import {
     TextChannel,
     WebhookClient
 } from 'discord.js';
+import { ChatLink } from '../dao/ChatLinkDAO.js';
+import { splitMessage } from './markdown.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
 const REQUIRED_PERMISSIONS: { flag: bigint; name: string }[] = [
@@ -29,11 +31,16 @@ export interface Webhook {
     token: string;
 }
 
+// Discord webhook names (and the per-message username override) may not contain these.
+const sanitizeWebhookName = (name: string): string =>
+    name.replace(/discord/gi, 'disc0rd').replace(/clyde/gi, 'c1yde').slice(0, 80) || 'someone';
+
 class DiscordService {
     public static instance: DiscordService | null = null;
 
     private client: Client;
     private restOptions: Partial<RESTOptions>;
+    private webhookClients: Map<string, WebhookClient> = new Map();
 
     constructor() {
         this.restOptions = {
@@ -102,16 +109,43 @@ class DiscordService {
     }
 
     async deleteWebhook(webhook: Webhook): Promise<void> {
+        this.webhookClients.delete(webhook.id);
         await new WebhookClient({ id: webhook.id, token: webhook.token }, { rest: this.restOptions }).delete();
     }
 
+    private webhookClient(webhook: Webhook): WebhookClient {
+        let client = this.webhookClients.get(webhook.id);
+        if (!client) {
+            client = new WebhookClient({ id: webhook.id, token: webhook.token }, { rest: this.restOptions });
+            this.webhookClients.set(webhook.id, client);
+        }
+        return client;
+    }
+
+    // Returns the id of the last message sent.
     async sendAsBot(channel_id: string, content: string): Promise<string> {
         const channel = await this.fetchGuildTextChannel(channel_id);
         if (!channel) {
             throw new Error(`Discord channel ${channel_id} is not reachable.`);
         }
-        const sent = await channel.send({ content, allowedMentions: { parse: ['users'] } });
-        return sent.id;
+        return splitMessage(content).reduce(
+            (sending: Promise<string>, chunk: string) => sending
+                .then(() => channel.send({ content: chunk, allowedMentions: { parse: ['users'] } }))
+                .then(sent => sent.id),
+            Promise.resolve('')
+        );
+    }
+
+    async relay(link: ChatLink, author: string, content: string): Promise<void> {
+        if (link.webhook_id && link.webhook_token) {
+            const webhook = this.webhookClient({ id: link.webhook_id, token: link.webhook_token });
+            await splitMessage(content).reduce<Promise<unknown>>(
+                (sending, chunk) => sending.then(() => webhook.send({ content: chunk, username: sanitizeWebhookName(author), allowedMentions: { parse: ['users'] } })),
+                Promise.resolve()
+            );
+            return;
+        }
+        await this.sendAsBot(link.discord_channel_id, `**${author}:** ${content}`);
     }
 }
 
