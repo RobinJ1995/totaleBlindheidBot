@@ -63,6 +63,9 @@ export default async (bot: Bot, msg: ExtendedMessage): Promise<void> => {
             webhook_token: webhook?.token
         });
 
+        await discord.registerCommands(inspection.guild_id)
+            .catch((err: Error) => console.error(`Could not register slash commands in Discord server ${inspection.guild_id}:`, err));
+
         const group: string = msg.chat.title ? `the Telegram group “${msg.chat.title}”` : 'a Telegram group';
         await discord.sendAsBot(channel_id, `This channel is now linked to ${group}. Messages here and there are relayed both ways.`);
         await msg.reply(`Linked to #${inspection.channel_name} on ${inspection.guild_name}.` + (webhook

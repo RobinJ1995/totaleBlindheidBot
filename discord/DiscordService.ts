@@ -1,8 +1,10 @@
 import {
     ActionRowBuilder,
+    ApplicationCommandOptionType,
     ButtonBuilder,
     ButtonInteraction,
     ButtonStyle,
+    ChatInputCommandInteraction,
     Client,
     GatewayIntentBits,
     GuildTextBasedChannel,
@@ -46,7 +48,14 @@ const sanitizeWebhookName = (name: string): string =>
     name.replace(/discord/gi, 'disc0rd').replace(/clyde/gi, 'c1yde').slice(0, 80) || 'someone';
 
 export type DiscordMessageHandler = (message: Message, link: ChatLink) => Promise<void>;
+export type DiscordCommandHandler = (interaction: ChatInputCommandInteraction, link: ChatLink) => Promise<void>;
 export type DiscordButtonHandler = (interaction: ButtonInteraction, link: ChatLink) => Promise<void>;
+
+export interface SlashCommand {
+    name: string;
+    description: string;
+    argument?: { name: string; description: string };
+}
 
 export const rsvpComponents = (kind: RsvpKeyboardKind): ActionRowBuilder<ButtonBuilder>[] => [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -65,7 +74,9 @@ class DiscordService {
     private chatLinkDao: ChatLinkDAO = new ChatLinkDAO();
     private webhookClients: Map<string, WebhookClient> = new Map();
     private messageHandlers: DiscordMessageHandler[] = [];
+    private commandHandlers: DiscordCommandHandler[] = [];
     private buttonHandlers: DiscordButtonHandler[] = [];
+    private slashCommands: SlashCommand[] = [];
 
     constructor() {
         this.restOptions = {
@@ -86,7 +97,13 @@ class DiscordService {
         DiscordService.instance = this;
     }
 
-    start(): void {
+    // `onReady` also runs after a reconnect.
+    start(onReady?: () => Promise<void>): void {
+        if (onReady) {
+            this.client.on('clientReady', () => {
+                onReady().catch((err: Error) => console.error('Discord ready hook failed:', err));
+            });
+        }
         this.client.login(process.env.DISCORD_BOT_TOKEN).catch((err: Error) => console.error('Discord login failed:', err));
     }
 
@@ -94,20 +111,47 @@ class DiscordService {
         this.messageHandlers.push(handler);
     }
 
+    onCommand(handler: DiscordCommandHandler): void {
+        this.commandHandlers.push(handler);
+    }
+
     onButton(handler: DiscordButtonHandler): void {
         this.buttonHandlers.push(handler);
     }
 
     private async handleInteraction(interaction: Interaction): Promise<void> {
-        if (!interaction.isButton()) {
+        if (!interaction.isChatInputCommand() && !interaction.isButton()) {
             return;
         }
         const link: ChatLink | undefined = interaction.channelId ? await this.chatLinkDao.getLinkByChannel(interaction.channelId) : undefined;
         if (!link) {
             await interaction.reply({ content: 'This channel is not linked to a Telegram group.', flags: MessageFlags.Ephemeral });
-            return;
+        } else if (interaction.isChatInputCommand()) {
+            await Promise.all(this.commandHandlers.map(handler => handler(interaction, link)));
+        } else {
+            await Promise.all(this.buttonHandlers.map(handler => handler(interaction, link)));
         }
-        await Promise.all(this.buttonHandlers.map(handler => handler(interaction, link)));
+    }
+
+    setSlashCommands(commands: SlashCommand[]): void {
+        this.slashCommands = commands;
+    }
+
+    // Guild commands apply at once; global ones would take an hour.
+    async registerCommands(guild_id: string): Promise<void> {
+        if (!this.client.application) {
+            throw new Error('Discord client is not ready.');
+        }
+        await this.client.application.commands.set(this.slashCommands.map(command => ({
+            name: command.name,
+            description: command.description.slice(0, 100),
+            options: command.argument ? [{
+                type: ApplicationCommandOptionType.String,
+                name: command.argument.name,
+                description: command.argument.description.slice(0, 100),
+                required: false
+            }] : []
+        })), guild_id);
     }
 
     private async handleMessage(message: Message): Promise<void> {

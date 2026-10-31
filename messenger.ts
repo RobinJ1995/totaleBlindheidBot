@@ -19,7 +19,7 @@ export interface Broadcast {
     discord: { link: ChatLink; where: RsvpMessageWhere & { platform: 'discord' } }[];
 }
 
-// A Telegram command gets its copy as the reply.
+// The sender's own platform gets its copy as the command's reply.
 export const broadcast = async (bot: Bot, target: Target, telegram: Formatted, discord: string, opts: BroadcastOptions = {}): Promise<Broadcast> => {
     const cmd: Command | undefined = 'platform' in target ? target : undefined;
     const result: Broadcast = { discord: [] };
@@ -43,7 +43,10 @@ export const broadcast = async (bot: Bot, target: Target, telegram: Formatted, d
     const links: ChatLink[] = await chatLinkDao.getLinks(target.chat_id);
     const copies = await Promise.all(links.map(async link => {
         try {
-            const message_id: string = await service.sendAsBot(link.discord_channel_id, discord, components);
+            const origin = cmd?.discord && cmd.discord.link.discord_channel_id === link.discord_channel_id ? cmd.discord.interaction : undefined;
+            const message_id: string = origin
+                ? (await origin.editReply({ content: discord, allowedMentions: { parse: ['users'] }, components: components ?? [] })).id
+                : await service.sendAsBot(link.discord_channel_id, discord, components);
             return { link, where: { platform: 'discord' as const, channel_id: link.discord_channel_id, message_id } };
         } catch (err) {
             console.error(`Could not post to Discord channel ${link.discord_channel_id}:`, err);
