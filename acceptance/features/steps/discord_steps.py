@@ -1,13 +1,15 @@
 """Steps for the Discord side: defining servers, speaking as Discord users, asserting on what the bot
 posted there. The Telegram side of the same scenarios uses telegram_steps.py."""
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
-from behave import given, then, use_step_matcher
+from behave import given, when, then, use_step_matcher
 from behave.runner import Context
 
 import helpers
 
 use_step_matcher("re")
+
+BOT_USER_ID = "990000000000000001"
 
 
 def _baseline(context: Context, channel_id: str) -> int:
@@ -16,6 +18,10 @@ def _baseline(context: Context, channel_id: str) -> int:
 
 def _new_messages(context: Context, channel_id: str, accept: Callable[[Dict[str, Any]], bool] = lambda message: True) -> List[Dict[str, Any]]:
     return helpers.discord_wait_for_new(channel_id, _baseline(context, channel_id), accept=accept)
+
+
+def _author(username: str, name: str, user_id: str) -> Dict[str, Any]:
+    return {"id": user_id, "username": username, "global_name": name}
 
 
 @given('a Discord server "(?P<guild_id>\\d+)" named "(?P<name>[^"]*)" with channel "(?P<channel_id>\\d+)" named "(?P<channel>[^"]*)"')
@@ -48,6 +54,36 @@ def step_channel_linked(context: Context, channel_id: str) -> None:
         return
     assert any(t.startswith("Linked to") for t in texts), f"Linking channel {channel_id} failed: {texts}"
     helpers.discord_wait_for_new(channel_id, discord_baseline)
+
+
+def _inject(context: Context, channel_id: str, content: str, author: Dict[str, Any], **extra: Any) -> None:
+    context.cmd_chat = context.chat_id
+    context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
+    helpers.discord_inject(channel_id, content, author, **extra)
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" says "(?P<text>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_user_says(context: Context, username: str, name: str, user_id: str, text: str, channel_id: str) -> None:
+    _inject(context, channel_id, text, _author(username, name, user_id))
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" says "(?P<text>[^"]*)" in channel "(?P<channel_id>\\d+)" mentioning user "(?P<mentioned_id>\\d+)" named "(?P<mentioned>[^"]*)"')
+def step_discord_user_says_mentioning(context: Context, username: str, name: str, user_id: str, text: str, channel_id: str, mentioned_id: str, mentioned: str) -> None:
+    mentions: List[Dict[str, Any]] = [{"id": mentioned_id, "username": mentioned.lower(), "global_name": mentioned, "discriminator": "0", "avatar": None}]
+    _inject(context, channel_id, text, _author(username, name, user_id), mentions=mentions)
+
+
+@when('the bot itself says "(?P<text>[^"]*)" in Discord channel "(?P<channel_id>\\d+)"')
+def step_bot_says(context: Context, text: str, channel_id: str) -> None:
+    _inject(context, channel_id, text, {"id": BOT_USER_ID, "username": "tbb_bot", "bot": True})
+
+
+@when('the relay webhook of channel "(?P<channel_id>\\d+)" posts "(?P<text>[^"]*)"')
+def step_webhook_posts(context: Context, channel_id: str, text: str) -> None:
+    webhooks: List[Dict[str, Any]] = helpers.discord_webhooks()
+    hook: Optional[Dict[str, Any]] = next((w for w in webhooks if w["channel_id"] == channel_id), None)
+    assert hook, f"No relay webhook exists for channel {channel_id}"
+    _inject(context, channel_id, text, {"id": hook["id"], "username": "Someone", "bot": True}, webhook_id=hook["id"])
 
 
 @then('Discord channel "(?P<channel_id>\\d+)" receives "(?P<text>[^"]*)" from "(?P<name>[^"]*)"')

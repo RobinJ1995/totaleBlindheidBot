@@ -2,13 +2,14 @@ import {
     Client,
     GatewayIntentBits,
     GuildTextBasedChannel,
+    Message,
     PermissionFlagsBits,
     PermissionsBitField,
     RESTOptions,
     TextChannel,
     WebhookClient
 } from 'discord.js';
-import { ChatLink } from '../dao/ChatLinkDAO.js';
+import ChatLinkDAO, { ChatLink } from '../dao/ChatLinkDAO.js';
 import { splitMessage } from './markdown.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
@@ -35,28 +36,50 @@ export interface Webhook {
 const sanitizeWebhookName = (name: string): string =>
     name.replace(/discord/gi, 'disc0rd').replace(/clyde/gi, 'c1yde').slice(0, 80) || 'someone';
 
+export type DiscordMessageHandler = (message: Message, link: ChatLink) => Promise<void>;
+
 class DiscordService {
     public static instance: DiscordService | null = null;
 
     private client: Client;
     private restOptions: Partial<RESTOptions>;
+    private chatLinkDao: ChatLinkDAO = new ChatLinkDAO();
     private webhookClients: Map<string, WebhookClient> = new Map();
+    private messageHandlers: DiscordMessageHandler[] = [];
 
     constructor() {
         this.restOptions = {
             ...(process.env.DISCORD_API_BASE_URL ? { api: process.env.DISCORD_API_BASE_URL } : {})
         };
         this.client = new Client({
-            intents: [GatewayIntentBits.Guilds],
+            intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
             rest: this.restOptions
         });
         this.client.on('clientReady', () => console.log(`Logged on to Discord as ${this.client.user?.tag}`));
         this.client.on('error', (err: Error) => console.error('Discord client error:', err));
+        this.client.on('messageCreate', (message: Message) => {
+            this.handleMessage(message).catch((err: Error) => console.error('Error handling Discord message:', err));
+        });
         DiscordService.instance = this;
     }
 
     start(): void {
         this.client.login(process.env.DISCORD_BOT_TOKEN).catch((err: Error) => console.error('Discord login failed:', err));
+    }
+
+    onMessage(handler: DiscordMessageHandler): void {
+        this.messageHandlers.push(handler);
+    }
+
+    private async handleMessage(message: Message): Promise<void> {
+        if (!message.inGuild() || message.author.id === this.client.user?.id) {
+            return;
+        }
+        const link: ChatLink | undefined = await this.chatLinkDao.getLinkByChannel(message.channelId);
+        if (!link || (message.webhookId && message.webhookId === link.webhook_id)) {
+            return;
+        }
+        await Promise.all(this.messageHandlers.map(handler => handler(message, link)));
     }
 
     private async fetchGuildTextChannel(channel_id: string): Promise<GuildTextBasedChannel | null | undefined> {
