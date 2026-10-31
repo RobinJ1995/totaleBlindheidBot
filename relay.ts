@@ -4,7 +4,8 @@ import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import DiscordService from './discord/DiscordService.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
-import { bold, fmt, messageText } from './format.js';
+import { bold, fmt, Formatted, messageText } from './format.js';
+import { downloadTelegramFile, RelayFile, telegramMedia, TelegramMedia } from './media.js';
 
 const chatLinkDao = new ChatLinkDAO();
 const userDao = new UserDAO();
@@ -26,7 +27,11 @@ const telegramName = (from: TelegramMessage['from']): string =>
 
 export const relayFromTelegram = async (bot: Bot, msg: TelegramMessage): Promise<void> => {
     const discord: DiscordService | null = DiscordService.instance;
-    if (!discord || !msg.text) {
+    if (!discord) {
+        return;
+    }
+    const media: TelegramMedia | undefined = telegramMedia(msg);
+    if (!msg.text && !media) {
         return;
     }
     const links: ChatLink[] = await chatLinkDao.getLinks(msg.chat.id);
@@ -34,9 +39,20 @@ export const relayFromTelegram = async (bot: Bot, msg: TelegramMessage): Promise
         return;
     }
 
-    const content: string = toDiscordMarkdown({ text: msg.text, entities: msg.entities ?? [] });
+    const formatted: Formatted = msg.text ? { text: msg.text, entities: msg.entities ?? [] } : media!.caption;
+    const content: string = [media?.placeholder, toDiscordMarkdown(formatted)].filter(Boolean).join(' ');
+    let files: RelayFile[] = [];
+    if (media?.file) {
+        try {
+            files = [await downloadTelegramFile(bot, media.file.file_id, media.file.name)];
+        } catch (err) {
+            console.error(`Could not download Telegram file ${media.file.file_id}:`, err);
+            return;
+        }
+    }
+
     const author: string = telegramName(msg.from);
-    await Promise.all(links.map(link => discord.relay(link, author, content).catch((err: Error) =>
+    await Promise.all(links.map(link => discord.relay(link, author, content, files).catch((err: Error) =>
         console.error(`Could not relay Telegram message ${msg.message_id} to Discord channel ${link.discord_channel_id}:`, err))));
 };
 

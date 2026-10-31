@@ -22,6 +22,7 @@ import { DiscordIdentity } from '../dao/UserDAO.js';
 import { splitMessage } from './markdown.js';
 import { Rsvp } from '../dao/RsvpDAO.js';
 import { RsvpKeyboardKind, rsvpLabels } from '../rsvp.js';
+import { RelayFile } from '../media.js';
 
 // Names as Discord shows them, for telling an admin what is missing.
 const REQUIRED_PERMISSIONS: { flag: bigint; name: string }[] = [
@@ -239,8 +240,8 @@ class DiscordService {
         return client;
     }
 
-    // Returns the id of the last message sent; buttons, if any, go on that one.
-    async sendAsBot(channel_id: string, content: string, components?: ActionRowBuilder<ButtonBuilder>[]): Promise<string> {
+    // Returns the id of the last message sent; buttons and files go on that one.
+    async sendAsBot(channel_id: string, content: string, components?: ActionRowBuilder<ButtonBuilder>[], files: { attachment: Buffer; name: string }[] = []): Promise<string> {
         const channel = await this.fetchGuildTextChannel(channel_id);
         if (!channel) {
             throw new Error(`Discord channel ${channel_id} is not reachable.`);
@@ -251,7 +252,8 @@ class DiscordService {
                 .then(() => channel.send({
                     content: chunk,
                     allowedMentions: { parse: ['users'] },
-                    ...(components && i === chunks.length - 1 ? { components } : {})
+                    ...(components && i === chunks.length - 1 ? { components } : {}),
+                    ...(files.length > 0 && i === chunks.length - 1 ? { files } : {})
                 }))
                 .then(sent => sent.id),
             Promise.resolve('')
@@ -271,16 +273,20 @@ class DiscordService {
         });
     }
 
-    async relay(link: ChatLink, author: string, content: string): Promise<void> {
+    async relay(link: ChatLink, author: string, content: string, files: RelayFile[] = []): Promise<void> {
+        const attachments = files.map(file => ({ attachment: file.data, name: file.name }));
         if (link.webhook_id && link.webhook_token) {
             const webhook = this.webhookClient({ id: link.webhook_id, token: link.webhook_token });
-            await splitMessage(content).reduce<Promise<unknown>>(
-                (sending, chunk) => sending.then(() => webhook.send({ content: chunk, username: sanitizeWebhookName(author), allowedMentions: { parse: ['users'] } })),
-                Promise.resolve()
-            );
+            const chunks: string[] = content ? splitMessage(content) : [''];
+            await chunks.reduce<Promise<unknown>>((sending, chunk, i) => sending.then(() => webhook.send({
+                content: chunk,
+                username: sanitizeWebhookName(author),
+                allowedMentions: { parse: ['users'] },
+                ...(i === chunks.length - 1 ? { files: attachments } : {})
+            })), Promise.resolve());
             return;
         }
-        await this.sendAsBot(link.discord_channel_id, `**${author}:** ${content}`);
+        await this.sendAsBot(link.discord_channel_id, content ? `**${author}:** ${content}` : `**${author}:**`, undefined, attachments);
     }
 }
 

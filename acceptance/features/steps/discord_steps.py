@@ -246,3 +246,11 @@ def step_schedule_due(context: Context) -> None:
     context.cmd_chat = context.chat_id
     context.cmd_baseline = len(helpers.get_outbox(context.chat_id))
     helpers.due_scheduled_rollcalls()
+
+
+@then('Discord channel "(?P<channel_id>\\d+)" receives a file "(?P<filename>[^"]*)" from "(?P<name>[^"]*)" with text "(?P<text>[^"]*)"')
+def step_channel_receives_file(context: Context, channel_id: str, filename: str, name: str, text: str) -> None:
+    new: List[Dict[str, Any]] = _new_messages(context, channel_id)
+    hits = [m for m in new if m["method"] == "executeWebhook" and m["username"] == name and m["content"] == text
+            and any(a["filename"] == filename for a in m["attachments"])]
+    assert hits, f"Expected file {filename!r} with text {text!r} from {name!r} in channel {channel_id}, got {[(m['method'], m['username'], m['content'], m['attachments']) for m in new]}"
