@@ -6,7 +6,7 @@ the MariaDB backend lives here so the step files stay declarative.
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pymysql
 import requests
@@ -14,6 +14,7 @@ import requests
 TELEGRAM_MOCK_URL: str = os.environ.get("TELEGRAM_MOCK_URL", "http://telegram-mock:8081")
 STEAM_CONTROL_URL: str = os.environ.get("STEAM_CONTROL_URL", "http://bot:9100")
 GITHUB_MOCK_URL: str = os.environ.get("GITHUB_MOCK_URL", "http://github-mock:8082")
+DISCORD_MOCK_URL: str = os.environ.get("DISCORD_MOCK_URL", "http://discord-mock:8083")
 BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_API_TOKEN", "test-token")
 
 MARIADB_HOST: str = os.environ.get("MARIADB_HOST", "mariadb")
@@ -359,3 +360,93 @@ def github_add_commit(sha: str, message: str) -> None:
         timeout=5,
     )
     resp.raise_for_status()
+
+
+# ---------------------------------------------------------------------------
+# Discord mock interactions
+# ---------------------------------------------------------------------------
+
+def discord_reset() -> None:
+    requests.post(f"{DISCORD_MOCK_URL}/test/reset", timeout=5).raise_for_status()
+
+
+def discord_define_guild(
+    guild_id: str, name: str, channels: List[Dict[str, Any]], permissions: Optional[List[str]] = None,
+    members: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    body: Dict[str, Any] = {"id": guild_id, "name": name, "channels": channels}
+    if permissions is not None:
+        body["permissions"] = permissions
+    if members is not None:
+        body["members"] = members
+    requests.post(f"{DISCORD_MOCK_URL}/test/guilds", json=body, timeout=5).raise_for_status()
+
+
+def discord_inject(channel_id: str, content: str, author: Dict[str, Any], **extra: Any) -> Dict[str, Any]:
+    body: Dict[str, Any] = {"channel_id": channel_id, "content": content, "author": author, **extra}
+    resp = requests.post(f"{DISCORD_MOCK_URL}/test/inject", json=body, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def discord_webhooks() -> List[Dict[str, Any]]:
+    resp = requests.get(f"{DISCORD_MOCK_URL}/test/webhooks", timeout=5)
+    resp.raise_for_status()
+    return resp.json()["webhooks"]
+
+
+def discord_run_command(channel_id: str, user: Dict[str, Any], name: str, argument: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    body: Dict[str, Any] = {"channel_id": channel_id, "user": user, "name": name}
+    if argument:
+        body["argument"] = argument
+    resp = requests.post(f"{DISCORD_MOCK_URL}/test/interactions/command", json=body, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def discord_tap_button(channel_id: str, user: Dict[str, Any], message_id: str, custom_id: str) -> Dict[str, Any]:
+    body: Dict[str, Any] = {"channel_id": channel_id, "user": user, "message_id": message_id, "custom_id": custom_id}
+    resp = requests.post(f"{DISCORD_MOCK_URL}/test/interactions/button", json=body, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def discord_commands() -> Dict[str, List[str]]:
+    resp = requests.get(f"{DISCORD_MOCK_URL}/test/commands", timeout=5)
+    resp.raise_for_status()
+    return resp.json()["commands"]
+
+
+def discord_button_labels(message: Dict[str, Any]) -> List[str]:
+    """Labels of the buttons on a recorded Discord message, row by row."""
+    rows: Any = message.get("params", {}).get("components") or []
+    return [button.get("label") for row in rows for button in row.get("components", [])]
+
+
+def discord_outbox(channel_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, str] = {"channel_id": channel_id} if channel_id is not None else {}
+    resp = requests.get(f"{DISCORD_MOCK_URL}/test/outbox", params=params, timeout=5)
+    resp.raise_for_status()
+    return resp.json()["outbox"]
+
+
+def discord_wait_for_new(channel_id: str, baseline_count: int, timeout: float = REPLY_TIMEOUT, accept: Callable[[Dict[str, Any]], bool] = lambda message: True) -> List[Dict[str, Any]]:
+    """Wait until the Discord channel's outbox gains an entry `accept` takes (an interaction's
+    acknowledgement lands before its reply); return the whole new tail."""
+    deadline: float = time.time() + timeout
+    while time.time() < deadline:
+        new: List[Dict[str, Any]] = discord_outbox(channel_id)[baseline_count:]
+        if any(accept(m) for m in new):
+            return new
+        time.sleep(POLL_INTERVAL)
+    return discord_outbox(channel_id)[baseline_count:]
+
+
+def discord_expect_no_new(channel_id: str, baseline_count: int, wait: float = 3.0) -> List[Dict[str, Any]]:
+    deadline: float = time.time() + wait
+    while time.time() < deadline:
+        outbox: List[Dict[str, Any]] = discord_outbox(channel_id)
+        if len(outbox) > baseline_count:
+            return outbox[baseline_count:]
+        time.sleep(POLL_INTERVAL)
+    return []
