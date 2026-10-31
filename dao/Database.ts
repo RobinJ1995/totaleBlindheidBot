@@ -194,6 +194,28 @@ const migrateDiscordNameColumn = async (conn: PoolConnection): Promise<void> => 
     }
 };
 
+// One-off migration: rsvp_message gains platform and channel, and a text message id (Discord ids
+// don't fit a JS number).
+const migrateRsvpMessagePlatform = async (conn: PoolConnection): Promise<void> => {
+    if (!(await tableExists(conn, 'rsvp_message'))) {
+        return;
+    }
+    const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS col FROM information_schema.COLUMNS ' +
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rsvp_message' AND COLUMN_NAME = 'platform'"
+    );
+    if (Number(rows[0]?.col) === 0) {
+        console.log('Adding rsvp_message.platform and channel_id for Discord copies.');
+        await conn.query(
+            'ALTER TABLE rsvp_message ' +
+            "ADD COLUMN platform ENUM('telegram','discord') NOT NULL DEFAULT 'telegram' AFTER rsvp_list_id, " +
+            'ADD COLUMN channel_id VARCHAR(32) NULL AFTER platform, ' +
+            'MODIFY COLUMN message_id VARCHAR(32) NOT NULL, ' +
+            'DROP PRIMARY KEY, ADD PRIMARY KEY (rsvp_list_id, platform, message_id)'
+        );
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -205,6 +227,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateEntitiesColumns(conn);
         await migrateTelegramUserToUser(conn);
         await migrateDiscordNameColumn(conn);
+        await migrateRsvpMessagePlatform(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

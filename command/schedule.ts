@@ -96,7 +96,7 @@ export default (bot: Bot, msg: ExtendedMessage): void => {
                         return trackTaggedMessage(sent, head, tagged, true).then(() => rsvpDao.createRsvpList({
                             chat_id,
                             entries,
-                            messages: [{ message_id: sent.message_id, base, keyboard: 'schedule' }]
+                            messages: [{ platform: 'telegram', message_id: sent.message_id, base, keyboard: 'schedule' }]
                         }).then((rsvp_id: number) =>
                             // Store the rsvp_id + initiator on the schedule so the timer can
                             // find and share the same list when the rollcall fires.

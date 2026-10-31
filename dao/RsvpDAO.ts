@@ -15,11 +15,25 @@ export interface RsvpEntry {
     rsvp: Rsvp;
 }
 
-export interface RsvpMessageRef {
-    message_id: number;
+export type RsvpMessageWhere =
+    | { platform: 'telegram'; message_id: number }
+    | { platform: 'discord'; channel_id: string; message_id: string };
+
+export type RsvpMessageRef = RsvpMessageWhere & {
     base: Formatted;                   // text above the lists (differs per message)
     keyboard: 'schedule' | 'rollcall'; // which button labels to show on this message
-}
+};
+
+const whereFromRow = (row: RowDataPacket): RsvpMessageWhere =>
+    row.platform === 'discord'
+        ? { platform: 'discord', channel_id: String(row.channel_id), message_id: String(row.message_id) }
+        : { platform: 'telegram', message_id: Number(row.message_id) };
+
+const whereColumns = (where: RsvpMessageWhere) => ({
+    platform: where.platform,
+    channel_id: where.platform === 'discord' ? where.channel_id : null,
+    message_id: String(where.message_id)
+});
 
 export interface RsvpList {
     rsvp_id: number;
@@ -43,7 +57,7 @@ class RsvpDAO {
             { id: rsvp_id }
         );
         const [messageRows] = await conn.query<RowDataPacket[]>(
-            'SELECT message_id, base_text, base_entities, keyboard FROM rsvp_message WHERE rsvp_list_id = :id',
+            'SELECT platform, channel_id, message_id, base_text, base_entities, keyboard FROM rsvp_message WHERE rsvp_list_id = :id',
             { id: rsvp_id }
         );
         const entries: Record<string, RsvpEntry> = {};
@@ -66,7 +80,7 @@ class RsvpDAO {
             chat_id: Number(listRows[0].chat_id),
             entries,
             messages: messageRows.map(row => ({
-                message_id: Number(row.message_id),
+                ...whereFromRow(row),
                 base: { text: row.base_text, entities: JSON.parse(row.base_entities ?? '[]') },
                 keyboard: row.keyboard
             })),
@@ -91,9 +105,9 @@ class RsvpDAO {
             }
             for (const ref of list.messages) {
                 await conn.query(
-                    'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, base_entities, keyboard) ' +
-                    'VALUES (:rsvp_id, :message_id, :base_text, :base_entities, :keyboard)',
-                    { rsvp_id, message_id: ref.message_id, ...baseColumns(ref.base), keyboard: ref.keyboard }
+                    'INSERT INTO rsvp_message (rsvp_list_id, platform, channel_id, message_id, base_text, base_entities, keyboard) ' +
+                    'VALUES (:rsvp_id, :platform, :channel_id, :message_id, :base_text, :base_entities, :keyboard)',
+                    { rsvp_id, ...whereColumns(ref), ...baseColumns(ref.base), keyboard: ref.keyboard }
                 );
             }
             return rsvp_id;
@@ -107,8 +121,8 @@ class RsvpDAO {
     async getRsvpListByMessage(chat_id: number, message_id: number): Promise<RsvpList | undefined> {
         const rows = await query<RowDataPacket[]>(
             'SELECT l.id FROM rsvp_list l JOIN rsvp_message m ON m.rsvp_list_id = l.id ' +
-            'WHERE l.chat_id = :chat_id AND m.message_id = :message_id LIMIT 1',
-            { chat_id, message_id }
+            "WHERE l.chat_id = :chat_id AND m.platform = 'telegram' AND m.message_id = :message_id LIMIT 1",
+            { chat_id, message_id: String(message_id) }
         );
         if (rows.length === 0) {
             return undefined;
@@ -141,18 +155,18 @@ class RsvpDAO {
                 return;
             }
             await conn.query(
-                'INSERT INTO rsvp_message (rsvp_list_id, message_id, base_text, base_entities, keyboard) ' +
-                'VALUES (:rsvp_id, :message_id, :base_text, :base_entities, :keyboard) ' +
+                'INSERT INTO rsvp_message (rsvp_list_id, platform, channel_id, message_id, base_text, base_entities, keyboard) ' +
+                'VALUES (:rsvp_id, :platform, :channel_id, :message_id, :base_text, :base_entities, :keyboard) ' +
                 'ON DUPLICATE KEY UPDATE base_text = VALUES(base_text), base_entities = VALUES(base_entities), keyboard = VALUES(keyboard)',
-                { rsvp_id, message_id: ref.message_id, ...baseColumns(ref.base), keyboard: ref.keyboard }
+                { rsvp_id, ...whereColumns(ref), ...baseColumns(ref.base), keyboard: ref.keyboard }
             );
         });
     }
 
-    removeRsvpMessage(rsvp_id: number, message_id: number): Promise<void> {
+    removeRsvpMessage(rsvp_id: number, where: RsvpMessageWhere): Promise<void> {
         return query<ResultSetHeader>(
-            'DELETE FROM rsvp_message WHERE rsvp_list_id = :rsvp_id AND message_id = :message_id',
-            { rsvp_id, message_id }
+            'DELETE FROM rsvp_message WHERE rsvp_list_id = :rsvp_id AND platform = :platform AND message_id = :message_id',
+            { rsvp_id, platform: where.platform, message_id: String(where.message_id) }
         ).then(() => undefined);
     }
 

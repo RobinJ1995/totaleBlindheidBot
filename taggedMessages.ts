@@ -1,6 +1,8 @@
 import { Bot, InlineKeyboardMarkup, Message } from 'node-telegram-bot-api';
 import SteamService from './SteamService.js';
 import RsvpDAO, { Rsvp, RsvpList, RsvpMessageRef } from './dao/RsvpDAO.js';
+import DiscordService from './discord/DiscordService.js';
+import { renderDiscordMessage } from './discord/render.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import TaggedMessageDAO, { TaggedMessage } from './dao/TaggedMessageDAO.js';
 import { Formatted, messageText } from './format.js';
@@ -56,6 +58,15 @@ const editText = (bot: Bot, chat_id: number, message_id: number, content: Format
 const rsvpGroups = (list: RsvpList): Promise<Record<Rsvp, string[]>> =>
     rollcallPlayerDao.getRollcallPlayerUsernames(list.chat_id).then(rotation => resolve(rotation, list.entries).groups);
 
+const editDiscordCopy = async (ref: RsvpMessageRef & { platform: 'discord' }, groups: Record<Rsvp, string[]>): Promise<void> => {
+    const discord: DiscordService | null = DiscordService.instance;
+    if (!discord) {
+        return;
+    }
+    await discord.editMessage(ref.channel_id, ref.message_id, renderDiscordMessage(ref.base.text, groups))
+        .catch((err: Error) => console.error(`Error updating Discord message ${ref.message_id} in channel ${ref.channel_id}:`, err));
+};
+
 // Start keeping the presence markers of a just-sent message up to date. `head` is everything
 // above the tag line. Without Steam there are no markers to maintain. Presence is decoration
 // only, so a failure here is logged rather than failing the command that sent the message.
@@ -83,6 +94,9 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
     }
     const groups = await rsvpGroups(list);
     await Promise.all(list.messages.map(async ref => {
+        if (ref.platform === 'discord') {
+            return editDiscordCopy(ref, groups);
+        }
         const tagged: TaggedMessage | undefined = await taggedMessageDao.getTaggedMessage(list.chat_id, ref.message_id);
         const base: Formatted = tagged && isLive(tagged)
             ? withTags(tagged.head, tagged.tags, await mentionUsers(tagged.tags), await presenceMarkers(tagged.tags))
@@ -94,7 +108,9 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
 // Strip the buttons from a message leaving its RSVP list so it can no longer record responses,
 // along with its presence markers if they were still being kept up to date.
 const retireRsvpMessage = async (bot: Bot, list: RsvpList, ref: RsvpMessageRef, groups: Record<Rsvp, string[]>): Promise<void> => {
-    if (await taggedMessageDao.deleteTaggedMessage(list.chat_id, ref.message_id)) {
+    if (ref.platform === 'discord') {
+        await editDiscordCopy(ref, groups);
+    } else if (await taggedMessageDao.deleteTaggedMessage(list.chat_id, ref.message_id)) {
         await editText(bot, list.chat_id, ref.message_id, renderMessage(ref.base, groups), { inline_keyboard: [] });
     } else {
         await bot.api.editMessageReplyMarkup({
@@ -129,7 +145,7 @@ const closeScheduleConfirmation = (bot: Bot, rsvp_id?: number): Promise<void> =>
             return;
         }
         await retireRsvpMessage(bot, list, confirmation, await rsvpGroups(list));
-        await rsvpDao.removeRsvpMessage(rsvp_id, confirmation.message_id);
+        await rsvpDao.removeRsvpMessage(rsvp_id, confirmation);
     });
 };
 

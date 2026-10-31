@@ -11,6 +11,31 @@ Feature: rollcalls and wingman calls across Telegram and Discord
     And Discord channel "100011" is linked to the chat
     And Discord channel "100021" is linked to the chat
 
+  Scenario: a Telegram rollcall is posted in every linked channel
+    When the user sends "/rollcall"
+    Then the bot reply offers a "Joining" button
+    And the bot reply contains "🙋‍♂️ Captain"
+    And Discord channel "100011" receives a bot message containing "🙋‍♂️ Captain"
+    And Discord channel "100021" receives a bot message containing "🙋‍♂️ Captain"
+
+  Scenario: a tap on Telegram updates the Discord copies
+    When the user sends "/rollcall"
+    Then the bot reply contains "🙋‍♂️ Captain"
+    When the latest bot message in Discord channel "100021" is remembered
+    And user 11003 named "Carol" taps no
+    Then the remembered Discord message is edited to contain "🙅‍♂️ Carol"
+
+  Scenario: a Discord-only rotation player is pinged on Discord and named on Telegram
+    Given the user is an admin of the chat
+    When the user sends "/rollcall_add_player discord:erin_cs"
+    Then the bot replies "Added 1 players to rollcall."
+    When the user sends "/rollcall"
+    Then the bot reply contains "Erin"
+    And Discord channel "100011" receives a bot message containing "<@100010000000000001>"
+    And Discord channel "100021" receives a bot message containing "<@100010000000000001>"
+    When the user sends "/rollcall_remove_player discord:erin_cs"
+    Then the bot replies "Poof! They're gone!"
+
   Scenario: a wingman call from Telegram reaches the channels
     When the user sends "/wingman"
     Then the bot reply first line is one of
