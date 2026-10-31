@@ -5,12 +5,14 @@ import consoleStamp from 'console-stamp';
 (consoleStamp as unknown as (console: Console, options?: object) => void)(console);
 
 import { Bot, CallbackQuery, Context, Message } from 'node-telegram-bot-api';
+import { ButtonInteraction, MessageFlags } from 'discord.js';
 import ScheduleDAO from './dao/ScheduleDAO.js';
 import RsvpDAO from './dao/RsvpDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import DiscordService from './discord/DiscordService.js';
+import { ChatLink } from './dao/ChatLinkDAO.js';
 import { recordDiscordSender, relayFromDiscord, relayFromTelegram } from './relay.js';
 import { executeRollcall } from './command/rollcall.js';
 import MessageRouter, { ExtendedMessage } from './MessageRouter.js';
@@ -126,6 +128,30 @@ const githubService: GitHubService = new GitHubService(bot);
 const discordService: DiscordService | null = process.env.DISCORD_BOT_TOKEN ? new DiscordService() : null;
 discordService?.onMessage(recordDiscordSender);
 discordService?.onMessage((message, link) => relayFromDiscord(bot, message, link));
+
+const handleDiscordButton = async (interaction: ButtonInteraction, link: ChatLink): Promise<void> => {
+    if (!interaction.customId.startsWith('rsvp:')) {
+        return;
+    }
+    const rsvp = interaction.customId.substring('rsvp:'.length) as Rsvp;
+    if (!['yes', 'maybe', 'no'].includes(rsvp)) {
+        return;
+    }
+    const list = await rsvpDao.getRsvpListByDiscordMessage(interaction.channelId, interaction.message.id);
+    if (!list) {
+        await interaction.reply({ content: 'This RSVP has expired.', flags: MessageFlags.Ephemeral });
+        return;
+    }
+    const user = await userDao.fromDiscord({ id: interaction.user.id, username: interaction.user.username, global_name: interaction.user.globalName });
+    await userDao.addUserChat(user.id, link.telegram_chat_id);
+    const updated = await rsvpDao.setRsvpEntry(list.rsvp_id, entryFromUser(user, rsvp));
+    await interaction.deferUpdate();
+    if (updated) {
+        await renderRsvpList(bot, updated.rsvp_id);
+    }
+};
+
+discordService?.onButton(handleDiscordButton);
 
 // Fatal polling errors (e.g. 409 during a rollout) end the loop, so restart it.
 const POLLING_RESTART_DELAY_MS = 5000;

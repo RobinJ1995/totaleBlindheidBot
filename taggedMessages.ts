@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboardMarkup, Message } from 'node-telegram-bot-api';
 import SteamService from './SteamService.js';
 import RsvpDAO, { Rsvp, RsvpList, RsvpMessageRef } from './dao/RsvpDAO.js';
-import DiscordService from './discord/DiscordService.js';
+import DiscordService, { rsvpComponents } from './discord/DiscordService.js';
 import { renderDiscordMessage } from './discord/render.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import TaggedMessageDAO, { TaggedMessage } from './dao/TaggedMessageDAO.js';
@@ -58,12 +58,12 @@ const editText = (bot: Bot, chat_id: number, message_id: number, content: Format
 const rsvpGroups = (list: RsvpList): Promise<Record<Rsvp, string[]>> =>
     rollcallPlayerDao.getRollcallPlayerUsernames(list.chat_id).then(rotation => resolve(rotation, list.entries).groups);
 
-const editDiscordCopy = async (ref: RsvpMessageRef & { platform: 'discord' }, groups: Record<Rsvp, string[]>): Promise<void> => {
+const editDiscordCopy = async (ref: RsvpMessageRef & { platform: 'discord' }, groups: Record<Rsvp, string[]>, retired: boolean): Promise<void> => {
     const discord: DiscordService | null = DiscordService.instance;
     if (!discord) {
         return;
     }
-    await discord.editMessage(ref.channel_id, ref.message_id, renderDiscordMessage(ref.base.text, groups))
+    await discord.editMessage(ref.channel_id, ref.message_id, renderDiscordMessage(ref.base.text, groups), retired ? [] : rsvpComponents(ref.keyboard))
         .catch((err: Error) => console.error(`Error updating Discord message ${ref.message_id} in channel ${ref.channel_id}:`, err));
 };
 
@@ -95,7 +95,7 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
     const groups = await rsvpGroups(list);
     await Promise.all(list.messages.map(async ref => {
         if (ref.platform === 'discord') {
-            return editDiscordCopy(ref, groups);
+            return editDiscordCopy(ref, groups, false);
         }
         const tagged: TaggedMessage | undefined = await taggedMessageDao.getTaggedMessage(list.chat_id, ref.message_id);
         const base: Formatted = tagged && isLive(tagged)
@@ -109,7 +109,7 @@ const renderRsvpList = (bot: Bot, rsvp_id: number): Promise<void> => withLock(rs
 // along with its presence markers if they were still being kept up to date.
 const retireRsvpMessage = async (bot: Bot, list: RsvpList, ref: RsvpMessageRef, groups: Record<Rsvp, string[]>): Promise<void> => {
     if (ref.platform === 'discord') {
-        await editDiscordCopy(ref, groups);
+        await editDiscordCopy(ref, groups, true);
     } else if (await taggedMessageDao.deleteTaggedMessage(list.chat_id, ref.message_id)) {
         await editText(bot, list.chat_id, ref.message_id, renderMessage(ref.base, groups), { inline_keyboard: [] });
     } else {

@@ -1,7 +1,7 @@
 import { Bot, Message as TelegramMessage } from 'node-telegram-bot-api';
 import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
 import { RsvpMessageWhere } from './dao/RsvpDAO.js';
-import DiscordService from './discord/DiscordService.js';
+import DiscordService, { rsvpComponents } from './discord/DiscordService.js';
 import { Formatted, messageText } from './format.js';
 import { Command } from './MessageRouter.js';
 import { keyboard, RsvpKeyboardKind } from './rsvp.js';
@@ -39,10 +39,11 @@ export const broadcast = async (bot: Bot, target: Target, telegram: Formatted, d
     if (!service) {
         return result;
     }
+    const components = opts.keyboard ? rsvpComponents(opts.keyboard) : undefined;
     const links: ChatLink[] = await chatLinkDao.getLinks(target.chat_id);
     const copies = await Promise.all(links.map(async link => {
         try {
-            const message_id: string = await service.sendAsBot(link.discord_channel_id, discord);
+            const message_id: string = await service.sendAsBot(link.discord_channel_id, discord, components);
             return { link, where: { platform: 'discord' as const, channel_id: link.discord_channel_id, message_id } };
         } catch (err) {
             console.error(`Could not post to Discord channel ${link.discord_channel_id}:`, err);

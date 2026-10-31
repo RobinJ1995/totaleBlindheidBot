@@ -130,6 +130,18 @@ class RsvpDAO {
         return this.getRsvpList(Number(rows[0].id));
     }
 
+    async getRsvpListByDiscordMessage(channel_id: string, message_id: string): Promise<RsvpList | undefined> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT rsvp_list_id FROM rsvp_message ' +
+            "WHERE platform = 'discord' AND channel_id = :channel_id AND message_id = :message_id LIMIT 1",
+            { channel_id, message_id }
+        );
+        if (rows.length === 0) {
+            return undefined;
+        }
+        return this.getRsvpList(Number(rows[0].rsvp_list_id));
+    }
+
     setRsvpEntry(rsvp_id: number, entry: RsvpEntry): Promise<RsvpList | undefined> {
         return withTransaction(async conn => {
             // Lock the list row so concurrent RSVP taps serialise on it. Without the lock,
