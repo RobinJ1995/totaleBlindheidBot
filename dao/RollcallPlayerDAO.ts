@@ -1,6 +1,7 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { checkNotEmpty } from '../utils.js';
 import { query } from './Database.js';
+import { parseMention, userMention } from '../mention.js';
 
 // A rollcall roster row. A player is identified by a user id (text mention),
 // an @username, or just a display name, depending on how the admin added them.
@@ -16,7 +17,7 @@ class RollcallPlayerDAO {
     // Reconstruct the legacy rotation mention string from a normalised player row.
     private _playerMention(row: RollcallPlayerRow): string {
         if (row.user_id !== null) {
-            return `[${row.display_name ?? ''}](user:${row.user_id})`;
+            return userMention(Number(row.user_id), row.display_name ?? '');
         } else if (row.username !== null) {
             return `@${row.username}`;
         }
@@ -25,13 +26,13 @@ class RollcallPlayerDAO {
 
     // Parse a rotation mention string into its normalised columns.
     private _parsePlayer(input: string): { user_id: number | null; username: string | null; display_name: string | null } {
-        const match = input.match(/^\[(.*)\]\(user:(\d+)\)$/);
-        if (match) {
-            return { user_id: Number(match[2]), username: null, display_name: match[1] };
-        } else if (input.startsWith('@')) {
-            return { user_id: null, username: input.substring(1), display_name: null };
+        const parsed = parseMention(input);
+        if (parsed.id !== undefined) {
+            return { user_id: parsed.id, username: null, display_name: parsed.display };
+        } else if (parsed.username !== undefined) {
+            return { user_id: null, username: parsed.username, display_name: null };
         }
-        return { user_id: null, username: null, display_name: input };
+        return { user_id: null, username: null, display_name: parsed.display };
     }
 
     private _getRollcallPlayerRows(chat_id: number): Promise<RollcallPlayerRow[]> {

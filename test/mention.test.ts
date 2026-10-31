@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayName, mentionText, parseMention, resolve } from '../rsvp.js';
+import { displayName, parseMention, userMention } from '../mention.js';
+import { mentionText, resolve } from '../rsvp.js';
 import { User } from '../dao/UserDAO.js';
 
-test('a user mention parses to its user id', () => {
+test('a user mention round-trips through its string form', () => {
+    assert.equal(userMention(42, 'Alice'), '[Alice](user:42)');
     assert.deepEqual(parseMention('[Alice](user:42)'), { id: 42, display: 'Alice' });
 });
 

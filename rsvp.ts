@@ -2,6 +2,7 @@ import { InlineKeyboardMarkup } from 'node-telegram-bot-api';
 import { fmt, Formatted, link, Part } from './format.js';
 import { Rsvp, RsvpEntry } from './dao/RsvpDAO.js';
 import { User, userDisplayName } from './dao/UserDAO.js';
+import { displayName, parseMention } from './mention.js';
 
 export type RsvpKeyboardKind = 'schedule' | 'rollcall';
 
@@ -35,29 +36,6 @@ const keyboard = (kind: RsvpKeyboardKind): InlineKeyboardMarkup => ({
         }))
     ]
 });
-
-interface ParsedMention {
-    id?: number;
-    username?: string; // without leading @
-    display: string;
-}
-
-// A rotation player is stored either as `[Name](user:123)` (text mention, has the bot's user id)
-// or as a plain `@username` string. Extract what we can to match against button tappers.
-const parseMention = (mention: string): ParsedMention => {
-    const match: RegExpMatchArray | null = mention.match(/^\[(.*)\]\(user:(\d+)\)$/);
-    if (match) {
-        return { id: Number(match[2]), display: match[1] };
-    } else if (mention.startsWith('@')) {
-        return { username: mention.substring(1), display: mention };
-    }
-
-    return { display: mention };
-};
-
-// Render a name so that it shows up in the message without pinging the user
-// (zero-width space breaks the @mention), matching command/admin/rollcall_get_players.ts.
-const displayName = (name: string): string => name.replace('@', '@​');
 
 // Build a pingable mention for the tag line from a stored rotation entry.
 const mentionText = (mention: string, users: Record<number, User>): Part => {
@@ -154,8 +132,6 @@ const entryFromUser = (user: User, rsvp: Rsvp): RsvpEntry => ({
 
 export {
     keyboard,
-    parseMention,
-    displayName,
     mentionText,
     resolve,
     renderLists,

@@ -1,7 +1,8 @@
 import SteamService, { Presence, PRESENCE_EMOJI } from './SteamService.js';
 import UserDAO, { User } from './dao/UserDAO.js';
 import { fmt, Formatted, join } from './format.js';
-import { mentionText, parseMention } from './rsvp.js';
+import { mentionText } from './rsvp.js';
+import { parseMention } from './mention.js';
 
 const userDao = new UserDAO();
 
