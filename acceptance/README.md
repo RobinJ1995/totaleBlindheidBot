@@ -17,8 +17,9 @@ out — with all external dependencies stubbed.
 | `discord-mock`  | Fake Discord: the REST API subset the bot uses plus a gateway WebSocket that the real discord.js connects to (`DISCORD_API_BASE_URL`). Tests define servers/channels, speak as Discord users and read the bot's posts from an outbox. |
 | `behave`        | Runs the feature suite and asserts on the bot's behaviour.           |
 
-The bot needs no source changes beyond honouring `TELEGRAM_API_BASE_URL` (so it can
-poll the mock); everything else is configured through existing env vars.
+The bot needs no source changes beyond honouring `TELEGRAM_API_BASE_URL` and
+`DISCORD_API_BASE_URL` (so it talks to the mocks); everything else is configured
+through existing env vars.
 
 ## Running locally
 

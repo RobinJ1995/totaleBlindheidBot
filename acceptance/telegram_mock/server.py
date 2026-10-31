@@ -39,6 +39,11 @@ _next_message_id: int = 1000
 # the feedback shown for a button tap (e.g. an expired RSVP).
 _callback_answers: List[Dict[str, Any]] = []
 
+# (chat_id, user_id) -> status for getChatMember; anyone not registered is "user not found".
+_members: Dict[Any, str] = {}
+
+_users: Dict[str, Dict[str, Any]] = {}
+
 
 def _reset() -> None:
     # NOTE: _next_update_id is deliberately NOT reset. The bot's long-poll
@@ -49,6 +54,8 @@ def _reset() -> None:
     _updates = []
     _outbox = []
     _callback_answers = []
+    _members.clear()
+    _users.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +139,14 @@ def bot_api(token: str, method: str) -> Response:
                 "text": params.get("text"),
             })
         return jsonify({"ok": True, "result": True})
+    elif method == "getChatMember":
+        with _lock:
+            user_id = str(params.get("user_id"))
+            status = _members.get((str(params.get("chat_id")), user_id))
+            user = _users.get(user_id) or {"id": _maybe_int(user_id), "is_bot": False, "first_name": f"User{user_id}"}
+        if status is None:
+            return jsonify({"ok": False, "error_code": 400, "description": "Bad Request: user not found"})
+        return jsonify({"ok": True, "result": {"status": status, "user": user}})
     elif method == "getMe":
         return jsonify({
             "ok": True,
@@ -174,10 +189,23 @@ def inject() -> Response:
             update = {"message": body}
         update["update_id"] = _next_update_id
         _next_update_id += 1
+        sender = (update.get("message") or update.get("callback_query") or {}).get("from")
+        if sender and "id" in sender:
+            _users[str(sender["id"])] = sender
         _updates.append(update)
         _updates_available.notify_all()
         update_id = update["update_id"]
     return jsonify({"ok": True, "update_id": update_id})
+
+
+@app.route("/test/chat-members", methods=["POST"])
+def add_chat_member() -> Response:
+    """Make getChatMember report a user as a member of a chat with the given status
+    (creator / administrator / member)."""
+    body = request.get_json(force=True) or {}
+    with _lock:
+        _members[(str(body["chat_id"]), str(body["user_id"]))] = body.get("status", "member")
+    return jsonify({"ok": True})
 
 
 @app.route("/test/outbox", methods=["GET"])

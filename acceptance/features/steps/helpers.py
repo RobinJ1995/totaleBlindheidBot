@@ -29,6 +29,7 @@ _APP_TABLES: List[str] = [
     "rollcall_player", "rsvp_list", "rsvp_entry", "rsvp_message", "rollcall_schedule", "tagged_message",
     "github_state", "game_update", "steam_storage",
     "presence_event", "match_stream_cursor", "game_history_coplayer", "game_history",
+    "chat_link",
 ]
 
 # How long to wait for the bot to poll an update and produce a reply.
@@ -139,7 +140,7 @@ def inject_message(
     message: Dict[str, Any] = {
         "message_id": int(time.time() * 1000) % 1000000,
         "date": int(time.time()),
-        "chat": {"id": int(chat_id), "type": "group"},
+        "chat": {"id": int(chat_id), "type": "group", "title": f"Group {chat_id}"},
         "from": {
             "id": int(user["id"]),
             "is_bot": False,
@@ -253,6 +254,16 @@ def button_labels(message: Dict[str, Any]) -> List[str]:
         for row in markup.get("inline_keyboard", [])
         for button in row
     ]
+
+
+def make_admin(chat_id: int, user_id: int) -> None:
+    """Have the Telegram mock report the user as an administrator of the chat."""
+    resp = requests.post(
+        f"{TELEGRAM_MOCK_URL}/test/chat-members",
+        json={"chat_id": chat_id, "user_id": user_id, "status": "administrator"},
+        timeout=5,
+    )
+    resp.raise_for_status()
 
 
 def button_styles(message: Dict[str, Any]) -> Dict[Optional[str], Optional[str]]:
