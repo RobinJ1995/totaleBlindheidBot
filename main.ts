@@ -13,6 +13,7 @@ import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import DiscordService, { SlashCommand } from './discord/DiscordService.js';
 import VoicePresence from './discord/VoicePresence.js';
+import VoiceSoundPlayer from './discord/VoiceSoundPlayer.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
 import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
 import { asFormatted, Part } from './format.js';
@@ -184,6 +185,11 @@ discordService?.onCommand(handleDiscordCommand);
 if (discordService) {
     const voicePresence = new VoicePresence(discordService);
     discordService.onVoiceChange(guild_id => voicePresence.sync(guild_id));
+    const voiceSoundPlayer = new VoiceSoundPlayer();
+    steamService?.onMatchFinished((chat_id, result) => {
+        voiceSoundPlayer.announce(chat_id, result)
+            .catch((err: Error) => console.error(`Error playing the ${result} sound for chat ${chat_id}:`, err));
+    });
 }
 discordService?.onButton(handleDiscordButton);
 

@@ -7,7 +7,7 @@
     "license": "GPL-3.0",
     "scripts": {
         "start": "node --loader ts-node/esm main.ts",
-        "build": "tsc && cp dao/schema.sql dist/dao/schema.sql",
+        "build": "tsc && cp dao/schema.sql dist/dao/schema.sql && cp -r assets dist/",
         "test": "npm run build && node --test dist/test/*.test.js"
     },
     "engines": {
