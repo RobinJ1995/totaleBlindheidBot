@@ -98,6 +98,9 @@ export const PRESENCE_EMOJI: Record<Presence, string> = {
     unlinked: '😶‍🌫️'
 };
 
+export type MatchResult = 'win' | 'loss' | 'tie';
+export type MatchFinishedListener = (chatId: number, result: MatchResult) => void;
+
 class SteamService {
     private bot: Bot;
     private client: SteamUser; // Initialize in constructor
@@ -118,6 +121,7 @@ class SteamService {
     // Last presence reported to the presence-change listeners, per Telegram user.
     private lastPresence: Map<number, Presence | undefined> = new Map();
     private presenceListeners: ((tgUserId: number) => void)[] = [];
+    private matchFinishedListeners: MatchFinishedListener[] = [];
     private friendsListLoaded: boolean = false;
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
@@ -856,7 +860,7 @@ class SteamService {
     }
 
     // win/loss/tie classification of a raw "16-14" score (player-opponent), or null if unparseable.
-    private matchResult(score?: string): 'win' | 'loss' | 'tie' | null {
+    private matchResult(score?: string): MatchResult | null {
         const parsed = this.parseRawScore(score);
         if (!parsed) {
             return null;
@@ -989,6 +993,7 @@ class SteamService {
             return;
         }
 
+        this.matchFinishedListeners.forEach(listener => listener(chatId, result));
         const sent = await sendMirrored(this.bot, chatId, text, STEAM_AUTHOR);
         if (sent && sent.message_id) {
             await this.gameHistoryDao.setGameHistoryMessageId(historyId, sent.message_id);
@@ -1073,6 +1078,11 @@ class SteamService {
     // Called with a Telegram user id whenever that user's presence changes.
     onPresenceChange(listener: (tgUserId: number) => void): void {
         this.presenceListeners.push(listener);
+    }
+
+    // Called once per finished match per chat, when its end-of-game message is first posted.
+    onMatchFinished(listener: MatchFinishedListener): void {
+        this.matchFinishedListeners.push(listener);
     }
 
     // Steam re-sends a user on every rich presence tick, so only tell listeners when the user's
