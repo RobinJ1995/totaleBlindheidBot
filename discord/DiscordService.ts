@@ -25,6 +25,7 @@ import {
     User,
     WebhookClient
 } from 'discord.js';
+import { getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus } from '@discordjs/voice';
 import ChatLinkDAO, { ChatLink } from '../dao/ChatLinkDAO.js';
 import { DiscordIdentity } from '../dao/UserDAO.js';
 import { splitMessage, toDiscordMarkdown } from './markdown.js';
@@ -76,6 +77,12 @@ export type DiscordDeleteHandler = (channel_id: string, message_id: string, link
 export type DiscordReactionHandler = (channel_id: string, message_id: string, user_id: string, emoji: string, added: boolean) => Promise<void>;
 export type DiscordCommandHandler = (interaction: ChatInputCommandInteraction, link: ChatLink) => Promise<void>;
 export type DiscordButtonHandler = (interaction: ButtonInteraction, link: ChatLink) => Promise<void>;
+export type DiscordVoiceHandler = (guild_id: string) => Promise<void>;
+
+export interface VoiceMember {
+    user_id: string;
+    channel_id: string;
+}
 
 export interface SlashCommand {
     name: string;
@@ -105,6 +112,7 @@ class DiscordService {
     private reactionHandlers: DiscordReactionHandler[] = [];
     private commandHandlers: DiscordCommandHandler[] = [];
     private buttonHandlers: DiscordButtonHandler[] = [];
+    private voiceHandlers: DiscordVoiceHandler[] = [];
     private slashCommands: SlashCommand[] = [];
 
     constructor() {
@@ -114,7 +122,7 @@ class DiscordService {
             ...(process.env.DISCORD_CDN_BASE_URL ? { cdn: process.env.DISCORD_CDN_BASE_URL, mediaProxy: process.env.DISCORD_CDN_BASE_URL } : {})
         };
         this.client = new Client({
-            intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
+            intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildVoiceStates],
             // Edits to messages from before a restart arrive uncached.
             partials: [Partials.Message, Partials.Reaction, Partials.User],
             rest: this.restOptions
@@ -142,6 +150,8 @@ class DiscordService {
         this.client.on('interactionCreate', (interaction: Interaction) => {
             this.handleInteraction(interaction).catch((err: Error) => console.error('Error handling Discord interaction:', err));
         });
+        this.client.on('voiceStateUpdate', (_old, state) => this.handleVoiceChange(state.guild.id));
+        this.client.on('clientReady', () => this.client.guilds.cache.forEach(guild => this.handleVoiceChange(guild.id)));
         DiscordService.instance = this;
     }
 
@@ -177,6 +187,50 @@ class DiscordService {
 
     onButton(handler: DiscordButtonHandler): void {
         this.buttonHandlers.push(handler);
+    }
+
+    // Called with a guild whenever who is in which of its voice channels may have changed.
+    onVoiceChange(handler: DiscordVoiceHandler): void {
+        this.voiceHandlers.push(handler);
+    }
+
+    private handleVoiceChange(guild_id: string): void {
+        this.voiceHandlers.forEach(handler => handler(guild_id)
+            .catch((err: Error) => console.error(`Error handling Discord voice change in guild ${guild_id}:`, err)));
+    }
+
+    // Everyone but the bot who is in a voice channel of the guild.
+    voiceMembers(guild_id: string): VoiceMember[] {
+        const states = this.client.guilds.cache.get(guild_id)?.voiceStates.cache;
+        return Array.from(states?.values() ?? [])
+            .filter(state => state.channelId && state.id !== this.client.user?.id)
+            .map(state => ({ user_id: state.id, channel_id: state.channelId as string }));
+    }
+
+    // The voice channel the bot is connected to in the guild.
+    voiceChannel(guild_id: string): string | undefined {
+        const connection = getVoiceConnection(guild_id);
+        if (!connection || connection.state.status === VoiceConnectionStatus.Disconnected) {
+            return undefined;
+        }
+        return connection.joinConfig.channelId ?? undefined;
+    }
+
+    joinVoice(guild_id: string, channel_id: string): void {
+        const guild = this.client.guilds.cache.get(guild_id);
+        if (!guild) {
+            return;
+        }
+        const connection = getVoiceConnection(guild_id);
+        if (connection) {
+            connection.rejoin({ channelId: channel_id, selfDeaf: true, selfMute: false });
+            return;
+        }
+        joinVoiceChannel({ guildId: guild_id, channelId: channel_id, adapterCreator: guild.voiceAdapterCreator, selfDeaf: true });
+    }
+
+    leaveVoice(guild_id: string): void {
+        getVoiceConnection(guild_id)?.destroy();
     }
 
     private async handleInteraction(interaction: Interaction): Promise<void> {

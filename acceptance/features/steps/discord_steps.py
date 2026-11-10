@@ -474,3 +474,39 @@ def step_no_reply_deleted(context: Context, channel_id: str) -> None:
     time.sleep(2)
     deleted = [m for m in helpers.discord_outbox(channel_id)[_baseline(context, channel_id):] if m["method"] == "deleteReply"]
     assert not deleted, f"A slash command reply was deleted in channel {channel_id}"
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" joins voice channel "(?P<channel_id>\\d+)" in server "(?P<guild_id>\\d+)"')
+def step_discord_user_joins_voice(context: Context, username: str, name: str, user_id: str, channel_id: str, guild_id: str) -> None:
+    helpers.discord_set_voice(guild_id, _author(username, name, user_id), channel_id)
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" leaves voice in server "(?P<guild_id>\\d+)"')
+def step_discord_user_leaves_voice(context: Context, username: str, name: str, user_id: str, guild_id: str) -> None:
+    helpers.discord_set_voice(guild_id, _author(username, name, user_id), None)
+
+
+@then('the bot joins voice channel "(?P<channel_id>\\d+)" in server "(?P<guild_id>\\d+)"')
+def step_bot_joins_voice(context: Context, channel_id: str, guild_id: str) -> None:
+    channels = helpers.discord_wait_for_bot_voice(guild_id, lambda seen: bool(seen) and seen[-1] == channel_id)
+    assert channels and channels[-1] == channel_id, f"Expected the bot in voice channel {channel_id}, it asked for: {channels}"
+
+
+@then('the bot leaves voice in server "(?P<guild_id>\\d+)"')
+def step_bot_leaves_voice(context: Context, guild_id: str) -> None:
+    channels = helpers.discord_wait_for_bot_voice(guild_id, lambda seen: bool(seen) and seen[-1] is None)
+    assert channels and channels[-1] is None, f"Expected the bot to leave voice, it asked for: {channels}"
+
+
+@then('the bot stays in voice channel "(?P<channel_id>\\d+)" in server "(?P<guild_id>\\d+)"')
+def step_bot_stays_in_voice(context: Context, channel_id: str, guild_id: str) -> None:
+    time.sleep(3.0)
+    channels = helpers.discord_bot_voice(guild_id)
+    assert channels and channels[-1] == channel_id, f"Expected the bot to stay in voice channel {channel_id}, it asked for: {channels}"
+
+
+@then('the bot stays out of voice in server "(?P<guild_id>\\d+)"')
+def step_bot_stays_out_of_voice(context: Context, guild_id: str) -> None:
+    time.sleep(3.0)
+    channels = helpers.discord_bot_voice(guild_id)
+    assert all(channel is None for channel in channels), f"Expected the bot to stay out of voice, it asked for: {channels}"

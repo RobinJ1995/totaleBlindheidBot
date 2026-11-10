@@ -12,6 +12,7 @@ import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
 import DiscordService, { SlashCommand } from './discord/DiscordService.js';
+import VoicePresence from './discord/VoicePresence.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
 import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
 import { asFormatted, Part } from './format.js';
@@ -180,6 +181,10 @@ const handleDiscordButton = async (interaction: ButtonInteraction, link: ChatLin
 };
 
 discordService?.onCommand(handleDiscordCommand);
+if (discordService) {
+    const voicePresence = new VoicePresence(discordService);
+    discordService.onVoiceChange(guild_id => voicePresence.sync(guild_id));
+}
 discordService?.onButton(handleDiscordButton);
 
 const registerAllDiscordCommands = async (): Promise<void> => {

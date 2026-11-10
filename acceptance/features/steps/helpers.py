@@ -536,6 +536,28 @@ def discord_button_labels(message: Dict[str, Any]) -> List[str]:
     return [button.get("label") for row in rows for button in row.get("components", [])]
 
 
+def discord_set_voice(guild_id: str, user: Dict[str, Any], channel_id: Optional[str]) -> None:
+    body: Dict[str, Any] = {"guild_id": guild_id, "user": user, "channel_id": channel_id}
+    requests.post(f"{DISCORD_MOCK_URL}/test/voice_state", json=body, timeout=5).raise_for_status()
+
+
+def discord_bot_voice(guild_id: str) -> List[Optional[str]]:
+    """Every voice channel the bot asked to be in, in order; None is a leave."""
+    resp = requests.get(f"{DISCORD_MOCK_URL}/test/bot_voice", params={"guild_id": guild_id}, timeout=5)
+    resp.raise_for_status()
+    return resp.json()["channels"]
+
+
+def discord_wait_for_bot_voice(guild_id: str, accept: Callable[[List[Optional[str]]], bool], timeout: float = REPLY_TIMEOUT) -> List[Optional[str]]:
+    deadline: float = time.time() + timeout
+    while time.time() < deadline:
+        channels: List[Optional[str]] = discord_bot_voice(guild_id)
+        if accept(channels):
+            return channels
+        time.sleep(POLL_INTERVAL)
+    return discord_bot_voice(guild_id)
+
+
 def discord_outbox(channel_id: Optional[str] = None) -> List[Dict[str, Any]]:
     params: Dict[str, str] = {"channel_id": channel_id} if channel_id is not None else {}
     resp = requests.get(f"{DISCORD_MOCK_URL}/test/outbox", params=params, timeout=5)

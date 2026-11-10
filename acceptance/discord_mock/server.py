@@ -55,6 +55,8 @@ _webhooks: Dict[str, Dict[str, Any]] = {}    # webhook id -> webhook object (wit
 _outbox: List[Dict[str, Any]] = []           # everything the bot posted, in order
 _messages: Dict[str, Dict[str, Any]] = {}    # message id -> message object, for edits and deletions
 _threads: Dict[str, Dict[str, Any]] = {}     # thread id -> thread channel object
+_voice_states: Dict[str, Dict[str, Dict[str, Any]]] = {}  # guild id -> {user id: user}, for everyone in a voice channel
+_bot_voice: Dict[str, List[Optional[str]]] = {}  # guild id -> every voice channel the bot asked for, None being a leave
 _ids = itertools.count(100000000000000001)   # snowflake-ish ids for messages and webhooks
 
 _loop: Optional[asyncio.AbstractEventLoop] = None
@@ -234,6 +236,9 @@ async def _gateway_connection(socket) -> None:
                 await socket.send(json.dumps({"op": 0, "t": "READY", "s": next(_sequence), "d": ready}))
                 for guild in guild_objects:
                     await socket.send(json.dumps({"op": 0, "t": "GUILD_CREATE", "s": next(_sequence), "d": guild}))
+            elif op == 4:  # voice state update: the bot joins, moves or leaves
+                with _lock:
+                    _bot_voice.setdefault(payload["d"]["guild_id"], []).append(payload["d"]["channel_id"])
             elif op == 6:  # resume
                 await socket.send(json.dumps({"op": 0, "t": "RESUMED", "s": next(_sequence), "d": {}}))
     finally:
@@ -813,6 +818,36 @@ def react() -> Response:
     return jsonify({"ok": True})
 
 
+def _voice_state(guild_id: str, user: Dict[str, Any], channel_id: Optional[str]) -> Dict[str, Any]:
+    return {
+        "guild_id": guild_id, "channel_id": channel_id, "user_id": user["id"], "session_id": f"voice-{user['id']}",
+        "member": {"user": user, "nick": None, "roles": [], "joined_at": _now(), "deaf": False, "mute": False, "flags": 0},
+        "deaf": False, "mute": False, "self_deaf": False, "self_mute": False, "self_video": False, "suppress": False,
+        "request_to_speak_timestamp": None,
+    }
+
+
+@app.route("/test/voice_state", methods=["POST"])
+def set_voice_state() -> Response:
+    """A Discord user joins or moves to a voice channel, or leaves voice when `channel_id` is null."""
+    body = request.get_json(force=True) or {}
+    user = {"discriminator": "0", "avatar": None, "bot": False, "global_name": None, **body["user"]}
+    with _lock:
+        states = _voice_states.setdefault(body["guild_id"], {})
+        if body.get("channel_id"):
+            states[user["id"]] = user
+        else:
+            states.pop(user["id"], None)
+    _dispatch("VOICE_STATE_UPDATE", _voice_state(body["guild_id"], user, body.get("channel_id")))
+    return jsonify({"ok": True})
+
+
+@app.route("/test/bot_voice", methods=["GET"])
+def bot_voice() -> Response:
+    with _lock:
+        return jsonify({"ok": True, "channels": list(_bot_voice.get(request.args["guild_id"], []))})
+
+
 @app.route("/test/thread", methods=["POST"])
 def start_thread() -> Response:
     """A Discord user starts a public thread on a message; Discord announces it in the channel."""
@@ -933,11 +968,17 @@ def test_webhooks() -> Response:
 
 @app.route("/test/reset", methods=["POST"])
 def reset() -> Response:
-    """Forget what the bot posted. Servers and webhooks persist, since the bot's database does too."""
+    """Forget what the bot posted and empty the voice channels. Servers and webhooks persist, since
+    the bot's database does too."""
     with _lock:
         _outbox.clear()
         _files.clear()
         _messages.clear()
+        leaving = [(guild_id, user) for guild_id, states in _voice_states.items() for user in states.values()]
+        _voice_states.clear()
+        _bot_voice.clear()
+    for guild_id, user in leaving:
+        _dispatch("VOICE_STATE_UPDATE", _voice_state(guild_id, user, None))
     return jsonify({"ok": True})
 
 
