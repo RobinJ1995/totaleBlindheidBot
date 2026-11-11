@@ -8,6 +8,7 @@ import { toDiscordMarkdown } from '../discord/markdown.js';
 import UserReferenceResolver from '../UserReferenceResolver.js';
 import UserPicker from '../UserPicker.js';
 import SteamService, { FriendRequests } from '../SteamService.js';
+import { isBotAdmin } from '../admin.js';
 
 const dao = new UserDAO();
 const resolver = new UserReferenceResolver(dao);
@@ -20,11 +21,6 @@ const SPECIFY_IDS = 'Please specify your Steam user ID(s) as SteamID64 (the 17-d
 
 // "<chat_id>:<picker message_id>" -> the user the admin's reply to that message sets Steam IDs for.
 const prompts: Map<string, { user_id: number, name: string }> = new Map();
-
-const isAdmin = (userId?: number): boolean => {
-    const admin = process.env.STEAM_ADMIN_TELEGRAM_USER_ID;
-    return !!admin && String(userId) === admin;
-};
 
 const parseIds = (arg: string): string[] | null => {
     const ids: string[] = arg.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -76,7 +72,7 @@ export default (bot: Bot, cmd: Command): void | Promise<unknown> => {
 const handleTelegram = (bot: Bot, msg: ExtendedMessage): void => {
     const [first = '', ...rest] = msg.command.argumentTokens;
     const mention = msg.entities?.find(e => e.type === 'text_mention' && e.user);
-    const admin: boolean = isAdmin(msg.from?.id);
+    const admin: boolean = isBotAdmin(msg.from?.id);
     // Anything but Steam IDs in front of more arguments names whose IDs those are.
     const namesSomeone: boolean = rest.length > 0 && !/^[\d,]+$/.test(first);
 
@@ -118,7 +114,7 @@ export const handleSteamIdCallback = (bot: Bot, query: CallbackQuery): void => {
     const message = query.message;
     if (!message || !query.data) {
         return;
-    } else if (!isAdmin(query.from.id)) {
+    } else if (!isBotAdmin(query.from.id)) {
         bot.api.answerCallbackQuery({ callback_query_id: query.id, text: ADMIN_ONLY }).catch(() => undefined);
         return;
     }
@@ -141,7 +137,7 @@ export const handleSteamIdCallback = (bot: Bot, query: CallbackQuery): void => {
 export const handleSteamIdReply = (bot: Bot, msg: Message): boolean => {
     const key = `${msg.chat.id}:${msg.reply_to_message?.message_id}`;
     const target = prompts.get(key);
-    if (!target || !msg.text || !isAdmin(msg.from?.id)) {
+    if (!target || !msg.text || !isBotAdmin(msg.from?.id)) {
         return false;
     }
 
