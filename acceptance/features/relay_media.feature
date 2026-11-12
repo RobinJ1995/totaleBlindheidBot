@@ -29,9 +29,15 @@ Feature: relaying photos, files and stickers between Telegram and Discord
     When the user sends an animated sticker "😀"
     Then Discord channel "81011" receives "😀 (animated sticker)" from "Tester"
 
-  Scenario: voice messages are noted, not relayed
+  Scenario: voice and video notes reach Discord as files
     When the user sends a voice message
-    Then Discord channel "81011" receives "[voice message]" from "Tester"
+    Then Discord channel "81011" receives a file "voice.ogg" from "Tester" with text ""
+    When the user sends a video note
+    Then Discord channel "81011" receives a file "video.mp4" from "Tester" with text ""
+
+  Scenario: a voice message too big for the bot to download becomes a placeholder
+    When the user sends a 25 MB voice message
+    Then Discord channel "81011" receives "[voice.ogg, 25 MB]" from "Tester"
 
   Scenario: a location reaches Discord as a maps link
     When the user shares the location 52.3731, 4.8922
@@ -65,6 +71,12 @@ Feature: relaying photos, files and stickers between Telegram and Discord
     Then the bot sends a video "clip.mp4" with caption "alice:"
     When Discord user "alice" named "Alice" with id "810100000000000002" sends a file "rules.pdf" saying "read me" in channel "81011"
     Then the bot sends a document "rules.pdf" with caption "alice: read me"
+
+  Scenario: Discord voice messages reach Telegram as voice, other audio as audio
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a voice message "voice-message.ogg" in channel "81011"
+    Then the bot sends a voice "voice-message.ogg" with caption "alice:"
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends an audio file "song.mp3" saying "listen" in channel "81011"
+    Then the bot sends an audio "song.mp3" with caption "alice: listen"
 
   Scenario: Discord stickers reach Telegram as images, Lottie ones as a note
     When Discord user "alice" named "Alice" with id "810100000000000002" sends a sticker "wave" in PNG format in channel "81011"
