@@ -182,6 +182,16 @@ class RsvpDAO {
         ).then(() => undefined);
     }
 
+    async getLatestYesVoters(chat_id: number): Promise<number[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT e.user_id FROM rsvp_entry e ' +
+            'WHERE e.rsvp = \'yes\' AND e.rsvp_list_id = ' +
+            '(SELECT id FROM rsvp_list WHERE chat_id = :chat_id ORDER BY created_at DESC, id DESC LIMIT 1)',
+            { chat_id }
+        );
+        return rows.map(row => Number(row.user_id));
+    }
+
     deleteRsvpList(rsvp_id: number): Promise<void> {
         return query<ResultSetHeader>('DELETE FROM rsvp_list WHERE id = :id', { id: rsvp_id }).then(() => undefined);
     }

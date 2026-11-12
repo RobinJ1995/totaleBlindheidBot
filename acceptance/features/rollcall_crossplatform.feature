@@ -12,8 +12,8 @@ Feature: rollcalls and wingman calls across Telegram and Discord
     And Discord channel "100021" is linked to the chat
 
   Scenario: linked servers offer the cross-platform commands as slash commands
-    Then Discord server "10001" offers the slash commands "hi, rollcall, schedule, cancel, timezone, wingman, steam_user_id, game_history, stats, help, rollcall_get_players"
-    And Discord server "10002" offers the slash commands "hi, rollcall, schedule, cancel, timezone, wingman, steam_user_id, game_history, stats, help, rollcall_get_players"
+    Then Discord server "10001" offers the slash commands "hi, rollcall, schedule, cancel, timezone, wingman, steam_user_id, game_history, stats, map, help, rollcall_get_players"
+    And Discord server "10002" offers the slash commands "hi, rollcall, schedule, cancel, timezone, wingman, steam_user_id, game_history, stats, map, help, rollcall_get_players"
 
   Scenario: a Telegram rollcall is posted in every linked channel with its buttons
     When the user sends "/rollcall"
