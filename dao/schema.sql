@@ -272,3 +272,10 @@ CREATE TABLE IF NOT EXISTS relayed_reaction (
     CONSTRAINT fk_relayed_reaction_message FOREIGN KEY (relayed_id)
         REFERENCES relayed_message (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which ISO weeks each chat has had its weekly recap for.
+CREATE TABLE IF NOT EXISTS weekly_recap (
+    chat_id  BIGINT     NOT NULL,
+    iso_week VARCHAR(8) NOT NULL,
+    PRIMARY KEY (chat_id, iso_week)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

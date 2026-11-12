@@ -11,6 +11,7 @@ import RsvpDAO from './dao/RsvpDAO.js';
 import UserDAO from './dao/UserDAO.js';
 import SteamService from './SteamService.js';
 import GitHubService from './GitHubService.js';
+import RecapService from './RecapService.js';
 import DiscordService, { SlashCommand } from './discord/DiscordService.js';
 import { toDiscordMarkdown } from './discord/markdown.js';
 import ChatLinkDAO, { ChatLink } from './dao/ChatLinkDAO.js';
@@ -218,6 +219,7 @@ ensureSchema()
         console.log('Database schema ready.');
         steamService?.start();
         githubService.start();
+        new RecapService(bot).start();
         discordService?.start(registerAllDiscordCommands);
         startTaggedMessageSweep(bot);
         startPolling();

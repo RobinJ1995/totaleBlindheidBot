@@ -81,6 +81,9 @@ services:
       TAGGED_MESSAGE_SWEEP_MS: "1000"
       # Fire due scheduled rollcalls without waiting half a minute.
       SCHEDULE_CHECK_MS: "1000"
+      # Stop the weekly recap's clock on a Sunday evening (20:30 in Amsterdam) and check every second.
+      RECAP_NOW: "2020-03-01T19:30:00Z"
+      RECAP_CHECK_MS: "1000"
       GITHUB_API_BASE_URL: http://github-mock:8082
       GITHUB_REPO: acceptance/repo
       GITHUB_POLL_INTERVAL_MS: "1000"

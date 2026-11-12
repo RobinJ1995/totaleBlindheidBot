@@ -1,0 +1,53 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { isCompetitive, Tally, TallyGroups } from '../stats/Tally.js';
+import { GameHistoryEntry } from '../dao/GameHistoryDAO.js';
+
+const game = (map: string | undefined, score: string | undefined): GameHistoryEntry => ({
+    chat_id: 1,
+    user_id: 1,
+    mode: 'Competitive',
+    map,
+    score,
+    co_players: [],
+    ended_at: new Date('2026-01-01T12:00:00.000Z')
+});
+
+test('competitive and premier modes count as competitive, others do not', () => {
+    assert.equal(isCompetitive('Competitive'), true);
+    assert.equal(isCompetitive('Premier - Competitive'), true);
+    assert.equal(isCompetitive('premier'), true);
+    assert.equal(isCompetitive('Wingman'), false);
+    assert.equal(isCompetitive(undefined), false);
+});
+
+test('adding results returns a new tally and leaves the original alone', () => {
+    const tally = Tally.EMPTY.add('win').add('loss').add('tie').add(null);
+    assert.deepEqual(
+        { games: tally.games, wins: tally.wins, losses: tally.losses, ties: tally.ties, decisive: tally.decisive },
+        { games: 4, wins: 1, losses: 1, ties: 1, decisive: 3 }
+    );
+    assert.equal(Tally.EMPTY.games, 0);
+});
+
+test('tally groups count each entry under its key and skip entries without one', () => {
+    const groups = TallyGroups.of([game('Nuke', '13-7'), game('Nuke', '7-13'), game(undefined, '13-1')], e => e.map);
+    assert.deepEqual(groups.entries().map(([map, t]) => [map, t.games, t.wins, t.losses]), [['Nuke', 2, 1, 1]]);
+});
+
+test('the most played key wins, the first seen breaking ties', () => {
+    const groups = TallyGroups.of([game('Nuke', '13-7'), game('Inferno', '13-7'), game('Inferno', '7-13'), game('Ancient', '1-13'), game('Ancient', '1-13')], e => e.map);
+    assert.equal(groups.mostPlayed()?.[0], 'Inferno');
+    assert.equal(TallyGroups.of([], e => e.map).mostPlayed(), null);
+});
+
+test('picking by a metric takes the highest share, more games breaking ties', () => {
+    const groups = TallyGroups.of([game('Nuke', '13-7'), game('Inferno', '13-7'), game('Inferno', '13-7'), game('Ancient', '7-13')], e => e.map);
+    assert.equal(groups.pick(t => t.wins)?.[0], 'Inferno');
+    assert.equal(groups.pick(t => t.losses)?.[0], 'Ancient');
+});
+
+test('picking returns nothing when no key scores on the metric', () => {
+    const groups = TallyGroups.of([game('Nuke', '13-7')], e => e.map);
+    assert.equal(groups.pick(t => t.losses), null);
+});

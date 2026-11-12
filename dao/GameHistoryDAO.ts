@@ -24,6 +24,7 @@ export interface GameHistoryEntry {
     mode?: string;
     map?: string;
     score?: string;        // raw final score, e.g. "16-14"
+    message_id?: number | null; // shared by the players announced together
     co_players: GameHistoryCoPlayer[];
     started_at?: Date;
     ended_at: Date;
@@ -58,52 +59,75 @@ export interface FinishedMatch {
     message_id: number | null;
 }
 
+const HISTORY_WITH_CO_PLAYERS =
+    'SELECT h.id, h.chat_id, h.user_id, h.player_name, h.mode, h.map, h.score, h.message_id, h.started_at, h.ended_at, ' +
+    '       c.co_user_id, c.name AS co_name ' +
+    'FROM game_history h ' +
+    'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ';
+
 class GameHistoryDAO {
-    private _coPlayerFromRow(row: RowDataPacket): GameHistoryCoPlayer | null {
+    private static _coPlayerFromRow(row: RowDataPacket): GameHistoryCoPlayer | null {
         if (row.co_user_id == null) {
             return null;
         }
         return { tg_user_id: Number(row.co_user_id), name: row.co_name ?? String(row.co_user_id) };
     }
 
+    // Joined history+co-player rows folded into one entry per match, in row order.
+    static entriesFromRows(rows: RowDataPacket[]): GameHistoryEntry[] {
+        const byId = new Map<number, GameHistoryEntry>();
+        rows.forEach(row => {
+            const id = Number(row.id);
+            const entry: GameHistoryEntry = byId.get(id) ?? {
+                id,
+                chat_id: Number(row.chat_id),
+                user_id: Number(row.user_id),
+                player_name: row.player_name ?? undefined,
+                mode: row.mode ?? undefined,
+                map: row.map ?? undefined,
+                score: row.score ?? undefined,
+                message_id: row.message_id == null ? null : Number(row.message_id),
+                co_players: [],
+                started_at: row.started_at ?? undefined,
+                ended_at: row.ended_at
+            };
+            byId.set(id, entry);
+            const co = GameHistoryDAO._coPlayerFromRow(row);
+            if (co) {
+                entry.co_players.push(co);
+            }
+        });
+        return [...byId.values()];
+    }
+
     // The caller's finished matches for a chat, oldest first (newest at the bottom).
     async getGameHistory(chat_id: number, user_id: number): Promise<GameHistoryEntry[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT h.id, h.chat_id, h.user_id, h.mode, h.map, h.score, h.started_at, h.ended_at, ' +
-            '       c.co_user_id, c.name AS co_name ' +
-            'FROM game_history h ' +
-            'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ' +
+            HISTORY_WITH_CO_PLAYERS +
             'WHERE h.chat_id = :chat_id AND h.user_id = :user_id ' +
             'ORDER BY h.id ASC',
             { chat_id, user_id }
         );
+        return GameHistoryDAO.entriesFromRows(rows);
+    }
 
-        const byId = new Map<number, GameHistoryEntry>();
-        const order: number[] = [];
-        for (const row of rows) {
-            const id = Number(row.id);
-            let entry = byId.get(id);
-            if (!entry) {
-                entry = {
-                    id,
-                    chat_id: Number(row.chat_id),
-                    user_id: Number(row.user_id),
-                    mode: row.mode ?? undefined,
-                    map: row.map ?? undefined,
-                    score: row.score ?? undefined,
-                    co_players: [],
-                    started_at: row.started_at ?? undefined,
-                    ended_at: row.ended_at
-                };
-                byId.set(id, entry);
-                order.push(id);
-            }
-            const co = this._coPlayerFromRow(row);
-            if (co) {
-                entry.co_players.push(co);
-            }
-        }
-        return order.map(id => byId.get(id)!);
+    // Every player's finished matches in a chat, optionally only those ended at or after `since`.
+    async getChatHistory(chat_id: number, since?: Date): Promise<GameHistoryEntry[]> {
+        const rows = await query<RowDataPacket[]>(
+            HISTORY_WITH_CO_PLAYERS +
+            'WHERE h.chat_id = :chat_id AND (:since IS NULL OR h.ended_at >= :since) ' +
+            'ORDER BY h.id ASC',
+            { chat_id, since: since ?? null }
+        );
+        return GameHistoryDAO.entriesFromRows(rows);
+    }
+
+    async getChatsWithHistoryBetween(since: Date, until: Date): Promise<number[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT DISTINCT chat_id FROM game_history WHERE ended_at >= :since AND ended_at < :until',
+            { since, until }
+        );
+        return rows.map(row => Number(row.chat_id));
     }
 
     // The player's matches that finished during the current play session (ended at or after
@@ -234,7 +258,7 @@ class GameHistoryDAO {
                 byId.set(id, sib);
                 order.push(id);
             }
-            const co = this._coPlayerFromRow(row);
+            const co = GameHistoryDAO._coPlayerFromRow(row);
             if (co) {
                 sib.co_players.push(co);
             }
