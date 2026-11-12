@@ -11,6 +11,7 @@ import { bold, fmt, Formatted, sameFormatted } from './format.js';
 import { deleteMirrored, editMirrored, sendMirrored } from './messenger.js';
 import { parseMention } from './mention.js';
 import Streak from './stats/Streak.js';
+import RichPresence, { RichPresenceSource } from './RichPresence.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
     segmentStream, findCoPlayers, deriveRounds, continuesMatch, parseRawScore as parseRawScoreFn,
@@ -83,17 +84,10 @@ interface GameUpdateInfo {
     score?: string;
 }
 
-interface SteamRichPresenceItem {
-    key: string;
-    value: string;
-}
-
-interface SteamUserUpdate {
+interface SteamUserUpdate extends RichPresenceSource {
     player_name?: string;
     persona_name?: string;
     gameid?: string | number;
-    rich_presence?: SteamRichPresenceItem[] | Record<string, string>;
-    rich_presence_string?: string;
     game_played_app_id?: number | null;
     online_session_instances?: number | null;
 }
@@ -393,48 +387,8 @@ class SteamService {
 
         console.debug(`User update: ${playerName} (${steamId}) is playing CS2`);
 
-        // Extract game info from rich presence
-        let map: string | undefined, status: string | undefined, score: string | undefined, mode: string | undefined, party: string | undefined;
-        const rp = user.rich_presence;
-        if (Array.isArray(rp)) {
-            map = rp.find((i: SteamRichPresenceItem) => i.key === 'game:map' || i.key === 'map')?.value;
-            status = rp.find((i: SteamRichPresenceItem) => i.key === 'status')?.value;
-            score = rp.find((i: SteamRichPresenceItem) => i.key === 'game:score' || i.key === 'score')?.value;
-            mode = rp.find((i: SteamRichPresenceItem) => i.key === 'game:mode' || i.key === 'mode')?.value;
-            party = rp.find((i: SteamRichPresenceItem) => i.key === 'steam_player_group')?.value;
-        } else if (rp && typeof rp === 'object') {
-            map = rp['game:map'] || rp['map'];
-            status = rp['status'];
-            score = rp['game:score'] || rp['score'];
-            mode = rp['game:mode'] || rp['mode'];
-            party = rp['steam_player_group'];
-        }
-
-        // The raw status value (e.g. "Competitive"), before the verbose summary overrides it.
-        const rawStatus: string | undefined = status;
-
-        if (user.rich_presence_string) {
-            // If we have a rich_presence_string, it's usually the most user-friendly summary
-            status = user.rich_presence_string;
-        }
-
-        // The game mode often isn't its own key; fall back to the raw status rich-presence
-        // value (e.g. "Competitive"), captured BEFORE rich_presence_string overrides status
-        // for display. Using the volatile summary here would make the mode change mid-match
-        // and spuriously split one match into many.
-        // Only in a match (a map is known): in the menu or a lobby the status says something
-        // else, which must not read as the match's mode having changed.
-        if (!mode && map) {
-            mode = rawStatus;
-        }
-
-        // Keep the raw "16-14" before it's turned into emoji digits for display, so we can
-        // record it in history and compute win/loss/tie.
-        const rawScore: string | undefined = score ? score.replace(/[\[\]]/g, '').trim() : undefined;
-
-        if (score) {
-            score = this.formatScore(score);
-        }
+        const { map, status, mode, rawScore, party } = new RichPresence(user);
+        const score: string | undefined = rawScore ? this.formatScore(rawScore) : undefined;
 
         if (map || status || score) {
             console.debug(`Rich presence for ${playerName}: map=${map}, status=${status}, score=${score}`);
@@ -445,7 +399,7 @@ class SteamService {
         // Record the presence transition and derive match progress / boundaries from the stream,
         // regardless of any chat's live-update setting; history is a separate pull
         // (/game_history) and the end-of-game notification is gated per chat at finalisation.
-        await this.recordPresence(steamId, tgUserId, { playing: true, map, mode, rawScore, playerName, party: party || undefined });
+        await this.recordPresence(steamId, tgUserId, { playing: true, map, mode, rawScore, playerName, party });
 
         // Per-round outcomes of the current match, replayed from the (just-updated) stream.
         const rounds = await this.getLiveRounds(steamId);
