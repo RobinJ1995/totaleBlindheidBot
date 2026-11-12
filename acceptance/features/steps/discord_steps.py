@@ -174,6 +174,11 @@ def step_channel_receives_from(context: Context, channel_id: str, text: str, nam
     assert any(is_hit(m) for m in new), f"Expected {text!r} from {name!r} in channel {channel_id}, got {[(m['method'], m['username'], m['content']) for m in new]}"
 
 
+@then('Discord channel "(?P<channel_id>\\d+)" receives from "(?P<name>[^"]*)"')
+def step_channel_receives_text_from(context: Context, channel_id: str, name: str) -> None:
+    step_channel_receives_from(context, channel_id, context.text, name)
+
+
 @then('Discord channel "(?P<channel_id>\\d+)" receives "(?P<text>[^"]*)" posted by the bot as "(?P<name>[^"]*)"')
 def step_channel_receives_as_bot(context: Context, channel_id: str, text: str, name: str) -> None:
     """A relayed message where no webhook is available: the bot posts it with the name in front."""
@@ -407,6 +412,16 @@ def step_discord_sends_file(context: Context, username: str, name: str, user_id:
         "data_base64": base64.b64encode(b"bytes-of-" + filename.encode()).decode(),
     }
     _inject(context, channel_id, text, _author(username, name, user_id), attachments=[attachment])
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends a poll "(?P<question>[^"]*)" with answers "(?P<answers>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_sends_poll(context: Context, username: str, name: str, user_id: str, question: str, answers: str, channel_id: str) -> None:
+    poll: Dict[str, Any] = {
+        "question": {"text": question},
+        "answers": [{"answer_id": i + 1, "poll_media": {"text": answer.strip()}} for i, answer in enumerate(answers.split(","))],
+        "expiry": None, "allow_multiselect": False, "layout_type": 1,
+    }
+    _inject(context, channel_id, "", _author(username, name, user_id), poll=poll)
 
 
 @when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends a sticker "(?P<sticker>[^"]*)" in (?P<fmt>PNG|GIF|Lottie) format in channel "(?P<channel_id>\\d+)"')

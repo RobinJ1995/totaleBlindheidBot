@@ -25,6 +25,9 @@ const tooBig = (name: string, size: number): string => `[${name}, ${megabytes(si
 const mapsLink = ({ latitude, longitude }: NonNullable<TelegramMessage['location']>): string =>
     `https://www.google.com/maps?q=${latitude},${longitude}`;
 
+const pollText = (question: string, options: string[]): string =>
+    [`📊 ${question}`, ...options.map((option, i) => `${i + 1}. ${option}`)].join('\n');
+
 export const telegramMedia = (msg: TelegramMessage): TelegramMedia | undefined => {
     const caption: Formatted = { text: msg.caption ?? '', entities: msg.caption_entities ?? [] };
     const file = (file_id: string, name: string, size?: number): TelegramMedia =>
@@ -54,7 +57,7 @@ export const telegramMedia = (msg: TelegramMessage): TelegramMedia | undefined =
     } else if (msg.video_note) {
         return { placeholder: '[video message]', caption };
     } else if (msg.poll) {
-        return { placeholder: `[poll: ${msg.poll.question}]`, caption };
+        return { placeholder: pollText(msg.poll.question, msg.poll.options.map(option => option.text)), caption };
     } else if (msg.venue) {
         return { placeholder: `📍 ${[msg.venue.title, msg.venue.address].filter(Boolean).join(', ')} ${mapsLink(msg.venue.location)}`, caption };
     } else if (msg.location) {
@@ -135,6 +138,9 @@ export const discordMedia = (message: DiscordMessage): { files: DiscordMedia[]; 
             files.push({ name: `${sticker.name}.png`, url: sticker.url, size: 0, contentType: 'image/png', kind: 'photo' });
         }
     });
+    if (message.poll) {
+        placeholders.push(pollText(message.poll.question.text ?? '', message.poll.answers.map(answer => answer.text ?? '')));
+    }
     return { files, placeholders };
 };
 

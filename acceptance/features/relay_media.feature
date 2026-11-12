@@ -53,6 +53,23 @@ Feature: relaying photos, files and stickers between Telegram and Discord
     When the user rolls "🎯" and gets 6
     Then Discord channel "81011" receives "🎯 6" from "Tester"
 
+  Scenario: a Telegram poll reaches Discord as its question and numbered options
+    When the user sends a poll "Best map?" with options "Mirage, Inferno, Nuke"
+    Then Discord channel "81011" receives from "Tester"
+      """
+      📊 Best map?
+      1. Mirage
+      2. Inferno
+      3. Nuke
+      """
+    And Discord channel "81021" receives from "Tester"
+      """
+      📊 Best map?
+      1. Mirage
+      2. Inferno
+      3. Nuke
+      """
+
   Scenario: a Discord image reaches Telegram as a photo and the other channel as a file
     When Discord user "alice" named "Alice" with id "810100000000000002" sends an image "cat.png" saying "look" in channel "81011"
     Then the bot sends a photo "cat.png" with caption "alice: look"
@@ -65,6 +82,21 @@ Feature: relaying photos, files and stickers between Telegram and Discord
     Then the bot sends a video "clip.mp4" with caption "alice:"
     When Discord user "alice" named "Alice" with id "810100000000000002" sends a file "rules.pdf" saying "read me" in channel "81011"
     Then the bot sends a document "rules.pdf" with caption "alice: read me"
+
+  Scenario: a Discord poll reaches Telegram and the other channel as its question and numbered options
+    When Discord user "alice" named "Alice" with id "810100000000000002" sends a poll "Tonight?" with answers "Yes, No" in channel "81011"
+    Then the bot replies
+      """
+      alice: 📊 Tonight?
+      1. Yes
+      2. No
+      """
+    And Discord channel "81021" receives from "alice"
+      """
+      📊 Tonight?
+      1. Yes
+      2. No
+      """
 
   Scenario: Discord stickers reach Telegram as images, Lottie ones as a note
     When Discord user "alice" named "Alice" with id "810100000000000002" sends a sticker "wave" in PNG format in channel "81011"

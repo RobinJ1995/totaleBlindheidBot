@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Message } from 'node-telegram-bot-api';
-import { classifyAttachment, telegramMedia, TELEGRAM_PHOTO_LIMIT } from '../media.js';
+import { Collection, Message as DiscordMessage } from 'discord.js';
+import { classifyAttachment, discordMedia, telegramMedia, TELEGRAM_PHOTO_LIMIT } from '../media.js';
 
 const message = (fields: Partial<Message>): Message => ({
     message_id: 1, date: 0, chat: { id: 1, type: 'group' }, ...fields
@@ -57,6 +58,11 @@ test('dice become their emoji and value', () => {
     assert.equal(telegramMedia(message({ dice: { emoji: '🏀', value: 5 } }))?.placeholder, '🏀 5');
 });
 
+test('a poll becomes its question and numbered options', () => {
+    const poll = { id: 'p', question: 'Best map?', options: [{ text: 'Mirage', voter_count: 0 }, { text: 'Nuke', voter_count: 0 }] } as Message['poll'];
+    assert.equal(telegramMedia(message({ poll }))?.placeholder, '📊 Best map?\n1. Mirage\n2. Nuke');
+});
+
 test('Discord attachments are sent with the Telegram method that shows them best', () => {
     assert.equal(classifyAttachment('a.gif', 10, 'image/gif'), 'animation');
     assert.equal(classifyAttachment('a.GIF', 10, null), 'animation');
@@ -64,4 +70,13 @@ test('Discord attachments are sent with the Telegram method that shows them best
     assert.equal(classifyAttachment('a.png', TELEGRAM_PHOTO_LIMIT + 1, 'image/png'), 'document');
     assert.equal(classifyAttachment('a.mp4', 10, 'video/mp4'), 'video');
     assert.equal(classifyAttachment('a.pdf', 10, 'application/pdf'), 'document');
+});
+
+test('a Discord poll becomes its question and numbered answers', () => {
+    const discordMessage = {
+        attachments: new Collection(),
+        stickers: new Collection(),
+        poll: { question: { text: 'Tonight?' }, answers: new Collection([[1, { text: 'Yes' }], [2, { text: 'No' }]]) }
+    } as unknown as DiscordMessage;
+    assert.deepEqual(discordMedia(discordMessage).placeholders, ['📊 Tonight?\n1. Yes\n2. No']);
 });
