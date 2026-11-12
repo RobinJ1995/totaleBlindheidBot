@@ -272,3 +272,10 @@ CREATE TABLE IF NOT EXISTS relayed_reaction (
     CONSTRAINT fk_relayed_reaction_message FOREIGN KEY (relayed_id)
         REFERENCES relayed_message (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- When a chat's last play session was summarised; the next summary covers matches since then.
+CREATE TABLE IF NOT EXISTS session_summary (
+    chat_id      BIGINT      NOT NULL,
+    last_sent_at DATETIME(3) NOT NULL,
+    PRIMARY KEY (chat_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

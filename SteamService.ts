@@ -8,9 +8,12 @@ import GameHistoryDAO, { FinishedMatch, GameHistoryEntry, GameHistoryCoPlayer, S
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { bold, fmt, Formatted, sameFormatted } from './format.js';
-import { deleteMirrored, editMirrored, sendMirrored } from './messenger.js';
+import { broadcast, deleteMirrored, editMirrored, sendMirrored } from './messenger.js';
 import { parseMention } from './mention.js';
 import Streak from './stats/Streak.js';
+import SessionSummary from './stats/SessionSummary.js';
+import SessionSummaryDAO from './dao/SessionSummaryDAO.js';
+import { toDiscordMarkdown } from './discord/markdown.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
     segmentStream, findCoPlayers, deriveRounds, continuesMatch, parseRawScore as parseRawScoreFn,
@@ -62,6 +65,9 @@ const CO_PLAYER_STALE_MS = 15 * 60 * 1000;
 // widened by this slack: the session's first presence event precedes the message it triggers,
 // so a match observed only around that instant would otherwise fall just outside the window.
 const SESSION_OVERVIEW_SLACK_MS = 60 * 1000;
+
+// How far back a session summary looks when the chat's previous session is older or unknown.
+const SESSION_SUMMARY_LOOKBACK_MS = 12 * 60 * 60 * 1000;
 
 const DERIVATION_CONFIG: DerivationConfig = {
     resetTolerance: RESET_TOLERANCE,
@@ -126,6 +132,9 @@ class SteamService {
     private gameHistoryDao: GameHistoryDAO;
     private presenceEventDao: PresenceEventDAO;
     private rollcallPlayerDao: RollcallPlayerDAO;
+    private sessionSummaryDao: SessionSummaryDAO;
+    // Chats where someone stopped playing; summarised by the sweep once their matches are recorded.
+    private summaryPendingChats: Set<number> = new Set();
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
@@ -176,6 +185,7 @@ class SteamService {
         this.gameHistoryDao = new GameHistoryDAO();
         this.presenceEventDao = new PresenceEventDAO();
         this.rollcallPlayerDao = new RollcallPlayerDAO();
+        this.sessionSummaryDao = new SessionSummaryDAO();
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
         this.steamGuardCallback = null;
@@ -1149,6 +1159,10 @@ class SteamService {
             for (const steamId of streams) {
                 await this.withStreamLock(steamId, () => this.deriveAndFinalize(steamId));
             }
+            const unfinalized = new Set(await this.presenceEventDao.getStreamsWithUnfinalizedEvents());
+            for (const chatId of this.summaryPendingChats) {
+                await this.withLock(`summary_${chatId}`, () => this.maybeSummarizeSession(chatId, unfinalized));
+            }
 
             if (Date.now() - this.lastPresencePruneAt >= PRESENCE_PRUNE_INTERVAL_MS) {
                 this.lastPresencePruneAt = Date.now();
@@ -1229,6 +1243,35 @@ class SteamService {
         this.presenceListeners.forEach(listener => listener(tgUserId));
     }
 
+    // Waits while anyone in the chat plays on, and while a match of theirs is still unrecorded.
+    private async maybeSummarizeSession(chatId: number, unfinalizedStreams: Set<string>): Promise<void> {
+        const users = (await this.userDao.getChatUsers(chatId)).map(user => user.user_id);
+        if ((await Promise.all(users.map(userId => this.isAnyAccountPlayingCS2(userId)))).some(playing => playing)) {
+            this.summaryPendingChats.delete(chatId);
+            return;
+        }
+        const steamIds = (await Promise.all(users.map(userId => this.userDao.getUserSettings(userId))))
+            .flatMap(settings => settings.steam_ids || []);
+        if (steamIds.some(steamId => unfinalizedStreams.has(steamId))) {
+            return;
+        }
+        this.summaryPendingChats.delete(chatId);
+        if ((await this.chatDao.getChatSettings(chatId)).steam_updates === false) {
+            return;
+        }
+
+        const now = new Date();
+        const lastSentAt = await this.sessionSummaryDao.getLastSentAt(chatId);
+        const since = new Date(Math.max(lastSentAt?.getTime() ?? 0, now.getTime() - SESSION_SUMMARY_LOOKBACK_MS));
+        await this.sessionSummaryDao.setLastSentAt(chatId, now);
+        const summary = SessionSummary.of(await this.gameHistoryDao.getChatMatchesSince(chatId, since));
+        if (!summary.isWorthSending()) {
+            return;
+        }
+        const text = summary.render();
+        await broadcast(this.bot, { chat_id: chatId }, text, toDiscordMarkdown(text));
+    }
+
     async maybeCloseSession(chatId: number, tgUserId: number): Promise<void> {
         try {
             if (await this.isAnyAccountPlayingCS2(tgUserId)) {
@@ -1237,6 +1280,8 @@ class SteamService {
                 }
                 return;
             }
+
+            this.summaryPendingChats.add(chatId);
 
             const lastUpdate: GameUpdate = await this.gameUpdateDao.getGameUpdate(chatId, tgUserId);
             if (!lastUpdate || !lastUpdate.text) {
