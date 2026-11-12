@@ -77,30 +77,52 @@ export const textMention = async (msg: ExtendedMessage): Promise<MentionRef | un
     };
 };
 
-// Resolve a command's optional player argument to the user whose history to show. Returns null and
-// replies with the reason itself when the reference matches nothing or is ambiguous, so callers can
-// simply bail out on null.
-export const resolvePlayerTarget = async (dao: GameHistoryDAO, msg: Command): Promise<PlayerTarget | null> => {
+export type MatchedPlayer = Extract<PlayerMatch, { kind: 'player' }>;
+
+// Every reading of `argument` as two players, split between words.
+export const matchPlayerPairs = (players: ChatPlayer[], argument: string): [MatchedPlayer, MatchedPlayer][] => {
+    const words = argument.trim().split(/\s+/);
+    return words.slice(1)
+        .map((_, i) => [words.slice(0, i + 1), words.slice(i + 1)].map(side => matchPlayerArgument(players, side.join(' '))))
+        .filter((pair): pair is [MatchedPlayer, MatchedPlayer] => pair.every(match => match.kind === 'player'));
+};
+
+// A command's optional player argument matched against the chat roster, along with that roster.
+export const matchCommandPlayer = async (dao: GameHistoryDAO, msg: Command): Promise<{ match: PlayerMatch; players: ChatPlayer[] }> => {
     const mention = msg.platform === 'telegram' ? await textMention(msg as ExtendedMessage) : undefined;
     const argument = msg.command?.argument ?? '';
 
     // No player named at all: the common case, so skip the roster lookup entirely.
     if (!mention && argument.trim() === '') {
-        return { user_id: msg.user.id };
+        return { match: { kind: 'self' }, players: [] };
     }
 
     const players = mention ? [] : await dao.getChatPlayers(msg.chat_id);
-    const match = matchPlayerArgument(players, argument, mention);
+    return { match: matchPlayerArgument(players, argument, mention), players };
+};
+
+// The user a match points at. Returns null and replies with the reason itself when it matches
+// nothing or is ambiguous, so callers can simply bail out on null.
+export const targetOrReply = async (msg: Command, match: PlayerMatch): Promise<PlayerTarget | null> => {
+    const mismatch = mismatchReply(match);
+    if (mismatch) {
+        await msg.reply(mismatch);
+        return null;
+    }
+    return match.kind === 'player' ? { user_id: match.user_id, name: match.name } : { user_id: msg.user.id };
+};
+
+export const resolvePlayerTarget = async (dao: GameHistoryDAO, msg: Command): Promise<PlayerTarget | null> =>
+    targetOrReply(msg, (await matchCommandPlayer(dao, msg)).match);
+
+// Why a player argument resolved to nobody, or null when it did resolve.
+export const mismatchReply = (match: PlayerMatch): string | null => {
     switch (match.kind) {
-        case 'self':
-            return { user_id: msg.user.id };
-        case 'player':
-            return { user_id: match.user_id, name: match.name };
         case 'none':
-            await msg.reply(`I don't have any recorded games for "${match.needle}" in this chat.`);
-            return null;
+            return `I don't have any recorded games for "${match.needle}" in this chat.`;
         case 'ambiguous':
-            await msg.reply(`"${match.needle}" matches multiple players: ${match.names.join(', ')}. Please be more specific.`);
+            return `"${match.needle}" matches multiple players: ${match.names.join(', ')}. Please be more specific.`;
+        default:
             return null;
     }
 };
