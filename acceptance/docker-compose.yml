@@ -135,6 +135,8 @@ services:
       MARIADB_USER: root
       MARIADB_PASSWORD: rootpass
       MARIADB_DATABASE: totaleblindheidbot
+      SHARD_INDEX: ${SHARD_INDEX:-0}
+      SHARD_TOTAL: ${SHARD_TOTAL:-1}
     depends_on:
       telegram-mock:
         condition: service_healthy

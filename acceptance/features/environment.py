@@ -1,15 +1,24 @@
 """Behave lifecycle hooks: wait for the stack, seed per-scenario context."""
+import itertools
 import os
 import sys
+from typing import Iterator
 
 import requests
-from behave.model import Scenario, Step
+from behave.model import Feature, Scenario, Step
 from behave.runner import Context
 
 # Make the helpers module (under steps/) importable here, the same way behave
 # exposes it to the step modules themselves.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "steps"))
 import helpers  # noqa: E402
+
+# Scenarios are dealt round-robin over SHARD_TOTAL runs; this run takes the SHARD_INDEX-th share.
+SHARD_INDEX: int = int(os.environ.get("SHARD_INDEX", "0"))
+SHARD_TOTAL: int = int(os.environ.get("SHARD_TOTAL", "1"))
+if not 0 <= SHARD_INDEX < SHARD_TOTAL:
+    raise ValueError(f"SHARD_INDEX {SHARD_INDEX} is not below SHARD_TOTAL {SHARD_TOTAL}: no scenario would run")
+_scenario_numbers: Iterator[int] = itertools.count()
 
 
 def _wait_for(url: str, timeout: int = 90, name: str = "") -> None:
@@ -47,6 +56,12 @@ def before_all(context: Context) -> None:
     helpers.wait_for_db()
     _wait_for_bot_polling()
     helpers.reset_db()
+
+
+def before_feature(context: Context, feature: Feature) -> None:
+    for scenario in feature.walk_scenarios():
+        if next(_scenario_numbers) % SHARD_TOTAL != SHARD_INDEX:
+            scenario.skip()
 
 
 def before_scenario(context: Context, scenario: Scenario) -> None:

@@ -33,6 +33,13 @@ docker compose down -v
 The command exits non-zero if any scenario fails (propagated from the `behave`
 container via `--exit-code-from`).
 
+CI splits the suite over parallel jobs. To run one such share, set `SHARD_TOTAL` and a
+`SHARD_INDEX` below it:
+
+```bash
+SHARD_INDEX=0 SHARD_TOTAL=4 docker compose up --build --abort-on-container-exit --exit-code-from behave
+```
+
 ## Layout
 
 ```

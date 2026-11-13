@@ -7,8 +7,15 @@ on:
       - master
 
 jobs:
-  acceptance-test:
+  acceptance-shard:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      SHARD_INDEX: ${{ strategy.job-index }}
+      SHARD_TOTAL: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@v4
       - name: Run acceptance tests
@@ -18,3 +25,11 @@ jobs:
         if: ${{ failure() }}
         working-directory: acceptance
         run: docker compose logs
+
+  # A single check for branch protection to require, whatever the shard count.
+  acceptance-test:
+    if: ${{ always() }}
+    needs: acceptance-shard
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.acceptance-shard.result }}" = "success"
