@@ -48,8 +48,8 @@ const executeRollcall = (bot: Bot, target: Target, opts: ExecuteRollcallOptions 
         const { groups, tagged } = resolve(rotation, entries);
         const [users, markers] = await Promise.all([mentionUsers(tagged), presenceMarkers(tagged)]);
         // The ping line is baked in at send time: anyone who said "no" is dropped here. Its
-        // 🟢/🟡/🔴/😶‍🌫️ presence markers (in CS2 / online / offline / unlinked) are kept up to date
-        // for a while and then stripped, so the stored base leaves them out.
+        // 🟢/🟡/🔴/💔/😶‍🌫️ presence markers (in CS2 / online / offline / not a friend / unlinked) are
+        // kept up to date for a while and then stripped, so the stored base leaves them out.
         const head: Formatted = asFormatted(`${pickRandom(QUOTES)}\n`);
         const base: Formatted = withTags(head, tagged, users);
         const discordBase: string = withDiscordTags(head, tagged, users);

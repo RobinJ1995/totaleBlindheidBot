@@ -1,6 +1,7 @@
 Feature: Steam presence markers on rollcall, schedule and wingman tags
   Every tagged rotation player is prefixed with their Steam presence: 🟢 in CS2, 🟡 online but
-  not in CS2, 🔴 offline, 😶‍🌫️ no Steam account linked. The markers are kept up to date for six
+  not in CS2, 🔴 offline, 💔 linked Steam account is not the bot's friend, 😶‍🌫️ no Steam account
+  linked. The markers are kept up to date for six
   hours after the message is sent, after which a final edit strips them.
   Each example uses its own chat, users and Steam ids since app data persists across scenarios.
 
@@ -66,6 +67,45 @@ Feature: Steam presence markers on rollcall, schedule and wingman tags
       | /rollcall         | 7011 | 740 |
       | /schedule 3 hours | 7012 | 750 |
       | /wingman          | 7013 | 760 |
+
+  Scenario Outline: <command> marks a player whose Steam account is not the bot's friend, until it is
+    Given a chat with id <chat>
+    And Steam account "7656119800000<id>1" is not a friend of the bot
+    When user <id>1 sends "/steam_user_id 7656119800000<id>1"
+    Then the bot reply contains "I've sent a Steam friend request to 7656119800000<id>1."
+    When Steam mappings are refreshed
+    And Steam reports user "7656119800000<id>1" playing CS2
+    Then chat <chat> receives a Steam message containing "is playing Counter-Strike"
+    Given a user with id <id>0 and first name "Captain"
+    When the user sends "/rollcall_add_player Alice" mentioning user <id>1 as "Alice"
+    Then the bot replies "Added 1 players to rollcall."
+    When the user sends "<command>"
+    Then the bot reply contains "💔Alice"
+    And the bot reply links "Alice" to "tg://user?id=<id>1"
+    When the latest bot message is remembered
+    And Steam account "7656119800000<id>1" becomes the bot's friend
+    Then the remembered message is edited to contain "🟢Alice"
+    When Steam account "7656119800000<id>1" unfriends the bot
+    Then the remembered message is edited to contain "💔Alice"
+
+    Examples:
+      | command           | chat | id  |
+      | /rollcall         | 7016 | 771 |
+      | /schedule 3 hours | 7017 | 772 |
+      | /wingman          | 7018 | 773 |
+
+  Scenario: a player with several Steam accounts is marked by the ones that are the bot's friends
+    Given a chat with id 7019
+    And Steam account "76561198000007742" is not a friend of the bot
+    When user 7741 sends "/steam_user_id 76561198000007741, 76561198000007742"
+    Then the bot reply contains "I've sent a Steam friend request to 76561198000007742."
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000007741" online but not playing
+    Given a user with id 7740 and first name "Captain"
+    When the user sends "/rollcall_add_player Alice" mentioning user 7741 as "Alice"
+    Then the bot replies "Added 1 players to rollcall."
+    When the user sends "/rollcall"
+    Then the bot reply contains "🟡Alice"
 
   Scenario: a tap after the live window renders the RSVP message without presence markers
     Given a chat with id 7014

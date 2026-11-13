@@ -552,7 +552,7 @@ def discord_delete(message_id: str) -> None:
     requests.post(f"{DISCORD_MOCK_URL}/test/delete", json={"message_id": message_id}, timeout=5).raise_for_status()
 
 
-PRESENCE_MARKERS: List[str] = ["🟢", "🟡", "🔴", "😶‍🌫️"]
+PRESENCE_MARKERS: List[str] = ["🟢", "🟡", "🔴", "💔", "😶‍🌫️"]
 
 
 def discord_react(message_id: str, user: Dict[str, Any], emoji: str, remove: bool = False, emoji_id: Optional[str] = None) -> None:

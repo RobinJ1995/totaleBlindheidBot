@@ -45,6 +45,7 @@ const session = (relationships: Record<string, number>, rotation: string[] = [],
         return { personaName: steamId };
     });
     mock.method(UserDAO.prototype, 'getAllUserSettings', async () => ({ 5: { steam_ids: ['linked'] } }));
+    mock.method(UserDAO.prototype, 'getUserSettings', async () => ({ steam_ids: ['linked'] }));
     mock.method(RollcallPlayerDAO.prototype, 'getRotationSteamIds', async () => rotation);
     mock.method(console, 'log', () => undefined);
     mock.method(console, 'warn', () => undefined);
@@ -107,6 +108,61 @@ test('a friend request arriving from a linked account is accepted, anyone else\'
 
     await arrives('linked', RequestRecipient);
     assert.deepEqual(started.requests, ['linked']);
+});
+
+const links = (steamIds: string[]): void => {
+    (UserDAO.prototype.getUserSettings as any).mock.mockImplementation(async () => ({ steam_ids: steamIds }));
+};
+
+test('a user whose linked accounts are not the bot\'s friends is unbefriended, whatever Steam says about them', async () => {
+    const started = session({ waiting: RequestInitiator });
+    links(['waiting', 'stranger']);
+    started.client.users = { waiting: { gameid: '730' }, stranger: { persona_state: SteamUser.EPersonaState.Online } };
+    await logOn(started);
+
+    assert.equal(await started.steam.getPresence(5), 'unbefriended');
+});
+
+test('the presence of a user with a befriended account comes from that account alone', async () => {
+    const started = session({ friend: Friend });
+    links(['friend', 'stranger']);
+    started.client.users = { friend: { persona_state: SteamUser.EPersonaState.Offline }, stranger: { gameid: '730' } };
+    await logOn(started);
+
+    assert.equal(await started.steam.getPresence(5), 'offline');
+});
+
+test('nobody is unbefriended before the friends list has loaded, nor without a linked account', async () => {
+    const { steam } = session({});
+    assert.equal(await steam.getPresence(5), undefined);
+
+    links([]);
+    assert.equal(await steam.getPresence(5), 'unlinked');
+});
+
+test('a linked account becoming or ceasing to be a friend is a presence change, an unlinked one\'s is not', async () => {
+    const started = session({});
+    await logOn(started);
+    const changed: number[] = [];
+    started.steam.onPresenceChange(userId => changed.push(userId));
+    // Like steam-user, which only updates myFriends after emitting.
+    const becomes = async (steamId: string, relationship: number): Promise<void> => {
+        started.client.emit('friendRelationship', { getSteamID64: () => steamId }, relationship);
+        started.client.myFriends[steamId] = relationship;
+        await settle();
+        await settle();
+    };
+
+    await becomes('unlinked', Friend);
+    assert.deepEqual(changed, []);
+
+    await becomes('linked', Friend);
+    assert.deepEqual(changed, [5]);
+    assert.equal(await started.steam.getPresence(5), undefined);
+
+    await becomes('linked', None);
+    assert.deepEqual(changed, [5, 5]);
+    assert.equal(await started.steam.getPresence(5), 'unbefriended');
 });
 
 test('the profile to befriend is the bot\'s own, once it is logged on', () => {

@@ -99,14 +99,15 @@ interface SteamUserUpdate {
     online_session_instances?: number | null;
 }
 
-// A Telegram user's Steam presence: in CS2, signed in to Steam but not in CS2, signed out, or no
-// Steam account linked at all.
-export type Presence = 'playing' | 'online' | 'offline' | 'unlinked';
+// A Telegram user's Steam presence: in CS2, signed in to Steam but not in CS2, signed out, no
+// linked Steam account that is the bot's friend, or no Steam account linked at all.
+export type Presence = 'playing' | 'online' | 'offline' | 'unbefriended' | 'unlinked';
 
 export const PRESENCE_EMOJI: Record<Presence, string> = {
     playing: '🟢',
     online: '🟡',
     offline: '🔴',
+    unbefriended: '💔',
     unlinked: '😶‍🌫️'
 };
 
@@ -233,9 +234,16 @@ class SteamService {
 
         this.client.on('friendRelationship', (sid: any, relationship: SteamUser.EFriendRelationship) => {
             const steamId: string = sid.getSteamID64();
-            if (relationship === SteamUser.EFriendRelationship.RequestRecipient && this.steamToTelegram[steamId]) {
+            const tgUserId: number | undefined = this.steamToTelegram[steamId];
+            if (!tgUserId) {
+                return;
+            }
+            if (relationship === SteamUser.EFriendRelationship.RequestRecipient) {
                 this.befriend([steamId]).catch(err => console.error(`Error accepting the Steam friend request of ${steamId}:`, err));
             }
+            // steam-user only updates myFriends once this event has been emitted.
+            setImmediate(() => this.checkPresenceChange(tgUserId)
+                .catch(err => console.error(`Error checking presence change for user ${tgUserId}:`, err)));
         });
 
         this.client.on('steamGuard', (domain: string | null, callback: (code: string) => void, lastCodeWrong: boolean) => {
@@ -1261,7 +1269,14 @@ class SteamService {
         if (steamIds.length === 0) {
             return 'unlinked';
         }
-        const known = steamIds
+        // Steam only reports the presence of the bot's friends.
+        const visible = this.friendsListLoaded
+            ? steamIds.filter(sid => this.client.myFriends[sid] === SteamUser.EFriendRelationship.Friend)
+            : steamIds;
+        if (visible.length === 0) {
+            return 'unbefriended';
+        }
+        const known = visible
             .map(sid => this.client.users[sid])
             .filter(user => !!user);
         if (known.length === 0) {
