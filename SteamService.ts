@@ -1194,6 +1194,7 @@ class SteamService {
         if (!found) {
             return;
         }
+        console.log(`Adding the stats of Leetify match ${found.id} to end-of-game message ${message_id} in chat ${chat_id}`);
         await this.gameHistoryDao.setLeetifyMatchId(chat_id, message_id, found.id);
         const insights = await this.matchInsightsText(chat_id, latest.mode, announced.map(match => ({ ...match, leetify_match_id: found.id })), names);
         await editMirrored(this.bot, chat_id, message_id, this.endOfGameText([...names.values()], result, latest.map, latest.mode, latest.score, insights));
