@@ -201,6 +201,13 @@ const migratePresencePartyColumn = async (conn: PoolConnection): Promise<void> =
     }
 };
 
+// One-off migration for game_history tables created before leetify_match_id existed.
+const migrateLeetifyMatchIdColumn = async (conn: PoolConnection): Promise<void> => {
+    if (await tableExists(conn, 'game_history')) {
+        await conn.query('ALTER TABLE game_history ADD COLUMN IF NOT EXISTS leetify_match_id VARCHAR(64) NULL AFTER message_id');
+    }
+};
+
 // One-off migration: rsvp_message gains platform and channel, and a text message id (Discord ids
 // don't fit a JS number).
 const migrateRsvpMessagePlatform = async (conn: PoolConnection): Promise<void> => {
@@ -236,6 +243,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateDiscordNameColumn(conn);
         await migrateRsvpMessagePlatform(conn);
         await migratePresencePartyColumn(conn);
+        await migrateLeetifyMatchIdColumn(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

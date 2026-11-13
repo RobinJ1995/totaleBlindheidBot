@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS match_stream_cursor (
 -- resolved at match end (so a grouped announcement can name every player without re-resolving).
 -- message_id is the Telegram id of the single per-match end-of-game announcement shared by every
 -- player of the same match (set on the first finaliser's row, then copied onto each later one).
+-- leetify_match_id is set on every row of an announcement once Leetify has the match.
 CREATE TABLE IF NOT EXISTS game_history (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     chat_id     BIGINT       NOT NULL,
@@ -214,6 +215,7 @@ CREATE TABLE IF NOT EXISTS game_history (
     map         VARCHAR(64)  NULL,
     score       VARCHAR(64)  NULL,
     message_id  BIGINT       NULL,
+    leetify_match_id VARCHAR(64) NULL,
     started_at  DATETIME(3)  NULL,
     ended_at    DATETIME(3)  NOT NULL,
     PRIMARY KEY (id),

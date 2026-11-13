@@ -15,6 +15,7 @@ TELEGRAM_MOCK_URL: str = os.environ.get("TELEGRAM_MOCK_URL", "http://telegram-mo
 STEAM_CONTROL_URL: str = os.environ.get("STEAM_CONTROL_URL", "http://bot:9100")
 GITHUB_MOCK_URL: str = os.environ.get("GITHUB_MOCK_URL", "http://github-mock:8082")
 DISCORD_MOCK_URL: str = os.environ.get("DISCORD_MOCK_URL", "http://discord-mock:8083")
+LEETIFY_MOCK_URL: str = os.environ.get("LEETIFY_MOCK_URL", "http://leetify-mock:8085")
 BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_API_TOKEN", "test-token")
 
 MARIADB_HOST: str = os.environ.get("MARIADB_HOST", "mariadb")
@@ -623,3 +624,26 @@ def discord_wait_for_new(channel_id: str, baseline_count: int, timeout: float = 
 
 def discord_expect_no_new(channel_id: str, baseline_count: int, wait: float = QUIET_WINDOW) -> List[Dict[str, Any]]:
     return wait_until(lambda: discord_outbox(channel_id)[baseline_count:], wait)
+
+
+# ---------------------------------------------------------------------------
+# Leetify mock interactions
+# ---------------------------------------------------------------------------
+
+def leetify_reset() -> None:
+    requests.post(f"{LEETIFY_MOCK_URL}/test/reset", timeout=5).raise_for_status()
+
+
+def leetify_register(steam_id: str) -> None:
+    requests.post(f"{LEETIFY_MOCK_URL}/test/register", json={"steamId": steam_id}, timeout=5).raise_for_status()
+
+
+def leetify_add_match(match: Dict[str, Any]) -> None:
+    requests.post(f"{LEETIFY_MOCK_URL}/test/match", json=match, timeout=5).raise_for_status()
+
+
+def leetify_lookups(steam_id: str) -> int:
+    """How often the bot asked Leetify for the account's matches."""
+    resp = requests.get(f"{LEETIFY_MOCK_URL}/test/lookups", timeout=5)
+    resp.raise_for_status()
+    return resp.json()["lookups"].count(steam_id)

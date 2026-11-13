@@ -45,7 +45,20 @@ export interface SiblingMatch {
     player_name?: string;
     score?: string;
     message_id: number | null;
+    leetify_match_id: string | null;
     co_players: GameHistoryCoPlayer[];
+}
+
+export interface AnnouncedMatch extends SiblingMatch {
+    mode?: string;
+    map?: string;
+    ended_at: Date;
+}
+
+export interface Announcement {
+    chat_id: number;
+    message_id: number;
+    ended_at: Date;
 }
 
 export interface FinishedMatch {
@@ -207,7 +220,8 @@ class GameHistoryDAO {
     // match with sibling finalisations of the same match and to edit their shared announcement.
     async getRecentSiblingMatches(chat_id: number, map: string | undefined, mode: string | undefined, since: Date): Promise<SiblingMatch[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, c.co_user_id, c.name AS co_name ' +
+            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.ended_at, ' +
+            '       c.co_user_id, c.name AS co_name ' +
             'FROM game_history h ' +
             'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ' +
             'WHERE h.chat_id = :chat_id AND h.ended_at >= :since ' +
@@ -216,9 +230,25 @@ class GameHistoryDAO {
             'ORDER BY h.id ASC',
             { chat_id, map: map ?? null, mode: mode ?? null, since }
         );
+        return this._announcedMatchesFromRows(rows);
+    }
 
-        const byId = new Map<number, SiblingMatch>();
-        const order: number[] = [];
+    // The matches sharing an end-of-game announcement, oldest first.
+    async getAnnouncedMatches(chat_id: number, message_id: number): Promise<AnnouncedMatch[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.ended_at, ' +
+            '       c.co_user_id, c.name AS co_name ' +
+            'FROM game_history h ' +
+            'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ' +
+            'WHERE h.chat_id = :chat_id AND h.message_id = :message_id ' +
+            'ORDER BY h.id ASC',
+            { chat_id, message_id }
+        );
+        return this._announcedMatchesFromRows(rows);
+    }
+
+    private _announcedMatchesFromRows(rows: RowDataPacket[]): AnnouncedMatch[] {
+        const byId = new Map<number, AnnouncedMatch>();
         for (const row of rows) {
             const id = Number(row.id);
             let sib = byId.get(id);
@@ -229,17 +259,38 @@ class GameHistoryDAO {
                     player_name: row.player_name ?? undefined,
                     score: row.score ?? undefined,
                     message_id: row.message_id == null ? null : Number(row.message_id),
+                    leetify_match_id: row.leetify_match_id ?? null,
+                    mode: row.mode ?? undefined,
+                    map: row.map ?? undefined,
+                    ended_at: row.ended_at,
                     co_players: []
                 };
                 byId.set(id, sib);
-                order.push(id);
             }
             const co = this._coPlayerFromRow(row);
             if (co) {
                 sib.co_players.push(co);
             }
         }
-        return order.map(id => byId.get(id)!);
+        return [...byId.values()];
+    }
+
+    // Announcements of matches that ended at or after `since` and have no Leetify match yet.
+    async getAnnouncementsWithoutLeetifyMatch(since: Date): Promise<Announcement[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT chat_id, message_id, MAX(ended_at) AS ended_at FROM game_history ' +
+            'WHERE message_id IS NOT NULL AND ended_at >= :since ' +
+            'GROUP BY chat_id, message_id HAVING MAX(leetify_match_id) IS NULL',
+            { since }
+        );
+        return rows.map(row => ({ chat_id: Number(row.chat_id), message_id: Number(row.message_id), ended_at: row.ended_at }));
+    }
+
+    setLeetifyMatchId(chat_id: number, message_id: number, leetify_match_id: string): Promise<void> {
+        return query<ResultSetHeader>(
+            'UPDATE game_history SET leetify_match_id = :leetify_match_id WHERE chat_id = :chat_id AND message_id = :message_id',
+            { chat_id, message_id, leetify_match_id }
+        ).then(() => undefined);
     }
 
     // One page of a player's match records in a chat, newest first (no co-players — used by
