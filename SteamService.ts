@@ -10,6 +10,7 @@ import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
 import { bold, fmt, Formatted, sameFormatted } from './format.js';
 import { deleteMirrored, editMirrored, sendMirrored } from './messenger.js';
 import { parseMention } from './mention.js';
+import { GameResult, scoreResult } from './command/game_history.js';
 import Streak from './stats/Streak.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
 import {
@@ -1007,7 +1008,11 @@ class SteamService {
         }
         const streaks = await Promise.all(owners.map(async owner => {
             const history = await this.gameHistoryDao.getGameHistory(chatId, owner.userId);
-            return { owner, streak: Streak.current(history.filter(entry => entry.id! <= owner.historyId)) };
+            const results: GameResult[] = history
+                .filter(entry => entry.id! <= owner.historyId && Streak.counts(entry.mode))
+                .map(entry => scoreResult(entry.score))
+                .filter((result): result is GameResult => result !== null);
+            return { owner, streak: Streak.ending(results) };
         }));
         return streaks
             .filter(({ streak }) => streak?.isNotable())
