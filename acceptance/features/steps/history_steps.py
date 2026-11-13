@@ -1,7 +1,7 @@
 """Steps that record finished matches straight into the game history."""
 from typing import Any
 
-from behave import given, use_step_matcher
+from behave import given, when, use_step_matcher
 from behave.runner import Context
 
 import helpers
@@ -41,5 +41,15 @@ def step_finished_matches(context: Context, chat_id: int) -> None:
                         "INSERT INTO game_history_coplayer (game_history_id, co_user_id, name) VALUES (%s, %s, %s)",
                         (history_id, _user_id(cur, co_telegram_id), f"User{co_telegram_id}"),
                     )
+    finally:
+        conn.close()
+
+
+@when('the matches of chat {chat_id:d} turn out to have started {minutes:d} minutes earlier')
+def step_matches_started_earlier(context: Context, chat_id: int, minutes: int) -> None:
+    conn = helpers.db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE game_history SET started_at = started_at - INTERVAL %s MINUTE WHERE chat_id = %s", (minutes, chat_id))
     finally:
         conn.close()

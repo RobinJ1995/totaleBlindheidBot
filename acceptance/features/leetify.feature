@@ -64,6 +64,30 @@ Feature: Leetify stats in end-of-game messages
       Kit          9  17   4  61
       """
 
+  Scenario: a match Leetify times at its start is recognised
+    Given a chat with id 2509
+    And a user with id 6509 and first name "Kit"
+    When the user sends "/steam_user_id 76561198000002509"
+    Then the bot replies "Your Steam user ID(s) has been set to 76561198000002509"
+    Given Steam account "76561198000002509" is on Leetify
+    When Steam mappings are refreshed
+    And Steam reports user "76561198000002509" playing CS2 as "Kit" with score "10-13" on map "Cache"
+    And Steam reports user "76561198000002509" stopped playing
+    Then chat 2509 eventually receives a new Steam message reading
+      """
+      ☠️ Kit lost a game on Cache (Competitive): 1️⃣0️⃣-1️⃣3️⃣
+      """
+    When the matches of chat 2509 turn out to have started 40 minutes earlier
+    And Leetify has "matchmaking" match "from-start" that ended 38 minutes ago at 10-13 for team 2, with these players
+      | steam_id          | kills | deaths | assists | adr |
+      | 76561198000002509 | 15    | 18     | 6       | 77  |
+    Then the Steam message in chat 2509 is edited to read
+      """
+      ☠️ Kit lost a game on Cache (Competitive): 1️⃣0️⃣-1️⃣3️⃣
+      Player       K   D   A ADR
+      Kit         15  18   6  77
+      """
+
   Scenario: one player on Leetify gets the whole party its stats, the other keeps their recorded streak
     Given a chat with id 2503
     When user 6503 sends "/steam_user_id 76561198000002503"

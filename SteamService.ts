@@ -1190,7 +1190,7 @@ class SteamService {
         }
         const names = this.participantNames([latest, ...announced.slice(0, -1)]);
         const steamIds: string[] = [...names.keys()].flatMap(userId => this.steamIdsOf(userId));
-        const found: LeetifyMatch | null = await this.matchSearch.attempt(`${chat_id}:${message_id}`, steamIds, { score: latest.score, endedAt: latest.ended_at });
+        const found: LeetifyMatch | null = await this.matchSearch.attempt(`${chat_id}:${message_id}`, steamIds, { score: latest.score, startedAt: latest.started_at, endedAt: latest.ended_at });
         if (!found) {
             return;
         }

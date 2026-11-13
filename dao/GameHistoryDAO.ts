@@ -52,6 +52,7 @@ export interface SiblingMatch {
 export interface AnnouncedMatch extends SiblingMatch {
     mode?: string;
     map?: string;
+    started_at?: Date;
     ended_at: Date;
 }
 
@@ -220,7 +221,7 @@ class GameHistoryDAO {
     // match with sibling finalisations of the same match and to edit their shared announcement.
     async getRecentSiblingMatches(chat_id: number, map: string | undefined, mode: string | undefined, since: Date): Promise<SiblingMatch[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.ended_at, ' +
+            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.started_at, h.ended_at, ' +
             '       c.co_user_id, c.name AS co_name ' +
             'FROM game_history h ' +
             'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ' +
@@ -236,7 +237,7 @@ class GameHistoryDAO {
     // The matches sharing an end-of-game announcement, oldest first.
     async getAnnouncedMatches(chat_id: number, message_id: number): Promise<AnnouncedMatch[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.ended_at, ' +
+            'SELECT h.id, h.user_id, h.player_name, h.score, h.message_id, h.leetify_match_id, h.mode, h.map, h.started_at, h.ended_at, ' +
             '       c.co_user_id, c.name AS co_name ' +
             'FROM game_history h ' +
             'LEFT JOIN game_history_coplayer c ON c.game_history_id = h.id ' +
@@ -262,6 +263,7 @@ class GameHistoryDAO {
                     leetify_match_id: row.leetify_match_id ?? null,
                     mode: row.mode ?? undefined,
                     map: row.map ?? undefined,
+                    started_at: row.started_at ?? undefined,
                     ended_at: row.ended_at,
                     co_players: []
                 };
