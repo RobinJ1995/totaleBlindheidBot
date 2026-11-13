@@ -42,10 +42,10 @@ export default class MatchSearch {
             }
             const [found] = history
                 .filter(match => match.isSameAs(played))
-                .sort((a, b) => a.endDistanceMs(played) - b.endDistanceMs(played));
+                .sort((a, b) => a.timeDistanceMs(played) - b.timeDistanceMs(played));
             if (!found) {
                 const latest: string = history[0]?.finishedAt.toISOString() ?? 'never';
-                console.log(`${attempt}: none of the ${history.length} recent matches of Steam ID ${steamId} ended around ${played.endedAt.toISOString()} at ${played.score}. Its latest ended ${latest}.`);
+                console.log(`${attempt}: none of the ${history.length} recent matches of Steam ID ${steamId} was played between ${(played.startedAt ?? played.endedAt).toISOString()} and ${played.endedAt.toISOString()} at ${played.score}. Its latest ended ${latest}.`);
                 return null;
             }
             console.log(`${attempt}: found match ${found.id} among the recent matches of Steam ID ${steamId}.`);

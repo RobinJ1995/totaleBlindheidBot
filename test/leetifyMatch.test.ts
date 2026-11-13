@@ -16,8 +16,20 @@ test('a match on another score, at another time or without a known score is not 
     assert.equal(leetifyMatch().isSameAs({ endedAt }), false);
 });
 
-test('the distance to the played match is how far apart they ended', () => {
-    assert.equal(leetifyMatch().endDistanceMs({ endedAt }), 120_000);
+test('a match Leetify times at its start is the one played when that falls within the played match', () => {
+    const startedAt = new Date('2026-11-12T19:58:00.000Z');
+    const played = { score: '13-7', startedAt, endedAt: new Date('2026-11-12T20:40:00.000Z') };
+    assert.equal(leetifyMatch().isSameAs(played), true);
+    assert.equal(leetifyMatch({ finished_at: '2026-11-12T19:44:00.000Z' }).isSameAs(played), true);
+    assert.equal(leetifyMatch({ finished_at: '2026-11-12T19:42:00.000Z' }).isSameAs(played), false);
+    assert.equal(leetifyMatch({ finished_at: '2026-11-12T20:56:00.000Z' }).isSameAs(played), false);
+});
+
+test('the distance to the played match is to the nearer of its start and end', () => {
+    const startedAt = new Date('2026-11-12T19:57:00.000Z');
+    assert.equal(leetifyMatch().timeDistanceMs({ endedAt }), 120_000);
+    assert.equal(leetifyMatch().timeDistanceMs({ startedAt, endedAt: new Date('2026-11-12T20:40:00.000Z') }), 180_000);
+    assert.equal(leetifyMatch().timeDistanceMs({ startedAt: new Date('2026-11-12T19:20:00.000Z'), endedAt }), 120_000);
 });
 
 test('premier and competitive matches are ranked, others are not', () => {

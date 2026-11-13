@@ -96,3 +96,18 @@ test('attempts on matches that are no longer looked for are forgotten', async ()
     await search.attempt('new', ['1'], { score: '13-7', endedAt: new Date(clock.now) });
     assert.equal(search.isDue('old', endedAt), true);
 });
+
+test('a match Leetify times at its start is found for a match that ended long after', async () => {
+    const { search } = searching({ 1: [leetifyMatch({ id: 'played', finished_at: '2026-11-12T19:22:00.000Z' })] });
+    const found = await search.attempt('a', ['1'], { score: '13-7', startedAt: new Date('2026-11-12T19:20:00.000Z'), endedAt });
+    assert.equal(found?.id, 'played');
+});
+
+test('of two matches within the played one\'s span, the one nearest its start or end is the played one', async () => {
+    const { search } = searching({ 1: [
+        leetifyMatch({ id: 'next', finished_at: '2026-11-12T20:06:00.000Z' }),
+        leetifyMatch({ id: 'played', finished_at: '2026-11-12T19:22:00.000Z' })
+    ] });
+    const found = await search.attempt('a', ['1'], { score: '13-7', startedAt: new Date('2026-11-12T19:20:00.000Z'), endedAt });
+    assert.equal(found?.id, 'played');
+});
