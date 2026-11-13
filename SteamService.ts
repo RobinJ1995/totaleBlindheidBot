@@ -4,15 +4,19 @@ import { Bot } from 'node-telegram-bot-api';
 import UserDAO, { UserSettings } from './dao/UserDAO.js';
 import ChatDAO, { ChatSettings } from './dao/ChatDAO.js';
 import GameUpdateDAO, { GameUpdate, StoredGameMessage } from './dao/GameUpdateDAO.js';
-import GameHistoryDAO, { FinishedMatch, GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, SiblingMatch } from './dao/GameHistoryDAO.js';
+import GameHistoryDAO, { AnnouncedMatch, Announcement, FinishedMatch, GameHistoryEntry, GameHistoryCoPlayer, SessionMatch, SiblingMatch } from './dao/GameHistoryDAO.js';
 import PresenceEventDAO from './dao/PresenceEventDAO.js';
 import RollcallPlayerDAO from './dao/RollcallPlayerDAO.js';
-import { bold, fmt, Formatted, sameFormatted } from './format.js';
+import { asFormatted, bold, fmt, Formatted, sameFormatted } from './format.js';
 import { deleteMirrored, editMirrored, sendMirrored } from './messenger.js';
 import { parseMention } from './mention.js';
 import { GameResult, scoreResult } from './command/game_history.js';
 import Streak from './stats/Streak.js';
 import { saveSteamFile, readSteamFile, withTransaction } from './dao/Database.js';
+import LeetifyDirectory from './leetify/LeetifyDirectory.js';
+import LeetifyMatch from './leetify/LeetifyMatch.js';
+import MatchInsights, { Participant } from './leetify/MatchInsights.js';
+import MatchSearch from './leetify/MatchSearch.js';
 import {
     segmentStream, findCoPlayers, deriveRounds, continuesMatch, parseRawScore as parseRawScoreFn,
     DerivationConfig, MatchSegment, MatchState, PresenceEvent, RoundOutcome
@@ -71,11 +75,7 @@ const DERIVATION_CONFIG: DerivationConfig = {
     coPlayerStaleMs: CO_PLAYER_STALE_MS
 };
 
-interface AnnouncedOwner {
-    userId: number;
-    historyId: number;
-    name: string;
-}
+type AnnouncedRow = Pick<SiblingMatch, 'id' | 'user_id' | 'leetify_match_id'>;
 
 interface GameUpdateInfo {
     gameId?: string | number;
@@ -127,6 +127,8 @@ class SteamService {
     private gameHistoryDao: GameHistoryDAO;
     private presenceEventDao: PresenceEventDAO;
     private rollcallPlayerDao: RollcallPlayerDAO;
+    private matchSearch: MatchSearch;
+    private matchInsights: MatchInsights;
     private steamToTelegram: Record<string, number>;
     private appIdCS2: number;
     private steamGuardCallback: ((code: string) => void) | null;
@@ -177,6 +179,9 @@ class SteamService {
         this.gameHistoryDao = new GameHistoryDAO();
         this.presenceEventDao = new PresenceEventDAO();
         this.rollcallPlayerDao = new RollcallPlayerDAO();
+        const leetify = new LeetifyDirectory();
+        this.matchSearch = new MatchSearch(leetify);
+        this.matchInsights = new MatchInsights(leetify);
         this.steamToTelegram = {};
         this.appIdCS2 = 730;
         this.steamGuardCallback = null;
@@ -285,6 +290,7 @@ class SteamService {
         this.matchSweepInterval = setInterval(() => {
             this.sweepIdleMatches().catch(err => console.error('Error sweeping idle matches:', err));
             this.stripExpiredGameMessages().catch(err => console.error('Error stripping expired game messages:', err));
+            this.enrichAnnouncements().catch(err => console.error('Error adding Leetify stats to end-of-game messages:', err));
         }, MATCH_SWEEP_MS);
     }
 
@@ -831,8 +837,8 @@ class SteamService {
             [sibling.user_id, sibling.player_name || String(sibling.user_id)] as [number, string]
         ]));
         names.delete(match.user_id);
-        const streaks = await this.streakLines(match.chat_id, match.mode, announced.map(sibling => this.announcedOwner(sibling)));
-        await editMirrored(this.bot, match.chat_id, match.message_id, this.endOfGameText([...names.values()], result, match.map, match.mode, announced[0].score, streaks));
+        const insights = await this.matchInsightsText(match.chat_id, match.mode, announced, names);
+        await editMirrored(this.bot, match.chat_id, match.message_id, this.endOfGameText([...names.values()], result, match.map, match.mode, announced[0].score, insights));
     }
 
     // Replay the stream's unfinalised events and finalise every segment the derivation considers
@@ -997,29 +1003,7 @@ class SteamService {
         return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
     }
 
-    private announcedOwner(sibling: SiblingMatch): AnnouncedOwner {
-        return { userId: sibling.user_id, historyId: sibling.id, name: sibling.player_name || String(sibling.user_id) };
-    }
-
-    // Each owner's run as of their row in this match, so an edited announcement shows the same runs.
-    private async streakLines(chatId: number, mode: string | undefined, owners: AnnouncedOwner[]): Promise<string[]> {
-        if (!Streak.counts(mode)) {
-            return [];
-        }
-        const streaks = await Promise.all(owners.map(async owner => {
-            const history = await this.gameHistoryDao.getGameHistory(chatId, owner.userId);
-            const results: GameResult[] = history
-                .filter(entry => entry.id! <= owner.historyId && Streak.counts(entry.mode))
-                .map(entry => scoreResult(entry.score))
-                .filter((result): result is GameResult => result !== null);
-            return { owner, streak: Streak.ending(results) };
-        }));
-        return streaks
-            .filter(({ streak }) => streak?.isNotable())
-            .map(({ owner, streak }) => streak!.describe(owner.name));
-    }
-
-    private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string, streaks: string[] = []): Formatted {
+    private endOfGameText(names: string[], result: 'win' | 'loss' | 'tie', map?: string, mode?: string, score?: string, insights?: Formatted | null): Formatted {
         const emoji = result === 'win' ? '🏆' : result === 'loss' ? '☠️' : '🤝';
         const verb = result === 'win' ? 'won' : result === 'loss' ? 'lost' : 'tied';
         let details = '';
@@ -1032,8 +1016,8 @@ class SteamService {
         if (score) {
             details += `: ${this.formatScore(score)}`;
         }
-        const streakText = streaks.map(line => `\n${line}`).join('');
-        return fmt`${emoji} ${bold(this.formatNameList(names))} ${verb} a game${details}${streakText}`;
+        const announcement = fmt`${emoji} ${bold(this.formatNameList(names))} ${verb} a game${details}`;
+        return insights ? fmt`${announcement}\n${insights}` : announcement;
     }
 
     // Announce a finished match as a single per-match message that names every participating
@@ -1099,30 +1083,13 @@ class SteamService {
 
         // Participants: this player (+ their co-players) unioned with the chosen group's rows. For a
         // fresh announcement only this player's match contributes — never the earlier match's rows.
-        const namesByUser = new Map<number, string>();
-        namesByUser.set(match.user_id, playerName || String(match.user_id));
-        for (const co of match.co_players || []) {
-            if (!namesByUser.has(co.tg_user_id)) {
-                namesByUser.set(co.tg_user_id, co.name);
-            }
-        }
-        for (const row of target?.rows || []) {
-            if (!namesByUser.has(row.user_id)) {
-                namesByUser.set(row.user_id, row.player_name || String(row.user_id));
-            }
-            for (const co of row.co_players) {
-                if (!namesByUser.has(co.tg_user_id)) {
-                    namesByUser.set(co.tg_user_id, co.name);
-                }
-            }
-        }
+        const namesByUser = this.participantNames([
+            { user_id: match.user_id, player_name: playerName, co_players: match.co_players || [] },
+            ...(target?.rows || [])
+        ]);
         const names = Array.from(namesByUser.values());
-        const owners: AnnouncedOwner[] = [
-            { userId: match.user_id, historyId, name: playerName },
-            ...(target?.rows || []).map(row => this.announcedOwner(row))
-        ];
-        const streaks = await this.streakLines(chatId, match.mode, owners);
-        const text = this.endOfGameText(names, result, match.map, match.mode, match.score, streaks);
+        const insights = await this.matchInsightsText(chatId, match.mode, [{ id: historyId, user_id: match.user_id, leetify_match_id: null }, ...(target?.rows || [])], namesByUser);
+        const text = this.endOfGameText(names, result, match.map, match.mode, match.score, insights);
 
         if (target) {
             try {
@@ -1134,6 +1101,10 @@ class SteamService {
             }
             // Carry the id onto our own row so any later sibling lookup finds it.
             await this.gameHistoryDao.setGameHistoryMessageId(historyId, target.messageId);
+            const leetifyMatchId = target.rows.find(row => row.leetify_match_id)?.leetify_match_id;
+            if (leetifyMatchId) {
+                await this.gameHistoryDao.setLeetifyMatchId(chatId, target.messageId, leetifyMatchId);
+            }
             return;
         }
 
@@ -1141,6 +1112,91 @@ class SteamService {
         if (sent && sent.message_id) {
             await this.gameHistoryDao.setGameHistoryMessageId(historyId, sent.message_id);
         }
+    }
+
+    private participantNames(matches: Pick<SiblingMatch, 'user_id' | 'player_name' | 'co_players'>[]): Map<number, string> {
+        const names = new Map<number, string>();
+        const add = (userId: number, name: string): void => {
+            if (!names.has(userId)) {
+                names.set(userId, name);
+            }
+        };
+        matches.forEach(match => {
+            add(match.user_id, match.player_name || String(match.user_id));
+            match.co_players.forEach(co => add(co.tg_user_id, co.name));
+        });
+        return names;
+    }
+
+    private steamIdsOf(userId: number): string[] {
+        return Object.entries(this.steamToTelegram)
+            .filter(([, owner]) => owner === userId)
+            .map(([steamId]) => steamId);
+    }
+
+    // Each player's run over their recorded competitive and premier matches, as of their row in this match.
+    private async historyStreaks(chatId: number, mode: string | undefined, announced: AnnouncedRow[]): Promise<Map<number, Streak>> {
+        if (!Streak.counts(mode)) {
+            return new Map();
+        }
+        const streaks = await Promise.all(announced.map(async ({ id, user_id }): Promise<[number, Streak | null]> => {
+            const history: GameHistoryEntry[] = await this.gameHistoryDao.getGameHistory(chatId, user_id);
+            const results: GameResult[] = history
+                .filter(entry => entry.id! <= id && Streak.counts(entry.mode))
+                .map(entry => scoreResult(entry.score))
+                .filter((result): result is GameResult => result !== null);
+            return [user_id, Streak.ending(results)];
+        }));
+        return new Map(streaks.filter((streak): streak is [number, Streak] => streak[1] !== null));
+    }
+
+    // What follows an announcement's headline: Leetify's report on the match once it has it,
+    // until then the notable streaks of the players it names.
+    private async matchInsightsText(chatId: number, mode: string | undefined, announced: AnnouncedRow[], names: Map<number, string>): Promise<Formatted | null> {
+        const streaks: Map<number, Streak> = await this.historyStreaks(chatId, mode, announced);
+        const matchId = announced.find(match => match.leetify_match_id)?.leetify_match_id;
+        const participants: Participant[] = [...names].map(([userId, name]) => ({ name, steamIds: this.steamIdsOf(userId), streak: streaks.get(userId) }));
+        const report: Formatted | null = matchId
+            ? await this.matchInsights.report(matchId, participants).catch((err: Error) => {
+                console.error(`Could not load Leetify match ${matchId}:`, err);
+                return null;
+            })
+            : null;
+        const notable: string[] = participants
+            .filter(({ streak }) => streak?.isNotable())
+            .map(({ name, streak }) => streak!.describe(name));
+        return report ?? (notable.length > 0 ? asFormatted(notable.join('\n')) : null);
+    }
+
+    private async enrichAnnouncements(): Promise<void> {
+        const announcements: Announcement[] = await this.gameHistoryDao.getAnnouncementsWithoutLeetifyMatch(new Date(Date.now() - this.matchSearch.windowMs));
+        for (const announcement of announcements.filter(candidate => this.isLeetifySearchDue(candidate))) {
+            await this.withLock(`eog_${announcement.chat_id}`, () => this.enrichAnnouncement(announcement))
+                .catch(err => console.error(`Could not add Leetify stats to message ${announcement.message_id} in chat ${announcement.chat_id}:`, err));
+        }
+    }
+
+    private isLeetifySearchDue(announcement: Announcement): boolean {
+        return this.matchSearch.isDue(`${announcement.chat_id}:${announcement.message_id}`, announcement.ended_at);
+    }
+
+    private async enrichAnnouncement(announcement: Announcement): Promise<void> {
+        const { chat_id, message_id } = announcement;
+        const announced: AnnouncedMatch[] = await this.gameHistoryDao.getAnnouncedMatches(chat_id, message_id);
+        const latest: AnnouncedMatch | undefined = announced.at(-1);
+        const result = this.matchResult(latest?.score);
+        if (!latest || !result || announced.some(match => match.leetify_match_id) || !this.isLeetifySearchDue(announcement)) {
+            return;
+        }
+        const names = this.participantNames([latest, ...announced.slice(0, -1)]);
+        const steamIds: string[] = [...names.keys()].flatMap(userId => this.steamIdsOf(userId));
+        const found: LeetifyMatch | null = await this.matchSearch.attempt(`${chat_id}:${message_id}`, steamIds, { score: latest.score, endedAt: latest.ended_at });
+        if (!found) {
+            return;
+        }
+        await this.gameHistoryDao.setLeetifyMatchId(chat_id, message_id, found.id);
+        const insights = await this.matchInsightsText(chat_id, latest.mode, announced.map(match => ({ ...match, leetify_match_id: found.id })), names);
+        await editMirrored(this.bot, chat_id, message_id, this.endOfGameText([...names.values()], result, latest.map, latest.mode, latest.score, insights));
     }
 
     // Time-driven pass over every stream with unfinalised events: finalises trailing matches

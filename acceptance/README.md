@@ -14,6 +14,7 @@ out — with all external dependencies stubbed.
 | `mariadb`       | MariaDB backing the bot's DAO (application data) and the steam-user session (`STEAM_STORAGE_BACKEND=database`). |
 | `steam_mock`    | Drop-in fake `steam-user` (mounted over `node_modules/steam-user`) with an HTTP control channel to trigger Steam events. |
 | `github-mock`   | Fake GitHub REST API (the bot polls it via `GITHUB_API_BASE_URL`); tests push commits to drive the notification flow. |
+| `leetify-mock`  | Fake Leetify public API (`LEETIFY_API_BASE_URL`); tests put accounts and matches on it and read which accounts the bot looked up. |
 | `discord-mock`  | Fake Discord: the REST API subset the bot uses plus a gateway WebSocket that the real discord.js connects to (`DISCORD_API_BASE_URL`). Tests define servers/channels, speak as Discord users and read the bot's posts from an outbox. |
 | `behave`        | Runs the feature suite and asserts on the bot's behaviour.           |
 

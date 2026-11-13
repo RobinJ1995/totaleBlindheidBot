@@ -37,6 +37,16 @@ services:
       timeout: 3s
       retries: 20
 
+  leetify-mock:
+    build:
+      context: ./leetify_mock
+    stop_grace_period: 1s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/test/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   discord-mock:
     build:
       context: ./discord_mock
@@ -89,10 +99,15 @@ services:
       DISCORD_APPLICATION_ID: "990000000000000000"
       DISCORD_API_BASE_URL: http://discord-mock:8083/api
       DISCORD_CDN_BASE_URL: http://discord-mock:8083/cdn
+      LEETIFY_API_BASE_URL: http://leetify-mock:8085
+      # Ask Leetify for a finished match when it is announced, then twice more within seconds.
+      LEETIFY_POLL_SCHEDULE_MS: "1000,10000,16000"
     depends_on:
       telegram-mock:
         condition: service_healthy
       github-mock:
+        condition: service_healthy
+      leetify-mock:
         condition: service_healthy
       discord-mock:
         condition: service_healthy
@@ -114,6 +129,7 @@ services:
       STEAM_CONTROL_URL: http://bot:9100
       GITHUB_MOCK_URL: http://github-mock:8082
       DISCORD_MOCK_URL: http://discord-mock:8083
+      LEETIFY_MOCK_URL: http://leetify-mock:8085
       MARIADB_HOST: mariadb
       MARIADB_PORT: "3306"
       MARIADB_USER: root
@@ -125,6 +141,8 @@ services:
       github-mock:
         condition: service_healthy
       discord-mock:
+        condition: service_healthy
+      leetify-mock:
         condition: service_healthy
       bot:
         condition: service_healthy

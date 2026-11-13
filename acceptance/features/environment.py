@@ -42,6 +42,7 @@ def before_all(context: Context) -> None:
     _wait_for(f"{helpers.TELEGRAM_MOCK_URL}/test/health", name="telegram-mock")
     _wait_for(f"{helpers.STEAM_CONTROL_URL}/steam/health", name="steam control")
     _wait_for(f"{helpers.DISCORD_MOCK_URL}/test/health", name="discord-mock")
+    _wait_for(f"{helpers.LEETIFY_MOCK_URL}/test/health", name="leetify-mock")
     # The bot creates the schema on startup; wait for it, warm up, then reset app data.
     helpers.wait_for_db()
     _wait_for_bot_polling()
@@ -51,6 +52,7 @@ def before_all(context: Context) -> None:
 def before_scenario(context: Context, scenario: Scenario) -> None:
     helpers.reset_mock()
     helpers.discord_reset()
+    helpers.leetify_reset()
     # Sensible defaults; features override chat/user as needed.
     context.chat_id = 1001
     context.user = {"id": 5001, "first_name": "Tester", "username": "tester"}
