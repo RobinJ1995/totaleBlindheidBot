@@ -21,6 +21,7 @@ export default class LeetifyDirectory {
         }
         const matches: LeetifyMatch[] | null = await this.client.recentMatches(steamId);
         if (matches === null) {
+            console.log(`Steam ID ${steamId} is not on Leetify. Not asking about it again for ${UNREGISTERED_TTL_MS / 3_600_000}h.`);
             this.unregisteredUntil.set(steamId, this.now() + UNREGISTERED_TTL_MS);
         } else {
             this.unregisteredUntil.delete(steamId);

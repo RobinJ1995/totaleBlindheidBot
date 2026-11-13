@@ -33,6 +33,7 @@ export default class MatchSearch {
         this.attempts.set(key, { made: made + 1, endedAt: played.endedAt.getTime() });
         this.forgetExpired();
 
+        const attempt = `Leetify lookup ${made + 1}/${this.scheduleMs.length} for end-of-game message ${key}`;
         const turn: number = steamIds.length === 0 ? 0 : made % steamIds.length;
         for (const steamId of [...steamIds.slice(turn), ...steamIds.slice(0, turn)]) {
             const history: LeetifyMatch[] | null = await this.directory.recentMatches(steamId);
@@ -42,8 +43,15 @@ export default class MatchSearch {
             const [found] = history
                 .filter(match => match.isSameAs(played))
                 .sort((a, b) => a.endDistanceMs(played) - b.endDistanceMs(played));
-            return found ? this.directory.match(found.id) : null;
+            if (!found) {
+                const latest: string = history[0]?.finishedAt.toISOString() ?? 'never';
+                console.log(`${attempt}: none of the ${history.length} recent matches of Steam ID ${steamId} ended around ${played.endedAt.toISOString()} at ${played.score}. Its latest ended ${latest}.`);
+                return null;
+            }
+            console.log(`${attempt}: found match ${found.id} among the recent matches of Steam ID ${steamId}.`);
+            return this.directory.match(found.id);
         }
+        console.log(`${attempt}: none of the ${steamIds.length} Steam account(s) in the match is on Leetify.`);
         return null;
     }
 
