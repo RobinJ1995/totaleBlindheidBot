@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bold, dateTime, fmt, join, link, messageText } from '../format.js';
+import { bold, dateTime, fmt, join, link, messageText, pre } from '../format.js';
 
 test('fmt offsets entities by the UTF-16 length of what precedes them', () => {
     // 🟢 is a surrogate pair: two UTF-16 units, which is what Telegram counts.
@@ -41,5 +41,12 @@ test('dateTime carries the unix time and format of its moment', () => {
     assert.deepEqual(fmt`at ${dateTime('21:30 UTC', at, 'wt')}`, {
         text: 'at 21:30 UTC',
         entities: [{ type: 'date_time', offset: 3, length: 9, unix_time: 1793395859, date_time_format: 'wt' }]
+    });
+});
+
+test('pre marks a monospace block', () => {
+    assert.deepEqual(fmt`Scores\n${pre('K  D')}`, {
+        text: 'Scores\nK  D',
+        entities: [{ type: 'pre', offset: 7, length: 4 }]
     });
 });
