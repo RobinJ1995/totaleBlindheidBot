@@ -53,6 +53,34 @@ def step_steam_not_befriended(context: Context, steam_id: str) -> None:
         f"The bot befriended Steam account {steam_id}"
 
 
+@when('Steam stops answering the bot')
+def step_steam_silent(context: Context) -> None:
+    helpers.steam_silence()
+
+
+# Long enough for the bot to give a silent session up (STEAM_SILENCE_MS) and log on again
+# (STEAM_RECONNECT_MS).
+@when('the bot keeps asking Steam about its accounts')
+def step_steam_keeps_asking(context: Context) -> None:
+    log_ons: int = helpers.steam_log_ons()
+
+    def asked_and_logged_on_again() -> bool:
+        helpers.steam_request_personas()
+        return helpers.steam_log_ons() > log_ons
+
+    context.steam_logged_on_again = helpers.wait_until(asked_and_logged_on_again, timeout=8, interval=1)
+
+
+@then('the bot starts a new Steam session')
+def step_steam_new_session(context: Context) -> None:
+    assert context.steam_logged_on_again, "The bot never logged on to Steam again"
+
+
+@then('the bot keeps its Steam session')
+def step_steam_same_session(context: Context) -> None:
+    assert not context.steam_logged_on_again, "The bot logged on to Steam again"
+
+
 @when('Steam mappings are refreshed')
 def step_steam_refresh(context: Context) -> None:
     helpers.steam_refresh()

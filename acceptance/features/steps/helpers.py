@@ -434,6 +434,22 @@ def steam_refresh() -> None:
         raise AssertionError(f"The bot never started tracking Steam ids {sorted(linked)}")
 
 
+def steam_silence() -> None:
+    """Make Steam stop answering the bot's current session."""
+    requests.post(f"{STEAM_CONTROL_URL}/steam/silence", timeout=5).raise_for_status()
+
+
+def steam_log_ons() -> int:
+    resp = requests.get(f"{STEAM_CONTROL_URL}/steam/logons", timeout=5)
+    resp.raise_for_status()
+    return resp.json()["logOns"]
+
+
+def steam_request_personas() -> None:
+    """Have the bot ask Steam about the accounts it tracks, without waiting for anything."""
+    requests.post(f"{STEAM_CONTROL_URL}/steam/refresh", timeout=5).raise_for_status()
+
+
 def _steam_presence(steam_id: str) -> Optional[Tuple[Any, ...]]:
     rows = db_rows(
         "SELECT playing, map, raw_score FROM presence_event WHERE steam_id = %s ORDER BY id DESC LIMIT 1",

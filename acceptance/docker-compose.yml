@@ -91,6 +91,9 @@ services:
       TAGGED_MESSAGE_SWEEP_MS: "1000"
       # Fire due scheduled rollcalls without waiting half a minute.
       SCHEDULE_CHECK_MS: "1000"
+      # Give up on a Steam session that stopped answering, and log on again, within seconds.
+      STEAM_SILENCE_MS: "2000"
+      STEAM_RECONNECT_MS: "1000"
       GITHUB_API_BASE_URL: http://github-mock:8082
       GITHUB_REPO: acceptance/repo
       GITHUB_POLL_INTERVAL_MS: "1000"

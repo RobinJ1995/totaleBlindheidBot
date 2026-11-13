@@ -17,6 +17,7 @@ import LeetifyDirectory from './leetify/LeetifyDirectory.js';
 import LeetifyMatch from './leetify/LeetifyMatch.js';
 import MatchInsights, { Participant } from './leetify/MatchInsights.js';
 import MatchSearch from './leetify/MatchSearch.js';
+import SteamWatchdog from './SteamWatchdog.js';
 import {
     segmentStream, findCoPlayers, deriveRounds, continuesMatch, parseRawScore as parseRawScoreFn,
     DerivationConfig, MatchSegment, MatchState, PresenceEvent, RoundOutcome
@@ -67,6 +68,13 @@ const CO_PLAYER_STALE_MS = 15 * 60 * 1000;
 // widened by this slack: the session's first presence event precedes the message it triggers,
 // so a match observed only around that instant would otherwise fall just outside the window.
 const SESSION_OVERVIEW_SLACK_MS = 60 * 1000;
+
+// How long Steam may leave the persona requests of a logged-on session unanswered before the
+// session is replaced. Overridable for tests.
+const STEAM_SILENCE_MS = Number(process.env.STEAM_SILENCE_MS) || 3 * 60 * 1000;
+
+// How long after a failed or abandoned session the next logon is attempted. Overridable for tests.
+const STEAM_RECONNECT_MS = Number(process.env.STEAM_RECONNECT_MS) || 30 * 1000;
 
 const DERIVATION_CONFIG: DerivationConfig = {
     resetTolerance: RESET_TOLERANCE,
@@ -141,6 +149,7 @@ class SteamService {
     private lastPresence: Map<number, Presence | undefined> = new Map();
     private presenceListeners: ((tgUserId: number) => void)[] = [];
     private friendsListLoaded: boolean = false;
+    private watchdog: SteamWatchdog = new SteamWatchdog(STEAM_SILENCE_MS, () => this.replaceSilentSession());
     private adminUserId: string | undefined;
     private updateInterval: NodeJS.Timeout | null;
     private matchSweepInterval: NodeJS.Timeout | null;
@@ -220,6 +229,7 @@ class SteamService {
 
         this.client.on('loggedOn', () => {
             console.log(`Logged on to Steam as ${this.client.steamID?.getSteamID64()}`);
+            this.watchdog.heard();
             this.client.setPersona(SteamUser.EPersonaState.Online);
             this.updateUserMappings();
         });
@@ -275,6 +285,7 @@ class SteamService {
         });
 
         this.client.on('user', (sid: any, user: any) => {
+            this.watchdog.heard();
             // Not awaited (steam-user's emitter is synchronous); catch here so a transient
             // failure (e.g. a DB blip) can't become an unhandled rejection and kill the process.
             // One account's updates run in series: each builds on what the previous one stored.
@@ -294,7 +305,14 @@ class SteamService {
         }, MATCH_SWEEP_MS);
     }
 
-    private reconnect(delayMs = 30_000): void {
+    // Logging off does not make steam-user log on again by itself.
+    private replaceSilentSession(): void {
+        console.warn(`Steam has not answered for ${STEAM_SILENCE_MS / 1000}s while logged on. Replacing the session.`);
+        this.client.logOff();
+        this.reconnect();
+    }
+
+    private reconnect(delayMs = STEAM_RECONNECT_MS): void {
         if (this.reconnectTimer) {
             return;
         }
@@ -348,6 +366,7 @@ class SteamService {
             this.steamToTelegram = newMappings;
             console.log(`Updated user mappings. Tracking ${steamIds.length} Steam users: ${steamIds.join(', ')}`);
             if (steamIds.length > 0 && this.client.steamID) {
+                this.watchdog.asked();
                 this.client.getPersonas(steamIds);
             }
         } catch (err) {

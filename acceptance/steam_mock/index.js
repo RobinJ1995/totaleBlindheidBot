@@ -32,6 +32,11 @@ const refusing = new Set();
 
 const friendRequests = [];
 
+let logOns = 0;
+
+// A session Steam has stopped answering; the next logon starts a healthy one.
+let silent = false;
+
 class FakeSteamUser extends EventEmitter {
     constructor(options) {
         super();
@@ -50,6 +55,8 @@ class FakeSteamUser extends EventEmitter {
     logOn() {
         // Simulate a successful login on the next tick so listeners are wired up.
         setImmediate(() => {
+            logOns++;
+            silent = false;
             this.steamID = { getSteamID64: () => FAKE_STEAMID64 };
             this.emit('loggedOn');
             this.emit('friendsList');
@@ -62,10 +69,15 @@ class FakeSteamUser extends EventEmitter {
         }
     }
 
-    // Presence is driven via the control server; the requests only tell behave which accounts
-    // the bot tracks by now.
+    // Like Steam's: answers with what it knows of each account. The requests also tell behave
+    // which accounts the bot tracks by now.
     getPersonas(steamIds) {
-        personaRequests.push(steamIds.map(String));
+        const ids = steamIds.map(String);
+        personaRequests.push(ids);
+        if (silent) {
+            return;
+        }
+        setImmediate(() => ids.forEach(id => this.emit('user', { getSteamID64: () => id }, this.users[id] ?? {})));
     }
 
     // Like Steam's: asks a stranger, accepts someone who asked.
@@ -79,7 +91,9 @@ class FakeSteamUser extends EventEmitter {
         return Promise.resolve({ personaName: id });
     }
 
-    logOff() { /* no-op */ }
+    logOff() {
+        this.steamID = null;
+    }
 }
 
 FakeSteamUser.EPersonaState = {
@@ -136,6 +150,11 @@ const controlServer = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, requests: personaRequests });
     } else if (req.method === 'GET' && url === '/steam/nicknames') {
         sendJson(res, 200, { ok: true, nicknames });
+    } else if (req.method === 'GET' && url === '/steam/logons') {
+        sendJson(res, 200, { ok: true, logOns });
+    } else if (req.method === 'POST' && url === '/steam/silence') {
+        silent = true;
+        sendJson(res, 200, { ok: true });
     } else if (req.method === 'GET' && url === '/steam/friend-requests') {
         sendJson(res, 200, { ok: true, requests: friendRequests });
     } else if (req.method === 'POST' && url === '/steam/relationship') {
