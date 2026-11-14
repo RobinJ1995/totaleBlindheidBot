@@ -35,6 +35,16 @@ def step_steam_asks(context: Context, steam_id: str) -> None:
     helpers.steam_set_relationship(steam_id, "RequestRecipient")
 
 
+@when('Steam account "{steam_id}" becomes the bot\'s friend')
+def step_steam_friend(context: Context, steam_id: str) -> None:
+    helpers.steam_set_relationship(steam_id, "Friend")
+
+
+@when('Steam account "{steam_id}" unfriends the bot')
+def step_steam_unfriends(context: Context, steam_id: str) -> None:
+    helpers.steam_set_relationship(steam_id, "None")
+
+
 @when('the bot logs on to Steam again')
 def step_steam_logs_on(context: Context) -> None:
     helpers.steam_refresh()
