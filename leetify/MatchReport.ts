@@ -11,7 +11,7 @@ export default class MatchReport {
     constructor(private readonly players: ReportedPlayer[], private readonly lobby: PlayerStats[]) {}
 
     toFormatted(): Formatted {
-        return join([...new Highlights(this.players, this.lobby).lines(), ...this.scoreboard().map(row => code(row))], '\n');
+        return join([...new Highlights(this.players, this.lobby).lines(), ...this.scoreboard().map(code)], '\n');
     }
 
     private scoreboard(): string[] {

@@ -12,7 +12,7 @@ const lines = (players: ReturnType<typeof player>[], lobby: PlayerStats[] = []):
 
 // The players themselves plus enough unremarkable others to make a full server.
 const server = (...players: ReturnType<typeof player>[]): PlayerStats[] =>
-    [...players.map(({ stats }) => stats), ...['a', 'b', 'c', 'd'].map(id => playerStats(id))];
+    [...players.map(({ stats }) => stats), playerStats('a'), playerStats('b'), playerStats('c'), playerStats('d')];
 
 test('an unremarkable match has no highlights', () => {
     const kit = player('Kit');
