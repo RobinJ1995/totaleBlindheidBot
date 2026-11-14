@@ -237,8 +237,7 @@ class SteamService {
             const tgUserId: number | undefined = this.steamToTelegram[steamId];
             if (!tgUserId) {
                 return;
-            }
-            if (relationship === SteamUser.EFriendRelationship.RequestRecipient) {
+            } else if (relationship === SteamUser.EFriendRelationship.RequestRecipient) {
                 this.befriend([steamId]).catch(err => console.error(`Error accepting the Steam friend request of ${steamId}:`, err));
             }
             // steam-user only updates myFriends once this event has been emitted.
