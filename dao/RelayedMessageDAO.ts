@@ -18,6 +18,8 @@ export interface RelayedMessage extends MessageRef {
     origin_id: number | null;
     kind: CopyKind | 'origin';
     author: string | null;
+    // Who sent it, as `<platform>:<user id>`; unset for the bot's own messages.
+    author_ref?: string;
 }
 
 const fromRow = (row: RowDataPacket): RelayedMessage => ({
@@ -27,19 +29,20 @@ const fromRow = (row: RowDataPacket): RelayedMessage => ({
     chat_id: String(row.chat_id),
     message_id: String(row.message_id),
     kind: row.kind,
-    author: row.author
+    author: row.author,
+    author_ref: row.author_ref ?? undefined
 });
 
 class RelayedMessageDAO {
-    async record(origin: MessageRef, author: string, copies: (MessageRef & { kind: CopyKind })[]): Promise<void> {
+    async record(origin: MessageRef, author: string, copies: (MessageRef & { kind: CopyKind })[], author_ref?: string): Promise<void> {
         if (copies.length === 0) {
             return;
         }
         await withTransaction(async conn => {
             const [result] = await conn.query<ResultSetHeader>(
-                'INSERT INTO relayed_message (platform, chat_id, message_id, kind, author, created_at) ' +
-                'VALUES (:platform, :chat_id, :message_id, \'origin\', :author, NOW(3))',
-                { ...origin, author }
+                'INSERT INTO relayed_message (platform, chat_id, message_id, kind, author, author_ref, created_at) ' +
+                'VALUES (:platform, :chat_id, :message_id, \'origin\', :author, :author_ref, NOW(3))',
+                { ...origin, author, author_ref: author_ref ?? null }
             );
             await Promise.all(copies.map(copy => conn.query(
                 'INSERT INTO relayed_message (origin_id, platform, chat_id, message_id, kind, created_at) ' +

@@ -63,7 +63,8 @@ export const relayFromTelegram = async (bot: Bot, msg: TelegramMessage): Promise
             console.error(`Could not relay Telegram message ${msg.message_id} to Discord channel ${link.discord_channel_id}:`, err);
             return undefined;
         })));
-    await relayedDao.record(telegramRef(msg), author, copies.filter(isDefined));
+    const sender = msg.sender_chat ?? msg.from;
+    await relayedDao.record(telegramRef(msg), author, copies.filter(isDefined), sender && `telegram:${sender.id}`);
 };
 
 type Copy = MessageRef & { kind: CopyKind };
@@ -233,5 +234,6 @@ export const relayFromDiscord = async (bot: Bot, message: DiscordMessage, link: 
             console.error(`Could not relay Discord message ${message.id} to Discord channel ${other.discord_channel_id}:`, err);
             return undefined;
         })));
-    await relayedDao.record({ platform: 'discord', chat_id: message.channelId, message_id: message.id }, author, [...copies, ...discordCopies.filter(isDefined)]);
+    await relayedDao.record({ platform: 'discord', chat_id: message.channelId, message_id: message.id }, author, [...copies, ...discordCopies.filter(isDefined)],
+        `discord:${message.author.id}`);
 };

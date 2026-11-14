@@ -172,6 +172,15 @@ class UserDAO {
         return rows.length > 0 ? userFromRow(rows[0]) : undefined;
     }
 
+    async getUsersByTelegramIds(telegram_ids: number[]): Promise<Record<number, User>> {
+        const distinct = [...new Set(telegram_ids)];
+        if (distinct.length === 0) {
+            return {};
+        }
+        const rows = await query<RowDataPacket[]>(`SELECT ${USER_COLUMNS} FROM user WHERE telegram_id IN (?)`, [distinct]);
+        return Object.fromEntries(rows.map(userFromRow).map(user => [user.telegram_id, user]));
+    }
+
     async getUsersByDiscordIds(discord_ids: string[]): Promise<Record<string, User>> {
         const distinct = [...new Set(discord_ids)];
         if (distinct.length === 0) {

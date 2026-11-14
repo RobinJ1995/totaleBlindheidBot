@@ -230,6 +230,13 @@ const migrateRsvpMessagePlatform = async (conn: PoolConnection): Promise<void> =
     }
 };
 
+// One-off migration for relayed_message tables created before author_ref existed.
+const migrateRelayedAuthorRefColumn = async (conn: PoolConnection): Promise<void> => {
+    if (await tableExists(conn, 'relayed_message')) {
+        await conn.query('ALTER TABLE relayed_message ADD COLUMN IF NOT EXISTS author_ref VARCHAR(64) NULL AFTER author');
+    }
+};
+
 // Create any missing tables. Idempotent (every statement is CREATE TABLE IF NOT EXISTS, plus
 // guarded one-off migrations for shape changes the CREATE statements can't apply in place).
 export const ensureSchema = async (): Promise<void> => {
@@ -244,6 +251,7 @@ export const ensureSchema = async (): Promise<void> => {
         await migrateRsvpMessagePlatform(conn);
         await migratePresencePartyColumn(conn);
         await migrateLeetifyMatchIdColumn(conn);
+        await migrateRelayedAuthorRefColumn(conn);
         for (const statement of splitStatements(ddl)) {
             await conn.query(statement);
         }

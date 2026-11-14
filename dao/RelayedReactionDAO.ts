@@ -1,6 +1,12 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { query } from './Database.js';
 
+export interface RelayedReaction {
+    relayed_id: number;
+    user_ref: string;
+    emoji: string;
+}
+
 class RelayedReactionDAO {
     async add(relayed_id: number, user_ref: string, emoji: string[]): Promise<void> {
         await Promise.all(emoji.map(e => query<ResultSetHeader>(
@@ -18,15 +24,14 @@ class RelayedReactionDAO {
         }
     }
 
-    // The emoji people used on the other messages of a group, most used first.
-    async elsewhere(origin_id: number, relayed_id: number): Promise<string[]> {
+    // Every reaction on a message and its copies.
+    async ofGroup(origin_id: number): Promise<RelayedReaction[]> {
         const rows = await query<RowDataPacket[]>(
-            'SELECT r.emoji FROM relayed_reaction r JOIN relayed_message m ON m.id = r.relayed_id ' +
-            'WHERE (m.id = :origin_id OR m.origin_id = :origin_id) AND m.id <> :relayed_id ' +
-            'GROUP BY r.emoji ORDER BY COUNT(*) DESC, r.emoji',
-            { origin_id, relayed_id }
+            'SELECT r.relayed_id, r.user_ref, r.emoji FROM relayed_reaction r JOIN relayed_message m ON m.id = r.relayed_id ' +
+            'WHERE m.id = :origin_id OR m.origin_id = :origin_id',
+            { origin_id }
         );
-        return rows.map(row => String(row.emoji));
+        return rows.map(row => ({ relayed_id: Number(row.relayed_id), user_ref: String(row.user_ref), emoji: String(row.emoji) }));
     }
 }
 

@@ -27,7 +27,7 @@ Feature: mirroring reactions
     When user 8712 reacts to that message with "🔥"
     Then Discord channel "87011" sees the bot react with "🔥" to "clutch"
     When user 8713 reacts to that message with "🔥"
-    Then Discord channel "87011" sees the bot react with "🔥" to "clutch"
+    Then Discord channel "87011" sees no reaction changes from the bot
     When user 8712 takes back their reaction to that message
     Then Discord channel "87011" sees no reaction changes from the bot
     When user 8713 takes back their reaction to that message
@@ -83,7 +83,7 @@ Feature: mirroring reactions
     Then Discord channel "87011" receives "pistol round" from "Tester"
     When Discord user "alice" with id "870100000000000001" reacts with "🦀" to "pistol round" in channel "87011"
     Then Discord channel "87021" sees the bot react with "🦀" to "pistol round"
-    And the bot takes back its reaction to that message
+    And the bot does not react on Telegram
 
   Scenario: Discord custom emoji reactions are not mirrored
     When the user sends "boom"

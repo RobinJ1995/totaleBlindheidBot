@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS relayed_message (
     message_id VARCHAR(32)  NOT NULL,
     kind       ENUM('origin','text','caption','webhook','bot','extra') NOT NULL,
     author     VARCHAR(255) NULL,
+    author_ref VARCHAR(64)  NULL,
     created_at DATETIME(3)  NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_relayed_message (platform, chat_id, message_id),
