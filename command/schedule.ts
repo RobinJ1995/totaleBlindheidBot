@@ -80,7 +80,7 @@ export default (bot: Bot, cmd: Command): Promise<unknown> => {
 
                     // Like a rollcall, the schedule tags the whole rotation up front. The
                     // mention line is baked in here so it records who was pinged when scheduled.
-                    // Its 🟢/🟡/🔴/💔/😶‍🌫️ presence markers are kept up to date for a while and then
+                    // Its presence markers are kept up to date for a while and then
                     // stripped, so the stored base leaves them out.
                     const heading: Formatted = fmt`Rollcall scheduled for ${dateTime(timeString, scheduledTime, 'wt')} (${dateTime(relative, scheduledTime, 'r')})`;
                     const head: Formatted = tagged.length ? fmt`${heading}\n` : heading;

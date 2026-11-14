@@ -1268,7 +1268,6 @@ class SteamService {
         if (steamIds.length === 0) {
             return 'unlinked';
         }
-        // Steam only reports the presence of the bot's friends.
         const visible = this.friendsListLoaded
             ? steamIds.filter(sid => this.client.myFriends[sid] === SteamUser.EFriendRelationship.Friend)
             : steamIds;

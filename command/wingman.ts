@@ -21,7 +21,7 @@ const QUOTES: string[] = [
 export default (bot: Bot, cmd: Command): Promise<unknown> =>
     dao.getRollcallPlayerUsernames(cmd.chat_id)
         .then((players: string[]) => Promise.all([mentionUsers(players), presenceMarkers(players)]).then(([users, markers]) => {
-            // Prefix each tag with the player's 🟢/🟡/🔴/💔/😶‍🌫️ presence, kept up to date for a while
+            // Prefix each tag with the player's presence, kept up to date for a while
             // like rollcalls and schedules.
             const head: Formatted = asFormatted(`${pickRandom(QUOTES)}\n`);
             return broadcast(bot, cmd, withTags(head, players, users, markers), withDiscordTags(head, players, users, markers))
