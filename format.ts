@@ -41,7 +41,7 @@ const wrap = (content: Part, entity: Omit<MessageEntity, 'offset' | 'length'>): 
 
 export const bold = (content: Part): Formatted => wrap(content, { type: 'bold' });
 
-export const pre = (content: Part): Formatted => wrap(content, { type: 'pre' });
+export const code = (content: Part): Formatted => wrap(content, { type: 'code' });
 
 export const link = (content: Part, url: string): Formatted => wrap(content, { type: 'text_link', url });
 

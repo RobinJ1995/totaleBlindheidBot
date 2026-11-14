@@ -9,9 +9,21 @@ export interface PlayerStats {
     total_assists: number;
     // Average damage per round.
     dpr: number;
+    kd_ratio: number;
+    total_hs_kills: number;
+    mvps: number;
     multi4k: number;
     multi5k: number;
+    rounds_count: number;
+    rounds_survived: number;
     flashbang_hit_friend: number;
+    flash_assist: number;
+    shots_hit_friend: number;
+    he_friends_damage_avg: number;
+    // Dollars' worth of grenades held when dying.
+    utility_on_death_avg: number;
+    // Seconds.
+    reaction_time: number;
 }
 
 export interface MatchData {
@@ -67,6 +79,10 @@ export default class LeetifyMatch {
             && Math.abs(rounds - score.total) <= ROUND_TOLERANCE
             && time >= (played.startedAt ?? played.endedAt).getTime() - TIME_TOLERANCE_MS
             && time <= played.endedAt.getTime() + TIME_TOLERANCE_MS;
+    }
+
+    get players(): PlayerStats[] {
+        return this.data.stats;
     }
 
     statsOf(steamIds: string[]): PlayerStats | undefined {

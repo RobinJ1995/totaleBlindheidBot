@@ -24,11 +24,23 @@ def step_leetify_match(context: Context, source: str, match_id: str, minutes: in
     players: List[Dict[str, Any]] = []
     for row in context.table:
         cells = dict(zip(context.table.headings, row.cells))
+        kills: int = int(cells.get("kills", "10"))
+        deaths: int = int(cells.get("deaths", "10"))
         players.append({
             "steam64_id": cells["steam_id"],
             "initial_team_number": int(cells.get("team", "2")),
-            "total_kills": int(cells.get("kills", "10")),
-            "total_deaths": int(cells.get("deaths", "10")),
+            "total_kills": kills,
+            "total_deaths": deaths,
+            "kd_ratio": kills / deaths,
+            "total_hs_kills": 0,
+            "mvps": 0,
+            "rounds_count": 20,
+            "rounds_survived": 10,
+            "flash_assist": 0,
+            "shots_hit_friend": 0,
+            "he_friends_damage_avg": 0,
+            "utility_on_death_avg": 0,
+            "reaction_time": 0.5,
             "total_assists": int(cells.get("assists", "0")),
             "dpr": float(cells.get("adr", "70")),
             "multi5k": int(cells.get("aces", "0")),

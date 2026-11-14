@@ -7,9 +7,19 @@ export const playerStats = (steam64_id: string, overrides: Partial<PlayerStats> 
     total_deaths: 10,
     total_assists: 2,
     dpr: 70,
+    kd_ratio: 1,
+    total_hs_kills: 3,
+    mvps: 2,
     multi4k: 0,
     multi5k: 0,
+    rounds_count: 20,
+    rounds_survived: 10,
     flashbang_hit_friend: 0,
+    flash_assist: 0,
+    shots_hit_friend: 0,
+    he_friends_damage_avg: 0,
+    utility_on_death_avg: 100,
+    reaction_time: 0.5,
     ...overrides
 });
 

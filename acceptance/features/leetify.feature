@@ -1,7 +1,8 @@
 Feature: Leetify stats in end-of-game messages
   Once Leetify has a finished match, its announcement is edited to add a scoreboard of the
-  chat's players and a few highlights: aces and 4ks, flashing teammates eight times or more,
-  and runs of three or more premier or competitive wins or losses. A player who is not on
+  chat's players and the four most remarkable highlights, such as aces and 4ks, flashing
+  teammates eight times or more, a K/D of two or more, and runs of three or more premier or
+  competitive wins or losses. A player who is not on
   Leetify keeps the run from their recorded matches. Leetify is asked a few times per match,
   and accounts that are not on Leetify are not asked about again.
 
@@ -32,6 +33,7 @@ Feature: Leetify stats in end-of-game messages
       """
       🏆 Kit won a game on Inferno (Competitive): 1️⃣3️⃣-7️⃣
       💥 Kit: ace, 2 4ks
+      📈 Kit: 4.4 K/D
       😵 Kit flashed teammates 8 times
       🔥 Kit: 3 wins in a row
       Player       K   D   A ADR

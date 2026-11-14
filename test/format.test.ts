@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bold, dateTime, fmt, join, link, messageText, pre } from '../format.js';
+import { bold, code, dateTime, fmt, join, link, messageText } from '../format.js';
 
 test('fmt offsets entities by the UTF-16 length of what precedes them', () => {
     // 🟢 is a surrogate pair: two UTF-16 units, which is what Telegram counts.
@@ -44,9 +44,9 @@ test('dateTime carries the unix time and format of its moment', () => {
     });
 });
 
-test('pre marks a monospace block', () => {
-    assert.deepEqual(fmt`Scores\n${pre('K  D')}`, {
+test('code marks monospace text', () => {
+    assert.deepEqual(fmt`Scores\n${code('K  D')}`, {
         text: 'Scores\nK  D',
-        entities: [{ type: 'pre', offset: 7, length: 4 }]
+        entities: [{ type: 'code', offset: 7, length: 4 }]
     });
 });

@@ -3,7 +3,8 @@ import { Formatted } from '../format.js';
 import Streak from '../stats/Streak.js';
 import LeetifyDirectory from './LeetifyDirectory.js';
 import LeetifyMatch from './LeetifyMatch.js';
-import MatchReport, { ReportedPlayer } from './MatchReport.js';
+import { ReportedPlayer } from './Highlights.js';
+import MatchReport from './MatchReport.js';
 
 export interface Participant {
     name: string;
@@ -23,7 +24,7 @@ export default class MatchInsights {
             return stats ? { name, stats, streak: await this.streak(stats.steam64_id, match, streak ?? null) } : null;
         }));
         const reported: ReportedPlayer[] = players.filter((player): player is ReportedPlayer => player !== null);
-        return reported.length > 0 ? new MatchReport(reported).toFormatted() : null;
+        return reported.length > 0 ? new MatchReport(reported, match.players).toFormatted() : null;
     }
 
     // The player's run of ranked matches as of `match`, or `fallback` when Leetify does not have their matches.
