@@ -37,6 +37,7 @@ import steamGuardHandler from './command/steam_guard.js';
 import setSteamNicknameHandler from './command/set_steam_nickname.js';
 import gameHistoryHandler from './command/game_history.js';
 import statsHandler from './command/stats.js';
+import onlineHandler from './command/online.js';
 import githubNotifyHandler from './command/github_notify.js';
 import linkChatHandler from './command/link_chat.js';
 import unlinkChatHandler from './command/unlink_chat.js';
@@ -291,6 +292,10 @@ if (steamEnabled) {
     router.route('stats', statsHandler, {
         helpText: 'Show competitive CS2 stats for this chat: win rate, streaks, maps. Add a player name or mention to see theirs.',
         discord: { argument: { name: 'player', description: 'A player name, @username or discord:username. Leave empty for yourself.' } }
+    });
+    router.route('online', onlineHandler, {
+        helpText: 'Show who in this chat is playing CS2 or online on Steam.',
+        discord: {}
     });
     router.route('delete_match_record', deleteMatchRecordHandler, {
         helpText: 'Admin only: delete a mis-recorded match from a player\'s game history.'
