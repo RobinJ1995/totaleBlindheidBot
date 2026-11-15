@@ -56,6 +56,17 @@ export interface AnnouncedMatch extends SiblingMatch {
     ended_at: Date;
 }
 
+// A chat's finished match as one player recorded it; players announced together share message_id.
+export interface ChatMatch {
+    id: number;
+    message_id: number | null;
+    mode?: string;
+    map?: string;
+    score?: string;
+    started_at?: Date;
+    ended_at: Date;
+}
+
 export interface Announcement {
     chat_id: number;
     message_id: number;
@@ -133,6 +144,23 @@ class GameHistoryDAO {
             mode: row.mode ?? undefined,
             map: row.map ?? undefined,
             score: row.score ?? undefined
+        }));
+    }
+
+    async getChatMatchesSince(chat_id: number, since: Date): Promise<ChatMatch[]> {
+        const rows = await query<RowDataPacket[]>(
+            'SELECT id, message_id, mode, map, score, started_at, ended_at FROM game_history ' +
+            'WHERE chat_id = :chat_id AND ended_at >= :since ORDER BY id ASC',
+            { chat_id, since }
+        );
+        return rows.map(row => ({
+            id: Number(row.id),
+            message_id: row.message_id == null ? null : Number(row.message_id),
+            mode: row.mode ?? undefined,
+            map: row.map ?? undefined,
+            score: row.score ?? undefined,
+            started_at: row.started_at ?? undefined,
+            ended_at: row.ended_at
         }));
     }
 
