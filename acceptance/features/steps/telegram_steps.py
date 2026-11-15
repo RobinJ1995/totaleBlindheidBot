@@ -462,6 +462,15 @@ def step_user_rolls_dice(context: Context, emoji: str, value: str) -> None:
     _send_media(context, {"dice": {"emoji": emoji, "value": int(value)}})
 
 
+@when('the user sends a poll "(?P<question>[^"]*)" with options "(?P<options>[^"]*)"')
+def step_user_sends_poll(context: Context, question: str, options: str) -> None:
+    _send_media(context, {"poll": {
+        "id": f"poll-{context.chat_id}", "question": question,
+        "options": [{"text": option.strip(), "voter_count": 0} for option in options.split(",")],
+        "total_voter_count": 0, "is_closed": False, "is_anonymous": True, "type": "regular", "allows_multiple_answers": False,
+    }})
+
+
 @then('the bot sends an? (?P<kind>photo|video|animation|document) "(?P<name>[^"]*)" with caption "(?P<caption>[^"]*)"')
 def step_bot_sends_media(context: Context, kind: str, name: str, caption: str) -> None:
     method: str = {"photo": "sendPhoto", "video": "sendVideo", "animation": "sendAnimation", "document": "sendDocument"}[kind]
