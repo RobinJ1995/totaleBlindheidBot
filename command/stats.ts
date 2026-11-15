@@ -5,44 +5,9 @@ import { formatError } from '../utils.js';
 import { bold, fmt, Formatted, join } from '../format.js';
 import { GameResult, parseScore, scoreResult } from './game_history.js';
 import { resolvePlayerTarget } from './playerArg.js';
+import { isCompetitive, Ratio, Tally, TallyGroups } from '../stats/Tally.js';
 
 const dao = new GameHistoryDAO();
-
-// The mode string comes from Steam rich presence (or its raw status fallback), so Premier can
-// surface as "premier" or "Premier - Competitive" depending on client/localisation.
-const isCompetitive = (mode?: string): boolean =>
-    !!mode && /competitive|premier/i.test(mode);
-
-interface Tally {
-    games: number;
-    wins: number;
-    losses: number;
-    ties: number;
-}
-
-const emptyTally = (): Tally => ({ games: 0, wins: 0, losses: 0, ties: 0 });
-
-const addResult = (tally: Tally, result: GameResult | null): void => {
-    tally.games += 1;
-    if (result === 'win') {
-        tally.wins += 1;
-    } else if (result === 'loss') {
-        tally.losses += 1;
-    } else if (result === 'tie') {
-        tally.ties += 1;
-    }
-};
-
-const percent = (part: number, whole: number): string =>
-    whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
-
-// A compact 10-cell bar for a 0-100% ratio, e.g. "██████░░░░ 60%". Renders inside the
-// monospace block so the filled/empty cells line up.
-const bar = (part: number, whole: number): string => {
-    const ratio = whole === 0 ? 0 : part / whole;
-    const filled = Math.round(ratio * 10);
-    return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)} ${percent(part, whole)}`;
-};
 
 const formatDuration = (ms: number): string => {
     const minutes = Math.round(ms / 60000);
@@ -54,29 +19,14 @@ const formatDuration = (ms: number): string => {
     return `${h}h ${m}m`;
 };
 
-// The map with the highest `metric(tally)` share of its games, ties broken by games played.
-const pickMap = (byMap: Map<string, Tally>, metric: (t: Tally) => number): [string, Tally] | null => {
-    let best: [string, Tally] | null = null;
-    for (const [map, t] of byMap.entries()) {
-        if (t.games === 0) {
-            continue;
-        } else if (!best
-            || metric(t) / t.games > metric(best[1]) / best[1].games
-            || (metric(t) / t.games === metric(best[1]) / best[1].games && t.games > best[1].games)) {
-            best = [map, t];
-        }
-    }
-    return best && metric(best[1]) > 0 ? best : null;
-};
-
 export const renderStats = (entries: GameHistoryEntry[]): Formatted | null => {
     const competitive = entries.filter(e => isCompetitive(e.mode));
     if (competitive.length === 0) {
         return null;
     }
 
-    const total = emptyTally();
-    const byMap = new Map<string, Tally>();
+    const total = competitive.reduce((tally, entry) => tally.add(scoreResult(entry.score)), Tally.EMPTY);
+    const byMap = TallyGroups.of(competitive, entry => entry.map);
     let roundsWon = 0;
     let roundsLost = 0;
     let playtimeMs = 0;
@@ -89,15 +39,6 @@ export const renderStats = (entries: GameHistoryEntry[]): Formatted | null => {
     // Entries come back chronologically (oldest first), which the streaks rely on.
     for (const entry of competitive) {
         const result = scoreResult(entry.score);
-        addResult(total, result);
-        if (entry.map) {
-            let tally = byMap.get(entry.map);
-            if (!tally) {
-                tally = emptyTally();
-                byMap.set(entry.map, tally);
-            }
-            addResult(tally, result);
-        }
 
         const parsed = parseScore(entry.score);
         if (parsed) {
@@ -122,17 +63,17 @@ export const renderStats = (entries: GameHistoryEntry[]): Formatted | null => {
         }
     }
 
-    const decisive = total.wins + total.losses + total.ties;
+    const decisive = total.decisive;
 
     // Grouped into sections so the reply reads top-to-bottom: the headline record, then how
     // those results clustered, then per-map breakdown. Each section only appears if it has rows.
     const overview: [string, string][] = [];
     overview.push(['Competitive games', `${total.games} (${total.wins} won, ${total.losses} lost, ${total.ties} tied)`]);
     if (decisive > 0) {
-        overview.push(['Win rate', bar(total.wins, decisive)]);
+        overview.push(['Win rate', new Ratio(total.wins, decisive).bar()]);
     }
     if (roundsWon + roundsLost > 0) {
-        overview.push(['Rounds', `${roundsWon}-${roundsLost}  (${percent(roundsWon, roundsWon + roundsLost)})`]);
+        overview.push(['Rounds', `${roundsWon}-${roundsLost}  (${new Ratio(roundsWon, roundsWon + roundsLost).percent()})`]);
     }
     if (playtimeMs > 0) {
         overview.push(['Playtime', formatDuration(playtimeMs)]);
@@ -151,22 +92,17 @@ export const renderStats = (entries: GameHistoryEntry[]): Formatted | null => {
     }
 
     const maps: [string, string][] = [];
-    let favourite: [string, Tally] | null = null;
-    for (const [map, t] of byMap.entries()) {
-        if (!favourite || t.games > favourite[1].games) {
-            favourite = [map, t];
-        }
-    }
+    const favourite = byMap.mostPlayed();
     if (favourite) {
         maps.push(['Favourite map', `${favourite[0]} (${favourite[1].games} games)`]);
     }
-    const bestMap = pickMap(byMap, t => t.wins);
+    const bestMap = byMap.pick(t => t.wins);
     if (bestMap) {
-        maps.push(['Best map', `${bestMap[0]} (${percent(bestMap[1].wins, bestMap[1].games)} won)`]);
+        maps.push(['Best map', `${bestMap[0]} (${new Ratio(bestMap[1].wins, bestMap[1].games).percent()} won)`]);
     }
-    const worstMap = pickMap(byMap, t => t.losses);
+    const worstMap = byMap.pick(t => t.losses);
     if (worstMap) {
-        maps.push(['Worst map', `${worstMap[0]} (${percent(worstMap[1].losses, worstMap[1].games)} lost)`]);
+        maps.push(['Worst map', `${worstMap[0]} (${new Ratio(worstMap[1].losses, worstMap[1].games).percent()} lost)`]);
     }
 
     const sections: [string, [string, string][]][] = [
