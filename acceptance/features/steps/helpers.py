@@ -647,3 +647,35 @@ def leetify_lookups(steam_id: str) -> int:
     resp = requests.get(f"{LEETIFY_MOCK_URL}/test/lookups", timeout=5)
     resp.raise_for_status()
     return resp.json()["lookups"].count(steam_id)
+
+
+def seed_match(
+    chat_id: int, telegram_id: int, name: str, mode: str, map_name: str, score: str,
+    co_telegram_ids: List[int], days_ago: int,
+) -> None:
+    """Record a finished match straight into the game history, as if it had been played."""
+    def user_id(cur: Any, tg_id: int) -> int:
+        cur.execute(
+            "INSERT IGNORE INTO user (telegram_id, name, username) VALUES (%s, %s, %s)",
+            (tg_id, f"User{tg_id}", f"user{tg_id}"),
+        )
+        cur.execute("SELECT id FROM user WHERE telegram_id = %s", (tg_id,))
+        return int(cur.fetchone()[0])
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            owner = user_id(cur, telegram_id)
+            cur.execute(
+                "INSERT INTO game_history (chat_id, user_id, player_name, mode, map, score, ended_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(3) - INTERVAL %s DAY)",
+                (chat_id, owner, name, mode, map_name, score, days_ago),
+            )
+            history_id = cur.lastrowid
+            for co_tg_id in co_telegram_ids:
+                cur.execute(
+                    "INSERT INTO game_history_coplayer (game_history_id, co_user_id, name) VALUES (%s, %s, %s)",
+                    (history_id, user_id(cur, co_tg_id), f"User{co_tg_id}"),
+                )
+    finally:
+        conn.close()
