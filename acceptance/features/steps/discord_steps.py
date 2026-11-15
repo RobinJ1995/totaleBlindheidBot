@@ -398,15 +398,26 @@ def step_schedule_due(context: Context) -> None:
 
 import base64
 
+DISCORD_VOICE_MESSAGE_FLAG: int = 1 << 13
 
-@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends (?P<kind>an image|a gif|a video|a file) "(?P<filename>[^"]*)" saying "(?P<text>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends (?P<kind>an image|a gif|a video|an audio file|a file) "(?P<filename>[^"]*)" saying "(?P<text>[^"]*)" in channel "(?P<channel_id>\\d+)"')
 def step_discord_sends_file(context: Context, username: str, name: str, user_id: str, kind: str, filename: str, text: str, channel_id: str) -> None:
-    content_type: str = {"an image": "image/png", "a gif": "image/gif", "a video": "video/mp4", "a file": "application/pdf"}[kind]
+    content_type: str = {"an image": "image/png", "a gif": "image/gif", "a video": "video/mp4", "an audio file": "audio/mpeg", "a file": "application/pdf"}[kind]
     attachment: Dict[str, Any] = {
         "filename": filename, "content_type": content_type,
         "data_base64": base64.b64encode(b"bytes-of-" + filename.encode()).decode(),
     }
     _inject(context, channel_id, text, _author(username, name, user_id), attachments=[attachment])
+
+
+@when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends a voice message "(?P<filename>[^"]*)" in channel "(?P<channel_id>\\d+)"')
+def step_discord_sends_voice(context: Context, username: str, name: str, user_id: str, filename: str, channel_id: str) -> None:
+    attachment: Dict[str, Any] = {
+        "filename": filename, "content_type": "audio/ogg",
+        "data_base64": base64.b64encode(b"OggS-" + filename.encode()).decode(),
+    }
+    _inject(context, channel_id, "", _author(username, name, user_id), attachments=[attachment], flags=DISCORD_VOICE_MESSAGE_FLAG)
 
 
 @when('Discord user "(?P<username>[^"]*)" named "(?P<name>[^"]*)" with id "(?P<user_id>\\d+)" sends a sticker "(?P<sticker>[^"]*)" in (?P<fmt>PNG|GIF|Lottie) format in channel "(?P<channel_id>\\d+)"')

@@ -1,5 +1,5 @@
 import { Bot, InputFile, Message as TelegramMessage, MessageEntity } from 'node-telegram-bot-api';
-import { Attachment, Message as DiscordMessage, Sticker, StickerFormatType } from 'discord.js';
+import { Attachment, Message as DiscordMessage, MessageFlags, Sticker, StickerFormatType } from 'discord.js';
 import { Formatted } from './format.js';
 
 export interface RelayFile {
@@ -50,9 +50,9 @@ export const telegramMedia = (msg: TelegramMessage): TelegramMedia | undefined =
         }
         return file(msg.sticker.file_id, msg.sticker.is_video ? 'sticker.webm' : 'sticker.webp', msg.sticker.file_size);
     } else if (msg.voice) {
-        return { placeholder: '[voice message]', caption };
+        return file(msg.voice.file_id, 'voice.ogg', msg.voice.file_size);
     } else if (msg.video_note) {
-        return { placeholder: '[video message]', caption };
+        return file(msg.video_note.file_id, 'video.mp4', msg.video_note.file_size);
     } else if (msg.poll) {
         return { placeholder: `[poll: ${msg.poll.question}]`, caption };
     } else if (msg.venue) {
@@ -88,7 +88,7 @@ export const downloadUrl = async (url: string, name: string, contentType?: strin
     return { name, data: Buffer.from(await response.arrayBuffer()), contentType: contentType ?? response.headers.get('content-type') ?? undefined };
 };
 
-export type TelegramSendKind = 'photo' | 'video' | 'animation' | 'document';
+export type TelegramSendKind = 'photo' | 'video' | 'animation' | 'voice' | 'audio' | 'document';
 
 export interface DiscordMedia {
     name: string;
@@ -98,14 +98,18 @@ export interface DiscordMedia {
     kind: TelegramSendKind;
 }
 
-export const classifyAttachment = (name: string, size: number, contentType: string | null | undefined): TelegramSendKind => {
+export const classifyAttachment = (name: string, size: number, contentType: string | null | undefined, voice: boolean = false): TelegramSendKind => {
     const type: string = contentType ?? '';
-    if (type === 'image/gif' || name.toLowerCase().endsWith('.gif')) {
+    if (voice || type === 'audio/ogg') {
+        return 'voice';
+    } else if (type === 'image/gif' || name.toLowerCase().endsWith('.gif')) {
         return 'animation';
     } else if (type.startsWith('image/')) {
         return size <= TELEGRAM_PHOTO_LIMIT ? 'photo' : 'document';
     } else if (type.startsWith('video/')) {
         return 'video';
+    } else if (type.startsWith('audio/')) {
+        return 'audio';
     }
     return 'document';
 };
@@ -113,6 +117,7 @@ export const classifyAttachment = (name: string, size: number, contentType: stri
 export const discordMedia = (message: DiscordMessage): { files: DiscordMedia[]; placeholders: string[] } => {
     const files: DiscordMedia[] = [];
     const placeholders: string[] = [];
+    const voice: boolean = message.flags.has(MessageFlags.IsVoiceMessage);
     message.attachments.forEach((attachment: Attachment) => {
         if (attachment.size > TELEGRAM_UPLOAD_LIMIT) {
             placeholders.push(`${tooBig(attachment.name, attachment.size)} ${attachment.url}`);
@@ -122,7 +127,7 @@ export const discordMedia = (message: DiscordMessage): { files: DiscordMedia[]; 
                 url: attachment.url,
                 size: attachment.size,
                 contentType: attachment.contentType ?? undefined,
-                kind: classifyAttachment(attachment.name, attachment.size, attachment.contentType)
+                kind: classifyAttachment(attachment.name, attachment.size, attachment.contentType, voice)
             });
         }
     });
@@ -152,6 +157,10 @@ export const sendTelegramFile = async (bot: Bot, chat_id: number, kind: Telegram
             return (await bot.api.sendVideo({ chat_id, video: input, ...text })).message_id;
         case 'animation':
             return (await bot.api.sendAnimation({ chat_id, animation: input, ...text })).message_id;
+        case 'voice':
+            return (await bot.api.sendVoice({ chat_id, voice: input, ...text })).message_id;
+        case 'audio':
+            return (await bot.api.sendAudio({ chat_id, audio: input, ...text })).message_id;
         default:
             return (await bot.api.sendDocument({ chat_id, document: input, ...text })).message_id;
     }

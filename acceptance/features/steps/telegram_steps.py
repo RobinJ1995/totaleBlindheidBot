@@ -462,9 +462,26 @@ def step_user_rolls_dice(context: Context, emoji: str, value: str) -> None:
     _send_media(context, {"dice": {"emoji": emoji, "value": int(value)}})
 
 
-@then('the bot sends an? (?P<kind>photo|video|animation|document) "(?P<name>[^"]*)" with caption "(?P<caption>[^"]*)"')
+@when('the user sends a (?P<mb>\\d+) MB voice message')
+def step_user_sends_big_voice(context: Context, mb: str) -> None:
+    file_id: str = _file_id(context, "big-voice.ogg")
+    helpers.register_file(file_id, None)
+    _send_media(context, {"voice": {"file_id": file_id, "file_unique_id": "u8", "duration": 600, "file_size": int(mb) * 1024 * 1024}})
+
+
+@when('the user sends a video note')
+def step_user_sends_video_note(context: Context) -> None:
+    file_id: str = _file_id(context, "video-note.mp4")
+    helpers.register_file(file_id, b"mp4-video-note-bytes", "video/mp4")
+    _send_media(context, {"video_note": {"file_id": file_id, "file_unique_id": "u9", "length": 240, "duration": 3, "file_size": 20}})
+
+
+@then('the bot sends an? (?P<kind>photo|video|animation|document|voice|audio) "(?P<name>[^"]*)" with caption "(?P<caption>[^"]*)"')
 def step_bot_sends_media(context: Context, kind: str, name: str, caption: str) -> None:
-    method: str = {"photo": "sendPhoto", "video": "sendVideo", "animation": "sendAnimation", "document": "sendDocument"}[kind]
+    method: str = {
+        "photo": "sendPhoto", "video": "sendVideo", "animation": "sendAnimation", "document": "sendDocument",
+        "voice": "sendVoice", "audio": "sendAudio",
+    }[kind]
     new: List[Dict[str, Any]] = _new_messages(context)
     hits = [m for m in new if m["method"] == method and m.get("file", {}).get("filename") == name and m["text"] == caption]
     assert hits, f"Expected a {method} of {name!r} with caption {caption!r}, got {[(m['method'], m.get('file'), m['text']) for m in new]}"

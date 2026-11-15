@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Message } from 'node-telegram-bot-api';
-import { classifyAttachment, telegramMedia, TELEGRAM_PHOTO_LIMIT } from '../media.js';
+import { Collection, Message as DiscordMessage, MessageFlags, MessageFlagsBitField } from 'discord.js';
+import { classifyAttachment, discordMedia, telegramMedia, TELEGRAM_PHOTO_LIMIT } from '../media.js';
 
 const message = (fields: Partial<Message>): Message => ({
     message_id: 1, date: 0, chat: { id: 1, type: 'group' }, ...fields
@@ -32,9 +33,11 @@ test('stickers: static and video travel, animated become their emoji', () => {
     assert.equal(telegramMedia(message({ sticker: sticker({ is_animated: true, emoji: '😀' }) }))?.placeholder, '😀 (animated sticker)');
 });
 
-test('voice and video notes are only noted', () => {
-    assert.equal(telegramMedia(message({ voice: { file_id: 'v', file_unique_id: 'x', duration: 1 } }))?.placeholder, '[voice message]');
-    assert.equal(telegramMedia(message({ video_note: { file_id: 'v', file_unique_id: 'x', duration: 1, length: 1 } }))?.placeholder, '[video message]');
+test('voice and video notes travel as files', () => {
+    assert.deepEqual(telegramMedia(message({ voice: { file_id: 'v', file_unique_id: 'x', duration: 1, file_size: 5 } }))?.file,
+        { file_id: 'v', name: 'voice.ogg', size: 5 });
+    assert.deepEqual(telegramMedia(message({ video_note: { file_id: 'n', file_unique_id: 'x', duration: 1, length: 1 } }))?.file,
+        { file_id: 'n', name: 'video.mp4', size: undefined });
     assert.equal(telegramMedia(message({ text: 'plain' })), undefined);
 });
 
@@ -57,6 +60,12 @@ test('dice become their emoji and value', () => {
     assert.equal(telegramMedia(message({ dice: { emoji: '🏀', value: 5 } }))?.placeholder, '🏀 5');
 });
 
+test('voice and video notes too big to download become placeholders', () => {
+    const size = 21 * 1024 * 1024;
+    assert.equal(telegramMedia(message({ voice: { file_id: 'v', file_unique_id: 'x', duration: 1, file_size: size } }))?.placeholder, '[voice.ogg, 21 MB]');
+    assert.equal(telegramMedia(message({ video_note: { file_id: 'n', file_unique_id: 'x', duration: 1, length: 1, file_size: size } }))?.placeholder, '[video.mp4, 21 MB]');
+});
+
 test('Discord attachments are sent with the Telegram method that shows them best', () => {
     assert.equal(classifyAttachment('a.gif', 10, 'image/gif'), 'animation');
     assert.equal(classifyAttachment('a.GIF', 10, null), 'animation');
@@ -64,4 +73,21 @@ test('Discord attachments are sent with the Telegram method that shows them best
     assert.equal(classifyAttachment('a.png', TELEGRAM_PHOTO_LIMIT + 1, 'image/png'), 'document');
     assert.equal(classifyAttachment('a.mp4', 10, 'video/mp4'), 'video');
     assert.equal(classifyAttachment('a.pdf', 10, 'application/pdf'), 'document');
+});
+
+test('Discord voice messages are sent as Telegram voice, other audio as audio', () => {
+    assert.equal(classifyAttachment('voice-message.ogg', 10, 'audio/ogg', true), 'voice');
+    assert.equal(classifyAttachment('clip.ogg', 10, 'audio/ogg'), 'voice');
+    assert.equal(classifyAttachment('voice-message.mp3', 10, 'audio/mpeg', true), 'voice');
+    assert.equal(classifyAttachment('song.mp3', 10, 'audio/mpeg'), 'audio');
+});
+
+test('an attachment on a Discord voice message is sent as voice whatever its type', () => {
+    const discordMessage = (flags: number): DiscordMessage => ({
+        flags: new MessageFlagsBitField(flags),
+        attachments: new Collection([['a', { name: 'voice-message.mp3', url: 'u', size: 10, contentType: 'audio/mpeg' }]]),
+        stickers: new Collection()
+    } as unknown as DiscordMessage);
+    assert.equal(discordMedia(discordMessage(MessageFlags.IsVoiceMessage)).files[0].kind, 'voice');
+    assert.equal(discordMedia(discordMessage(0)).files[0].kind, 'audio');
 });

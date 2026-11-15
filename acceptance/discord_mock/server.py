@@ -774,6 +774,7 @@ def inject_message() -> Response:
             webhook_id=body.get("webhook_id"), member=member, attachments=attachments
         )
         message["mentions"] = body.get("mentions", [])
+        message["flags"] = body.get("flags", 0)
         if body.get("reply_to"):
             message["type"] = 19
             message["message_reference"] = {"type": 0, "message_id": body["reply_to"], "channel_id": body["channel_id"], "guild_id": guild["id"]}

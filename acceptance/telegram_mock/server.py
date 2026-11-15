@@ -171,10 +171,10 @@ def bot_api(token: str, method: str) -> Response:
             "date": 0,
             "chat": {"id": _maybe_int(chat_id), "type": "group"},
         }})
-    elif method in ("sendPhoto", "sendVideo", "sendAnimation", "sendDocument", "sendAudio"):
+    elif method in ("sendPhoto", "sendVideo", "sendAnimation", "sendDocument", "sendAudio", "sendVoice"):
         field = {
             "sendPhoto": "photo", "sendVideo": "video", "sendAnimation": "animation",
-            "sendDocument": "document", "sendAudio": "audio",
+            "sendDocument": "document", "sendAudio": "audio", "sendVoice": "voice",
         }[method]
         storage = request.files.get(field)
         with _lock:
